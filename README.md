@@ -39,28 +39,71 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Scripts
 
-| Command               | Purpose                                    |
-| --------------------- | ------------------------------------------ |
-| `npm run db:check`    | Verify TCP + authenticated DB connectivity |
-| `npm run verify`      | format + lint + typecheck + test           |
-| `npm run test`        | Run all workspace test suites              |
-| `npm run db:generate` | Regenerate the Prisma client               |
-| `npm run db:push`     | Apply schema changes to the database       |
-| `npm run seed`        | Provision default roles + super admin      |
+| Command                | Purpose                                    |
+| ---------------------- | ------------------------------------------ |
+| `npm run db:check`     | Verify TCP + authenticated DB connectivity |
+| `npm run verify`       | format + lint + typecheck + test           |
+| `npm run test`         | Run all workspace test suites              |
+| `npm run db:generate`  | Regenerate the Prisma client               |
+| `npm run db:push`      | Apply schema changes to the database       |
+| `npm run seed`         | Provision default roles + super admin      |
+| `npm run smoke:phase2` | HTTP smoke test against a running API      |
+
+## Running the stack
+
+Two terminals:
+
+```bash
+# API on http://localhost:4000
+npm run dev --workspace server
+
+# Web client on http://localhost:3000
+npm run dev --workspace client
+```
+
+The client proxies `/api/*` to the API via `next.config.mjs`, so the session cookie stays
+first-party and the browser makes same-origin requests.
+
+With the API running, `npm run smoke:phase2` asserts both published pricing vectors (227.61 ZAR/hr
+and 17.5226 ZAR/m) end-to-end over HTTP, together with the 401 paths and the cookie security
+attributes.
+
+## Design notes worth knowing
+
+**Pricing.** The arithmetic lives in `shared/src/pricing/` as pure functions used by _both_ the API
+and the browser, so the inline build-up preview is produced by the same code that persists the
+figure. See [ADR-002](docs/adr-002-pricing-engine.md) for the full rationale.
+
+- `overhead_cost` / `sga_cost` on a rate card are **authoritative**. They are seeded from the
+  amendment's cost parameters only when a rate card is created and are not recomputed afterwards.
+  Recomputing them from the 7% / 15% parameters yields 226.72, not the published 227.61.
+- Recomputing a service code **never** overwrites a stored rate that disagrees. The variance is
+  returned, and accepting it is a separate explicit action.
+- Percentages are **fractions** in the engine (0.07 = 7%). The baseline database is inconsistent
+  here: `contract_cost_parameters.numeric_value` holds percent numbers while `*_pct` columns hold
+  fractions. `readCostParameters` normalises on read, because reading it wrong inflates a rate
+  roughly tenfold.
+- Money is rounded half-away-from-zero to 2dp; unit rates to 4dp, which `S00247970` at 17.5226
+  requires.
+
+**Database.** Migrations are hand-written and additive only. Do **not** generate them with
+`prisma migrate diff` against this database: the baseline was not created by Prisma and the
+generated migration is destructive. See
+[ADR-001](docs/adr-001-baseline-findings.md).
 
 ## Branching and releases
 
 Production code lives on `main`. Each phase is developed on a `phase/NN-*` branch and merged only
 after its automated tests and verification gates pass:
 
-| Branch                               | Tag      | Contents                              |
-| ------------------------------------ | -------- | ------------------------------------- |
-| `main`                               | `v0.0.1` | Repo init and connectivity            |
-| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC        |
-| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine |
-| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals      |
-| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing         |
-| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E           |
+| Branch                               | Tag      | Contents                                   |
+| ------------------------------------ | -------- | ------------------------------------------ |
+| `main`                               | `v0.0.1` | Repo init and connectivity                 |
+| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC             |
+| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine, VAT |
+| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals           |
+| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing              |
+| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                |
 
 Commits follow Conventional Commits: `<type>(<scope>): <summary>`.
 

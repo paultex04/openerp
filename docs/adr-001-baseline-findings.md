@@ -104,6 +104,61 @@ R1 material pricing also confirmed: `(18500 + 1704 + 1416) x 1.10 = 23 782.00 ZA
   acceptance vector.
 - Phase 4 is blocked on a schema migration to add VAT fields.
 
+## Addendum A — Resolved at Phase 2 (see ADR-002)
+
+The F2 blocker (stored overheads imply ~8.2%, not 7%) was resolved in the product owner's
+favour of Q1 Option B, and is no longer open. The engine now treats stored `overhead_cost` /
+`sga_cost` as authoritative and seeds them from `contract_cost_parameters` only when a rate card
+is first created.
+
+Phase 2 additionally introduced migration `0002_vat`, which delivers the deferred SARS
+invoicing fields from F4.3 early:
+
+| Table                | Columns added                                                 |
+| -------------------- | ------------------------------------------------------------- |
+| `client`             | `is_vat_registered`, `vat_number`                             |
+| `contract_amendment` | `vat_rate`                                                    |
+| `invoice`            | `subtotal_amount`, `tax_rate`, `tax_amount`, `total_with_tax` |
+
+plus a `CHECK (total_with_tax = subtotal_amount + tax_amount)` constraint that enforces the
+Phase 4 reconciliation gate in the database itself. The single legacy invoice `INV-2026-03-0042`
+was backfilled as VAT-exempt because its VAT treatment cannot be evidenced; **it must be reviewed
+before being reissued as a tax invoice.**
+
+## Addendum B — Corrected finding: percentage units are inconsistent in the baseline
+
+This was discovered in Phase 2 and is a genuine trap. The baseline stores percentages in **two
+different units**:
+
+```
+contract_cost_parameters.numeric_value   'Fair Profit Margin %'   =  9.500000   (percent)
+contract_cost_parameters.numeric_value   'R1 Material Markup %'   = 10.000000   (percent)
+service_master_rates.wage_premium_pct                            =  0.0050     (fraction)
+service_code.material_markup_pct                                 =  0.1000     (fraction)
+```
+
+Reading a `numeric_value` percentage as a fraction inflates the full loaded rate roughly
+**tenfold** — Artisan Electrical computed as 2182.56 ZAR/hr instead of 227.61. This was caught by
+the Phase 2 integration suite and is now handled explicitly in
+`shared/src/pricing/tier1.ts` via `PERCENT_NUMBER_KEYS`, which divides percent-valued parameters
+by 100 on read so the engine only ever sees fractions. `GET /api/amendments/:id/cost-parameters`
+returns both forms: raw `parameters` exactly as stored, and a normalised `engine` projection for
+the build-up sheet.
+
+## Addendum C — Prisma enum type names required `@@map`
+
+The baseline created its enum **types** as `job_status_enum`, `shift_type_enum` and so on, while
+the enum _variants_ carry business labels like `'00. Cancelled'` and `'R1 Material'`. Mapping the
+variants is not sufficient: without `@@map` on the enum itself Prisma emits casts to
+`::"ShiftType"`, which does not exist, and every filtered query fails at runtime with
+`type "public.ShiftType" does not exist`.
+
+All eight enums now carry both a per-variant `@map` and an enum-level `@@map("<name>_enum")`. The
+boundary between business labels and Prisma keys is centralised in
+`shared/src/schemas/prisma-enums.ts`, so routes never cast by hand. The API returns **labels**;
+Prisma speaks **keys**. The HTTP smoke test caught an early version leaking `R1_MATERIAL` to
+clients, which is now asserted as a regression check.
+
 ## Decisions
 
 ### Q1 — Stored per-rate overheads and SG&A are authoritative (Option B)

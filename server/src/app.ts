@@ -3,6 +3,10 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { authPlugin, HttpError } from './auth/plugin.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerClientRoutes } from './routes/contracts.js';
+import { registerAmendmentRoutes } from './routes/amendments.js';
+import { registerRateMasterRoutes } from './routes/rates.js';
+import { registerServiceCodeRoutes } from './routes/serviceCodes.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 
@@ -48,6 +52,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Auth routes -------------------------------------------------------
   await registerAuthRoutes(app, config);
+
+  // ---- Phase 2: commercial ----------------------------------------------
+  await registerClientRoutes(app);
+  await registerAmendmentRoutes(app);
+  await registerRateMasterRoutes(app);
+  await registerServiceCodeRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

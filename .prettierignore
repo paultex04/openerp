@@ -1,0 +1,10 @@
+# Prisma schema files have no Prettier parser; `prisma format` owns them.
+server/prisma/**/*.prisma
+
+# Generated and vendored
+node_modules/
+dist/
+build/
+.next/
+coverage/
+package-lock.json
