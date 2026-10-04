@@ -9,6 +9,7 @@ import { registerRateMasterRoutes } from './routes/rates.js';
 import { registerServiceCodeRoutes } from './routes/serviceCodes.js';
 import { registerOperationsRoutes } from './routes/operations.js';
 import { registerInvoiceRoutes } from './routes/invoices.js';
+import { registerAdminRoutes } from './routes/admin.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 
@@ -66,6 +67,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Phase 4: billing -------------------------------------------------
   await registerInvoiceRoutes(app);
+
+  // ---- Phase 5: admin & audit -------------------------------------------
+  await registerAdminRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

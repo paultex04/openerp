@@ -16,6 +16,7 @@ import { ZodError } from 'zod';
 import { TokenCodec, TokenError } from './tokens.js';
 import { PrincipalError, resolvePrincipal, type Principal } from './principal.js';
 import { PasswordPolicyError } from './password.js';
+import { withAuditActor } from '../audit/context.js';
 import type { Config } from '../config.js';
 
 declare module 'fastify' {
@@ -53,7 +54,58 @@ function principalFrom(request: FastifyRequest): Principal {
   return request.principal;
 }
 
+/**
+ * Wraps every route handler so the audit actor is bound for its execution.
+ *
+ * `AsyncLocalStorage.enterWith` inside a preHandler does **not** reach the
+ * handler: Fastify schedules hooks and handlers on its own promise chain, which
+ * breaks the ALS continuation. Measured over real HTTP, every audited write came
+ * out recorded as `system` with no route — the log looked complete but named
+ * nobody, which is the worst possible failure for an audit trail.
+ *
+ * Wrapping the handler with `storage.run` fixes it, because `run` establishes a
+ * real ALS scope around the handler's whole execution and anything it awaits —
+ * including the Prisma query extension — inherits it. `request.principal` is
+ * already populated by the time a handler runs, so an unauthenticated route gets
+ * no actor and is recorded as `system`, which is correct.
+ *
+ * Installed via `onRoute` rather than `addHook('preHandler')` because only
+ * `onRoute` can replace the handler itself.
+ */
+function bindAuditContext(app: FastifyInstance): void {
+  app.addHook('onRoute', (routeOptions) => {
+    const original = routeOptions.handler;
+    if (typeof original !== 'function') return;
+
+    routeOptions.handler = function auditBound(this: unknown, request, reply) {
+      const principal = (request as FastifyRequest).principal;
+      const invoke = () =>
+        (original as (this: unknown, req: FastifyRequest, rep: FastifyReply) => unknown).call(
+          this,
+          request,
+          reply,
+        );
+
+      if (!principal) return invoke();
+
+      return withAuditActor(
+        {
+          userId: principal.userId,
+          email: principal.email,
+          employeeId: principal.employeeId,
+          requestId: request.id,
+          route: request.routeOptions?.url ?? request.url,
+          method: request.method,
+        },
+        invoke,
+      );
+    };
+  });
+}
+
 async function authPluginImpl(app: FastifyInstance, opts: { config: Config }): Promise<void> {
+  bindAuditContext(app);
+
   const { config } = opts;
   const codec = new TokenCodec({
     secret: config.AUTH_JWT_SECRET,
@@ -109,6 +161,12 @@ async function authPluginImpl(app: FastifyInstance, opts: { config: Config }): P
       }
       throw e;
     }
+
+    // The audit actor is bound in an `onRoute` wrapper (see `bindAuditContext`),
+    // not here. Binding it from this preHandler looks equivalent and is not:
+    // Fastify's hook runner does not preserve AsyncLocalStorage propagation from
+    // a preHandler into the handler, so every audited write came out as `system`
+    // with no route. That was measured over real HTTP, not assumed.
   });
 
   app.decorate(

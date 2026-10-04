@@ -33,6 +33,12 @@ export default function HomePage() {
       description: 'Invoice register, VAT treatment, lifecycle and the printable tax layout.',
       permission: 'invoice.read',
     },
+    {
+      href: '/admin',
+      title: 'Administration',
+      description: 'User accounts, role permissions and the audit trail.',
+      permission: 'admin.user.read',
+    },
   ];
 
   return (
