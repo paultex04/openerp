@@ -7,9 +7,17 @@
  * their own dedicated view at /field, which is far simpler than this screen and
  * works on a phone.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, ApiError, type JobDetail, type JobRow, type TransitionOption } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type JobDetail,
+  type JobRow,
+  type TransitionOption,
+  type VarianceSummary,
+} from '@/lib/api';
+import { useToast } from '@/components/ui/toast';
 import { JobKanban, JobStepper } from '@/components/operations/JobStepper';
 import { DeliverableGrid } from '@/components/operations/DeliverableGrid';
 import { ProjectDashboard } from '@/components/operations/ProjectDashboard';
@@ -17,7 +25,7 @@ import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { StatusPill } from '@/components/ui/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { formatDate, formatPercent } from '@/lib/format';
+import { formatDate, formatPercent, formatZar } from '@/lib/format';
 
 type View = 'dashboard' | 'board' | 'job';
 
@@ -267,6 +275,9 @@ function JobDetailView({ jobId, onBack }: { jobId: number; onBack: () => void })
           onChanged={() => void detail.refetch()}
         />
       </section>
+
+      {/* ---- Billing ---- */}
+      <JobBilling job={job} summary={summary} onChanged={() => void detail.refetch()} />
     </div>
   );
 }
@@ -279,5 +290,115 @@ function Fact({ label, value }: { label: string; value: string }) {
         {value}
       </p>
     </div>
+  );
+}
+
+/** Job statuses from which billing will accept an invoice. Mirrors the API. */
+const BILLABLE_STATUSES = new Set([
+  '07. Pack Ready',
+  '08. Out for signature',
+  '09. Awaiting change order',
+  '10. Invoiced',
+  '11. Partially Invoiced',
+]);
+
+/**
+ * The billing hand-off on a job: what has been invoiced, and the button that
+ * raises a draft from the measured actuals.
+ *
+ * The button is offered only from `07. Pack Ready` onward and the reason is
+ * always visible — the API enforces the same rule and returns 409 with this
+ * explanation, so hiding it without explanation would leave a billing clerk
+ * guessing. Generation takes no financial input: every figure is derived from
+ * this job's actuals and the amendment.
+ */
+function JobBilling({
+  job,
+  summary,
+  onChanged,
+}: {
+  job: JobDetail['job'];
+  summary: VarianceSummary;
+  onChanged: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const generate = useMutation({
+    mutationFn: () => api.post(`/api/jobs/${job.id}/invoices`, {}),
+    onSuccess: (result) => {
+      const outcome = result as {
+        invoice: { invoiceNumber: string };
+        compliance: { ok: boolean; warnings: string[] };
+      };
+      toast({
+        title: `Draft ${outcome.invoice.invoiceNumber} raised`,
+        description: outcome.compliance.ok
+          ? undefined
+          : `Compliance: ${outcome.compliance.warnings.join(' ')}`,
+        variant: outcome.compliance.ok ? 'success' : 'default',
+      });
+      void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      onChanged();
+    },
+    onError: (e: Error) =>
+      toast({
+        title: 'Could not raise an invoice',
+        description: e instanceof ApiError ? e.message : e.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const billable = BILLABLE_STATUSES.has(job.status);
+  const hasMeasured = summary.linesWithActuals > 0;
+
+  return (
+    <section className="space-y-3 border-t pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">Billing</h3>
+        <Button
+          size="sm"
+          onClick={() => generate.mutate()}
+          disabled={!billable || !hasMeasured || generate.isPending}
+        >
+          Raise draft invoice
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span>
+          Measured actuals{' '}
+          <span className="font-mono tabular-nums text-foreground">
+            {formatZar(summary.actualSubtotal)}
+          </span>
+        </span>
+        <span>
+          {summary.linesWithActuals} of {summary.lineCount} deliverables measured
+        </span>
+      </div>
+
+      {!billable && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+          Billing takes ownership at 07. Pack Ready. This job is at {job.status}, so an invoice
+          cannot be raised yet — revenue is not recognised against work whose scope is still being
+          planned or executed.
+        </p>
+      )}
+
+      {billable && !hasMeasured && (
+        <p className="text-xs text-muted-foreground">
+          Nothing to bill yet: no deliverable on this job has a measured actual. Actuals are
+          recorded during 04. WIP to 06. Actuals in Progress.
+        </p>
+      )}
+
+      {billable && hasMeasured && (
+        <p className="text-xs text-muted-foreground">
+          The draft bills every measured deliverable at its applied-rate snapshot and adds VAT from{' '}
+          {job.amendment?.amendmentNumber ?? 'the contract'} amendment. Review it in Billing before
+          submitting.
+        </p>
+      )}
+    </section>
   );
 }

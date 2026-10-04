@@ -28,10 +28,10 @@ export default function HomePage() {
       permission: 'contract.read',
     },
     {
-      href: '#',
+      href: '/billing',
       title: 'Billing',
-      description: 'Invoices and printable tax layout. Arrives in Phase 4.',
-      permission: null,
+      description: 'Invoice register, VAT treatment, lifecycle and the printable tax layout.',
+      permission: 'invoice.read',
     },
   ];
 

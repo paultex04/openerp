@@ -28,6 +28,7 @@ import {
   jobStatusValues,
   serviceCodeCategoryValues,
   shiftTypeValues,
+  type InvoiceStatus,
   type JobStatus,
 } from './enums';
 
@@ -219,6 +220,21 @@ export function jobPriorityToKey(label: string): string {
 /** Prisma enum key ('P2_URGENT') -> business label ('P2 - Urgent'). */
 export function jobPriorityFromKey(key: string): string {
   return JOB_PRIORITY.toLabel(key);
+}
+
+/** Business label ('Partially Paid') -> Prisma enum key ('PARTIALLY_PAID'). */
+export function invoiceStatusToKey(label: string): string {
+  return INVOICE_STATUS.toKey(label);
+}
+
+/**
+ * Prisma enum key ('PARTIALLY_PAID') -> business label ('Partially Paid').
+ *
+ * Throws on an unknown key rather than returning `undefined`, matching the
+ * job-status accessors above.
+ */
+export function invoiceStatusFromKey(key: string): InvoiceStatus {
+  return INVOICE_STATUS.toLabel(key) as InvoiceStatus;
 }
 
 export type PrismaShiftType = 'NT' | 'OT' | 'DT' | 'NS' | 'ST';

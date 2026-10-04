@@ -443,3 +443,85 @@ export interface FieldJob {
   deliverables: DeliverableRow[];
   summary: VarianceSummary;
 }
+
+// ---------------------------------------------------------------------------
+// Billing (Phase 4)
+// ---------------------------------------------------------------------------
+
+export interface InvoiceRow {
+  id: number;
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string;
+  status: string;
+  subtotalAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  totalWithTax: number;
+  lineCount: number;
+  job: {
+    id: number;
+    description: string | null;
+    project: { code: string; contract: { number: string; client: { name: string } } };
+  };
+}
+
+export interface InvoiceLine {
+  id: number;
+  serviceCodeId: number;
+  code: string;
+  uom: string;
+  description: string | null;
+  billedQuantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface InvoiceDetail {
+  invoice: {
+    id: number;
+    invoiceNumber: string;
+    issueDate: string;
+    dueDate: string;
+    status: string;
+    subtotalAmount: number;
+    taxRate: number;
+    taxAmount: number;
+    totalWithTax: number;
+    totalAmount: number;
+    notes: string | null;
+  };
+  lines: InvoiceLine[];
+  client: { id: number; name: string; vatNumber: string | null; isVatRegistered: boolean };
+  job: {
+    id: number;
+    status: string;
+    description: string | null;
+    workOrder: string | null;
+    purchaseOrder: string | null;
+    project: { code: string; contract: { number: string } };
+  };
+  vat: {
+    subtotalAmount: number;
+    taxRate: number;
+    /** Zero for a client not registered for VAT, whatever the amendment says. */
+    effectiveTaxRate: number;
+    taxAmount: number;
+    totalWithTax: number;
+  };
+  compliance: { ok: boolean; warnings: string[] };
+  permissions: { canEdit: boolean; canDelete: boolean; availableTransitions: string[] };
+  jobPosition: {
+    jobActualTotal: number;
+    recognisedBilledTotal: number;
+    /** Negative when the invoice total exceeds the VAT-exclusive actuals. */
+    remainingUnbilled: number;
+  };
+}
+
+export interface InvoiceTransitionOption {
+  to: string;
+  allowed: boolean;
+  reason: string;
+  requiredPermission?: string;
+}
