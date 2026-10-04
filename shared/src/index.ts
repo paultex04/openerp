@@ -7,5 +7,7 @@ export * from './schemas/enums';
 export * from './schemas/prisma-enums';
 export * from './schemas/commercial';
 export * from './schemas/operations';
+export * from './schemas/billing';
 export * from './job-status';
 export * from './deliverables';
+export * from './invoice-status';
