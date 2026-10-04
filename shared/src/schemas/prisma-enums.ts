@@ -28,7 +28,7 @@ import {
   jobStatusValues,
   serviceCodeCategoryValues,
   shiftTypeValues,
-} from './enums.js';
+} from './enums';
 
 /** Compile-time exhaustiveness guard. */
 export function assertNever(value: never, enumName: string): never {

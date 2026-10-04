@@ -34,7 +34,7 @@
  * 0.07 means 7%. This matches how the baseline database stores its `*_pct`
  * columns (e.g. `wage_premium_pct = 0.0050` for 0.5%).
  */
-import { applyFraction, roundMoney, roundRate, sumExact, toNumber } from '../money.js';
+import { applyFraction, roundMoney, roundRate, sumExact, toNumber } from '../money';
 
 export interface Tier1BaseInputs {
   /**

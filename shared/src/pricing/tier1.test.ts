@@ -19,7 +19,7 @@ import {
   RateBuildupError,
   resolveBaseRate,
   type Tier1BaseInputs,
-} from './tier1.js';
+} from './tier1';
 
 /**
  * Artisan Electrical, `S00250451`, amendment 1 — verbatim from

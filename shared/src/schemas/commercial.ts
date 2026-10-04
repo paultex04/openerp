@@ -11,7 +11,7 @@ import {
   costParameterCategorySchema,
   serviceCodeCategorySchema,
   shiftTypeSchema,
-} from './enums.js';
+} from './enums';
 
 /** A monetary amount. Two decimal places, non-negative. */
 export const moneySchema = z.coerce.number().min(0, 'Amount cannot be negative.').multipleOf(0.01, {

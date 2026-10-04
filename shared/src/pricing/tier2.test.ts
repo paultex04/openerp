@@ -8,7 +8,7 @@ import {
   computeMaterialRate,
   computeServiceCodeRate,
   type LabourRecipeLine,
-} from './tier2.js';
+} from './tier2';
 
 /**
  * S00247970 — "Remove, Cable (All Cores) Electrical & Instrumentation;

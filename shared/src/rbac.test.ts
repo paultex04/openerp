@@ -12,7 +12,7 @@ import {
   ROLE_PROJECT_MANAGER,
   ROLE_SITE_SUPERVISOR,
   ROLES,
-} from './rbac.js';
+} from './rbac';
 
 describe('RBAC catalogue integrity', () => {
   it('defines exactly the five specified roles', () => {

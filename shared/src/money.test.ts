@@ -1,14 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  round,
-  roundMoney,
-  roundPct,
-  roundRate,
-  sumExact,
-  toNumber,
-  applyFraction,
-} from './money.js';
-import { checkInvoiceCompliance, computeVat, DEFAULT_VAT_RATE } from './pricing/vat.js';
+import { round, roundMoney, roundPct, roundRate, sumExact, toNumber, applyFraction } from './money';
+import { checkInvoiceCompliance, computeVat, DEFAULT_VAT_RATE } from './pricing/vat';
 
 describe('rounding', () => {
   it('rounds half away from zero', () => {

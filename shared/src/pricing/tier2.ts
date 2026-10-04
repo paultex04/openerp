@@ -19,8 +19,8 @@
  * rounded, and the rollup equals their sum) and keeps the stored rollup
  * reconcilable against its own stored lines.
  */
-import { roundRate, sumExact, toNumber } from '../money.js';
-import type { ServiceCodeCategory } from '../schemas/enums.js';
+import { roundRate, sumExact, toNumber } from '../money';
+import type { ServiceCodeCategory } from '../schemas/enums';
 
 export interface LabourRecipeLine {
   crewQuantity: number | string;

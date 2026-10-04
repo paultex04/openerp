@@ -20,7 +20,7 @@
  * that makes invoice totals reconcile to the cent against the sum of their
  * lines, which is a Phase 4 acceptance gate.
  */
-import { roundMoney, sumExact } from '../money.js';
+import { roundMoney, sumExact } from '../money';
 
 /** Current SARS standard rate. Overridable per invoice via the amendment. */
 export const DEFAULT_VAT_RATE = 0.15;

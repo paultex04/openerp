@@ -21,6 +21,16 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Base URL for API calls.
+ *
+ * Empty in development, which makes requests same-origin and lets the Next.js
+ * rewrite proxy them; set `NEXT_PUBLIC_API_BASE_URL` to call the API directly
+ * (e.g. when the rewrite proxy is unavailable). Must be an absolute origin in
+ * that case, and the API must allow it via `CLIENT_ORIGIN`.
+ */
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
+
 const CSRF_COOKIE = 'openerp_csrf';
 const CSRF_HEADER = 'x-csrf-token';
 
@@ -62,9 +72,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (token) headers[CSRF_HEADER] = token;
   }
 
-  const response = await fetch(buildUrl(path, options.query), {
+  const url = `${API_BASE}${buildUrl(path, options.query)}`;
+
+  const response = await fetch(url, {
     method,
     headers,
+    // Required so the HTTP-only session cookie travels on a cross-origin call.
     credentials: 'include',
     ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
     ...(options.signal ? { signal: options.signal } : {}),

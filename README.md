@@ -61,8 +61,17 @@ npm run dev --workspace server
 npm run dev --workspace client
 ```
 
-The client proxies `/api/*` to the API via `next.config.mjs`, so the session cookie stays
-first-party and the browser makes same-origin requests.
+Then open <http://localhost:3000/login> and sign in with the seeded administrator
+(`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` from `.env`).
+
+**How the browser reaches the API.** Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000` and the
+client calls the API directly. This is safe because `localhost:3000` and `localhost:4000` are the
+same _site_ — the port is not part of the site calculation — so a `SameSite=Lax` session cookie is
+still sent, and the API allows the origin via `CLIENT_ORIGIN` with `credentials: true`.
+
+Leave it empty to use same-origin `/api/*` requests via the rewrite proxy in
+`client/next.config.mjs`. Note that the proxy currently does not match, so direct calls are the
+supported path.
 
 With the API running, `npm run smoke:phase2` asserts both published pricing vectors (227.61 ZAR/hr
 and 17.5226 ZAR/m) end-to-end over HTTP, together with the 401 paths and the cookie security
