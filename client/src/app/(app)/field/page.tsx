@@ -70,7 +70,7 @@ export default function FieldPage() {
   const jobs = work.data?.jobs ?? [];
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header>
         <h1 className="text-xl font-semibold tracking-tight">My work</h1>
         <p className="text-sm text-muted-foreground">

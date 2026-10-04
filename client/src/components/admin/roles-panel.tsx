@@ -132,7 +132,7 @@ export function RolesPanel() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {roleRows
         .map((role) => {
           const missing = role.expected.filter((p) => !role.granted.includes(p));
@@ -159,6 +159,7 @@ export function RolesPanel() {
 
       <DataTable
         caption="Permission matrix by role"
+        fill
         data={data}
         columns={columns}
         rowKey={(row) => row.key}

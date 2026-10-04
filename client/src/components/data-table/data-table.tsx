@@ -88,6 +88,17 @@ export interface DataTableProps<T> {
   /** Renders a cell in a trailing actions column. */
   renderRowActions?: (row: T) => ReactNode;
   isLoading?: boolean;
+  /**
+   * Grow to fill the available height, scrolling the rows internally and pinning
+   * the toolbar and pagination in place.
+   *
+   * This is what makes a register behave like an application screen rather than a
+   * document: the toolbar stays visible while you scroll fifty rows, and the
+   * pagination controls never end up below the fold.
+   *
+   * Requires an ancestor with a definite height - the app shell supplies one.
+   */
+  fill?: boolean;
   /** Extra classes on the scroll container, for cards of a known height. */
   className?: string;
 }
@@ -134,6 +145,7 @@ export function DataTable<T>({
   actions,
   renderRowActions,
   isLoading = false,
+  fill = false,
   className,
 }: DataTableProps<T>) {
   const [term, setTerm] = useState('');
@@ -189,7 +201,15 @@ export function DataTable<T>({
   };
 
   return (
-    <div className={cn('flex flex-col gap-3', className)}>
+    <div
+      className={cn(
+        'flex flex-col gap-3',
+        // In fill mode the table owns the leftover height: the scroll region
+        // takes `flex-1 min-h-0` and the toolbar and pagination stay put.
+        fill && 'min-h-0 flex-1',
+        className,
+      )}
+    >
       {/* Toolbar. `role="search"` marks it as a search region for assistive tech. */}
       <div
         role="search"
@@ -259,7 +279,12 @@ export function DataTable<T>({
         tabIndex={0}
         role="region"
         aria-label={caption}
-        className="focus-visible:ring-ring overflow-x-auto rounded-lg border focus-visible:ring-2 focus-visible:outline-none"
+        className={cn(
+          'focus-visible:ring-ring overflow-x-auto rounded-lg border focus-visible:ring-2 focus-visible:outline-none',
+          // In fill mode this is the scrolling element. `min-h-0` again: without
+          // it a flex child refuses to shrink and the whole page grows instead.
+          fill && 'min-h-0 flex-1 overflow-y-auto',
+        )}
       >
         <Table>
           <TableCaption className="sr-only">{caption}</TableCaption>
@@ -356,51 +381,63 @@ export function DataTable<T>({
         </Table>
       </div>
 
-      {/* Pagination. Only shown when it can do something, so a 4-row table does
-          not grow a control for a page it does not have. */}
-      {table.getPageCount() > 1 && (
-        <nav
-          aria-label={`${caption} pagination`}
-          className="flex flex-wrap items-center justify-between gap-2 text-xs"
-        >
-          <span className="text-muted-foreground">
-            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+      {/*
+        Pagination is rendered unconditionally, including when there is only one
+        page.
+
+        Hiding it for short tables was the wrong call: the control is also where
+        the page-size selector lives, so a table with 4 rows offered no way to
+        reach the control that would let you choose 10 or 100. It also made the
+        footer of every register look different depending on its row count, which
+        is precisely the inconsistency this component exists to remove.
+      */}
+      <nav
+        aria-label={`${caption} pagination`}
+        className="flex flex-wrap items-center justify-between gap-2 text-xs"
+      >
+        <span className="text-muted-foreground">
+          {pageRows.length === 0
+            ? 'No rows'
+            : `Showing ${table.getState().pagination.pageIndex * pageSize + 1}–${table.getState().pagination.pageIndex * pageSize + pageRows.length} of ${total}`}
+        </span>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-muted-foreground">
+            Rows
+            <select
+              value={String(pageSize)}
+              onChange={(event) => table.setPageSize(Number(event.target.value))}
+              aria-label="Rows per page"
+              className="h-7 rounded-md border border-input bg-background px-1.5"
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!table.getCanPreviousPage()}
+            onClick={() => table.previousPage()}
+          >
+            Previous
+          </Button>
+          <span className="min-w-16 text-center tabular-nums text-muted-foreground">
+            Page {table.getPageCount() === 0 ? 0 : table.getState().pagination.pageIndex + 1} of{' '}
+            {table.getPageCount()}
           </span>
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-muted-foreground">
-              Rows
-              <select
-                value={String(pageSize)}
-                onChange={(event) => table.setPageSize(Number(event.target.value))}
-                aria-label="Rows per page"
-                className="h-7 rounded-md border border-input bg-background px-1.5"
-              >
-                {[10, 25, 50, 100].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!table.getCanPreviousPage()}
-              onClick={() => table.previousPage()}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!table.getCanNextPage()}
-              onClick={() => table.nextPage()}
-            >
-              Next
-            </Button>
-          </div>
-        </nav>
-      )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!table.getCanNextPage()}
+            onClick={() => table.nextPage()}
+          >
+            Next
+          </Button>
+        </div>
+      </nav>
     </div>
   );
 }

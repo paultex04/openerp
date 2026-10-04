@@ -156,7 +156,7 @@ export function AuditPanel() {
   const activity = summary.data?.activity;
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {activity && (
         <div className="grid gap-3 sm:grid-cols-4">
           <Tile label="Entries" value={activity.total} />
@@ -185,6 +185,7 @@ export function AuditPanel() {
       ) : (
         <DataTable<AuditEntry>
           caption="Audit log"
+          fill
           data={rows}
           columns={columns}
           rowKey={(entry) => entry.id}

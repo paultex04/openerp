@@ -172,7 +172,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
+    /*
+     * `h-dvh overflow-hidden` is what makes "fill the screen" possible at all.
+     *
+     * shadcn's SidebarProvider sets only `min-h-svh`, a *minimum*. A flex child
+     * under a minimum-height parent still sizes to its content, so every
+     * `flex-1` below it collapses to zero and a filling table ends up with no
+     * height at all. A definite height lets `SidebarInset` take the remainder and
+     * the page's `flex-1` resolve to real pixels.
+     */
+    <SidebarProvider
+      open={sidebarOpen}
+      onOpenChange={setSidebarOpen}
+      className="h-dvh overflow-hidden"
+    >
       <AppSidebar
         sections={sections}
         collapsed={collapsed}
@@ -187,7 +200,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         that target ambiguous. The id therefore lives on SidebarInset, which is
         the element that actually *is* the landmark.
       */}
-      <SidebarInset id="main-content" className="min-w-0">
+      <SidebarInset id="main-content" className="min-w-0 overflow-hidden">
+        {/*
+          The shell is a fixed-height flex chain so a page can fill the viewport
+          exactly: viewport = header + content, and the content area is the only
+          thing that scrolls.
+
+          The `min-h-0` on the content wrapper is load-bearing. In a flex column a
+          child defaults to `min-height: auto`, which refuses to shrink below its
+          content - so a long table would push the page taller than the screen
+          and the shell would scroll as a whole, taking the sticky header with it
+          and leaving the table's own scroll region redundant.
+        */}
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
           <SidebarTrigger className="-ml-1" />
 
@@ -223,23 +247,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <div className="flex-1 p-4 sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {/*
+            `h-full`, not `min-h-full`. The inner wrapper must be exactly the
+            scroll container's height so a page's `flex-1` child resolves against
+            a definite box; `min-h-full` lets the box grow with content, which
+            reintroduces the indefinite height the chain is trying to avoid.
+          */}
+          <div className="flex h-full flex-col p-4 sm:p-6">
+            {/*
             Pages read their tab and filters from the URL, so each of them needs
             this boundary too. The layout declares the same one for the page
             itself; this one exists because AppShell renders above the layout's
             boundary and must not opt itself out of prerendering.
           */}
-          <Suspense
-            fallback={
-              <div className="flex min-h-64 items-center justify-center">
-                <Spinner className="size-6 text-muted-foreground" />
-                <span className="sr-only">Loading…</span>
-              </div>
-            }
-          >
-            {children}
-          </Suspense>
+            <Suspense
+              fallback={
+                <div className="flex min-h-64 items-center justify-center">
+                  <Spinner className="size-6 text-muted-foreground" />
+                  <span className="sr-only">Loading…</span>
+                </div>
+              }
+            >
+              {children}
+            </Suspense>
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

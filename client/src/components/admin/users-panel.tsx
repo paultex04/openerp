@@ -181,9 +181,10 @@ export function UsersPanel({ myId }: { myId: number | undefined }) {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <DataTable<AdminUser>
         caption="System user accounts"
+        fill
         data={users.data?.users ?? []}
         columns={columns}
         rowKey={(user) => user.id}
@@ -420,7 +421,7 @@ function UserDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
           {isCreate && (
             <Field>
               <FieldLabel htmlFor="new-email">Email address</FieldLabel>

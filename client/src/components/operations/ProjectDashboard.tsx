@@ -303,6 +303,7 @@ function ProjectCard({
       */}
       <DataTable
         caption={`Jobs on project ${detail.data?.project.code ?? ''}`}
+        fill
         data={detail.data?.project.jobs ?? []}
         columns={jobColumns}
         rowKey={(job) => job.id}

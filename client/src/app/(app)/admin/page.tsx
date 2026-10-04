@@ -34,7 +34,7 @@ export default function AdminPage() {
   const me = useMe();
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
         <p className="text-sm text-muted-foreground">

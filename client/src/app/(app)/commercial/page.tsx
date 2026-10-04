@@ -261,7 +261,7 @@ export default function CommercialPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Commercial</h1>
@@ -332,6 +332,7 @@ export default function CommercialPage() {
           */}
           <DataTable<ContractRow>
             caption="Contracts and their amendments"
+            fill
             data={contracts.data?.contracts ?? []}
             columns={contractColumns}
             rowKey={(contract) => contract.id}
@@ -455,6 +456,7 @@ export default function CommercialPage() {
           */}
           <DataTable<RateCardRow>
             caption="Rate card summary"
+            fill
             data={rates.data.rates}
             columns={rateCardColumns}
             rowKey={(rate) => rate.id}

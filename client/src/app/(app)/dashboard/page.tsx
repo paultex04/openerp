@@ -307,7 +307,7 @@ export default function DashboardPage() {
     !loading && !mayReadProjects && !mayReadJobs && !mayReadInvoices && !mayReadContracts;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Command Centre</h1>
         <p className="text-sm text-muted-foreground">
@@ -422,7 +422,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
             {(mayReadJobs || mayReadProjects) && (
               <Card>
                 <CardHeader>
@@ -459,7 +459,7 @@ export default function DashboardPage() {
             )}
 
             {mayReadContracts && (
-              <Card>
+              <Card className="flex min-h-0 flex-col">
                 <CardHeader>
                   <CardTitle className="text-base">Amendments expiring</CardTitle>
                   <CardDescription>
@@ -467,7 +467,7 @@ export default function DashboardPage() {
                     authority to bill the work beneath it.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="min-h-0 flex-1">
                   {loading ? (
                     <Skeleton className="h-32 w-full" />
                   ) : expiring.length === 0 ? (
@@ -477,6 +477,7 @@ export default function DashboardPage() {
                   ) : (
                     <DataTable<ExpiringAmendment>
                       caption="Contract amendments within 90 days of expiry"
+                      fill
                       data={expiring}
                       columns={expiringColumns}
                       rowKey={(row) => row.amendment.id}
@@ -508,14 +509,14 @@ export default function DashboardPage() {
           </div>
 
           {mayReadInvoices && (
-            <Card>
+            <Card className="flex min-h-0 flex-[2] flex-col">
               <CardHeader>
                 <CardTitle className="text-base">Invoices awaiting money</CardTitle>
                 <CardDescription>
                   Draft, submitted, approved and part-paid invoices, newest first.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="min-h-0 flex-1">
                 {loading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : pendingInvoices.length === 0 ? (
@@ -525,6 +526,7 @@ export default function DashboardPage() {
                 ) : (
                   <DataTable<InvoiceRow>
                     caption="Invoices awaiting money"
+                    fill
                     data={pendingInvoices}
                     columns={pendingInvoiceColumns}
                     rowKey={(invoice) => invoice.id}
