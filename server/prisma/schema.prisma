@@ -516,6 +516,7 @@ model AppUser {
 
   employee Employee      @relation(fields: [employeeId], references: [id])
   roles    AppUserRole[]
+  auditEntries AuditLog[]
 
   @@index([isActive])
   @@map("app_user")
@@ -533,6 +534,47 @@ model AppRole {
   permissions RolePermission[]
 
   @@map("app_role")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (introduced in Phase 5)
+// ---------------------------------------------------------------------------
+
+/// Append-only record of every write to application data.
+///
+/// Actor fields are denormalised deliberately: `actorUserId` is cleared when an
+/// account is deleted, but the log must keep naming who acted. `before`/`after`
+/// hold the row as JSON, and on an UPDATE `after` carries only the fields that
+/// actually changed, so a reviewer sees the edit rather than the whole row.
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  actorUserId     Int?    @map("actor_user_id")
+  actorEmail      String? @map("actor_email") @db.VarChar(255)
+  actorEmployeeId Int?    @map("actor_employee_id")
+
+  action    String @db.VarChar(16)
+  model     String @db.VarChar(64)
+  /// Primary key of the affected row, or a comma-separated list for bulk writes.
+  recordId  String? @map("record_id")
+  summary   String?
+
+  before         Json?    @map("before")
+  after          Json?    @map("after")
+  changedFields  String[] @map("changed_fields")
+
+  requestId String? @map("request_id") @db.VarChar(64)
+  route     String? @db.VarChar(255)
+  method    String? @db.VarChar(10)
+
+  actor     AppUser? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([occurredAt(sort: Desc)])
+  @@index([model])
+  @@index([actorUserId])
+  @@index([model, recordId])
+  @@map("audit_log")
 }
 
 model AppUserRole {

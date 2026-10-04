@@ -48,6 +48,9 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | `npm run db:push`      | Apply schema changes to the database       |
 | `npm run seed`         | Provision default roles + super admin      |
 | `npm run smoke:phase2` | HTTP smoke test against a running API      |
+| `npm run smoke:phase3` | As above, for the operations surface       |
+| `npm run smoke:phase4` | As above, for billing and invoicing        |
+| `npm run smoke:phase5` | As above, for admin and the audit log      |
 
 ## Running the stack
 
@@ -114,10 +117,22 @@ after its automated tests and verification gates pass:
 | `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing              |
 | `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                |
 
+The schema in `server/prisma/schema.prisma` is the source of truth, but the
+migrations are hand-written and additive-only. `prisma migrate deploy` refuses
+this database because the baseline predates Prisma, and
+`prisma migrate diff --from-url` emits a destructive migration against it. Apply
+a new migration's SQL and then `prisma generate`; see
+[ADR-001](docs/adr-001-baseline-findings.md).
+
 Commits follow Conventional Commits: `<type>(<scope>): <summary>`.
 
 ## Security notes
 
 - `.env` is gitignored and must never be committed; `.env.example` holds placeholders only.
 - Every application user is linked 1-to-1 to an `employee` record; there are no "orphan" accounts.
-- Passwords are hashed with Argon2id. Sessions are issued as short-lived JWTs in HTTP-only cookies.
+- Passwords are hashed with bcrypt. Sessions are issued as short-lived JWTs in HTTP-only cookies.
+  (Argon2id was the original intent; bcrypt was chosen in ADR-002 to avoid native
+  builds in every environment. Revisit if Argon2 becomes available without one.)
+- Every write to application data is recorded in an append-only audit log, naming
+  the actor, the action, the changed fields, the route and the request. See
+  [ADR-005](docs/adr-005-admin-audit-hardening.md).
