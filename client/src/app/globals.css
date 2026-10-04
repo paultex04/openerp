@@ -1,58 +1,201 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/*
+ * Tailwind v4 is CSS-first: this file is the theme, and there is no
+ * `tailwind.config.ts`. `@import "tailwindcss"` brings in preflight and the
+ * utility engine.
+ *
+ * MIGRATION NOTE (ADR-006, F1): this project was on v3. The shadcn `base-nova`
+ * components are authored against v4 and use v4-only syntax -
+ * `gap-(--card-spacing)`, `[--card-spacing:--spacing(4)]`, `rounded-4xl`,
+ * `outline-hidden` and the trailing `!` important suffix. Under v3 each of those
+ * compiles to nothing and fails silently, so `Card` rendered with zero padding
+ * while `tsc`, ESLint and the unit suite all passed. Retrofitting the generated
+ * components to v3 was not viable - every `shadcn add --overwrite` would
+ * reintroduce it - so the toolchain moved to v4 instead.
+ *
+ * `tw-animate-css` replaces the v3-only `tailwindcss-animate` plugin and supplies
+ * the keyframes plus the `--tw-content` variable the components rely on.
+ */
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 20%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 222 47% 20%;
-    --radius: 0.5rem;
-  }
+/*
+ * Explicit sources. v4 auto-detects by walking up for a .gitignore, which in a
+ * monorepo can resolve to the repo root and silently miss the client tree. Being
+ * explicit costs one line and removes the failure mode where a utility compiles
+ * to nothing purely because the scanner never saw the class.
+ */
+@source '../../src';
 
-  .dark {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 11%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 213 27% 84%;
-  }
+/* Dark mode is class-driven, matching the previous `darkMode: ['class']`. */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Token definitions sit at the top level, not inside `@layer base`.
+ *
+ * In v4 `@layer` declares a CSS cascade layer, and a `@layer base {}` block that
+ * wraps the token definitions makes them participate in the cascade instead of
+ * being plain custom properties on `:root` - which the compiler rejects outright
+ * ("`@layer base` is used but no matching `@tailwind base` directive is present")
+ * when the surrounding `@import "tailwindcss"` has not already registered the
+ * layer. Keeping them top-level is also what lets `.dark` override them and lets
+ * `@theme inline` read them.
+ */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --radius: 0.625rem;
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/*
+ * A `.theme { --font-sans: var(--font-sans) }` block, which `shadcn init` wrote,
+ * was removed: a custom property that resolves to itself is a cycle and computes
+ * to the guaranteed-invalid value. Fonts are declared in `@theme inline` below
+ * against `--font-geist`, which the root layout supplies.
+ */
+
+/*
+ * `@theme inline` replaces the `theme.extend.colors` block that used to live in
+ * `tailwind.config.ts`.
+ *
+ * `inline` matters: without it v4 would emit `--color-background: var(--background)`
+ * into `:root`, which is a self-reference for the same reason `.theme` was. With
+ * `inline` the utilities are inlined at build time, so `bg-background` resolves
+ * straight to `var(--background)` and the dark-mode override in `.dark` still
+ * takes effect, because the token itself is redefined rather than the utility.
+ *
+ * Each token is a complete CSS colour (`oklch(...)`), never an HSL channel
+ * triple. Wrapping one in `hsl()` - as the old config did - produces invalid CSS
+ * that the browser discards without a warning. See ADR-006, F1.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Required by `ui/sidebar.tsx`. */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /*
+   * Radius scale. The generated components use `--radius-sm/md/lg/xl`, so the
+   * scale has to be declared or they resolve to nothing. `--radius` itself is
+   * set above in `:root`.
+   */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-4xl: calc(var(--radius) + 12px);
+
+  /*
+   * Font stacks. `--font-sans` is supplied by the Geist next/font variable on
+   * <html> (see the root layout), so these deliberately have no fallback to
+   * another custom property - that would be the self-reference cycle described
+   * above. `--font-heading` reads the same variable.
+   */
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
   * {
-    @apply border-border;
+    @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
     font-feature-settings:

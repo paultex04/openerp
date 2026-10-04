@@ -12,13 +12,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError, type FieldJob } from '@/lib/api';
-import { StatusPill, varianceTone } from '@/components/ui/status-badge';
+import { StatusPill, varianceTone } from '@/components/lifecycle/status-badge';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { formatDate, formatNumber, formatZar, formatZarRate } from '@/lib/format';
 
 export default function FieldPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const work = useQuery({
@@ -30,14 +29,14 @@ export default function FieldPage() {
     mutationFn: ({ id, quantity }: { id: number; quantity: number }) =>
       api.patch(`/api/job-deliverables/${id}/actual`, { actualQuantity: quantity }),
     onSuccess: () => {
-      toast({ title: 'Actual recorded', variant: 'success' });
+      toast.add({ title: 'Actual recorded', type: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['field-work'] });
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not record',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -45,14 +44,14 @@ export default function FieldPage() {
     mutationFn: ({ id, status }: { id: number; status: string }) =>
       api.post(`/api/jobs/${id}/transition`, { status }),
     onSuccess: () => {
-      toast({ title: 'Job advanced', variant: 'success' });
+      toast.add({ title: 'Job advanced', type: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['field-work'] });
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not advance the job',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -71,7 +70,7 @@ export default function FieldPage() {
   const jobs = work.data?.jobs ?? [];
 
   return (
-    <main className="mx-auto max-w-2xl space-y-4 p-4">
+    <div className="mx-auto max-w-2xl space-y-4">
       <header>
         <h1 className="text-xl font-semibold tracking-tight">My work</h1>
         <p className="text-sm text-muted-foreground">
@@ -94,7 +93,7 @@ export default function FieldPage() {
           busy={recordActual.isPending || advance.isPending}
         />
       ))}
-    </main>
+    </div>
   );
 }
 

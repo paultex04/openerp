@@ -11,7 +11,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -53,7 +53,6 @@ export function CostParameterTable(props: Props) {
 
 function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
   const [draft, setDraft] = useState<Draft>({});
 
   const { data, isLoading, isError, error } = useQuery({
@@ -70,14 +69,14 @@ function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
         },
       ),
     onSuccess: async () => {
-      toast({ title: 'Cost parameters saved', variant: 'success' });
+      toast.add({ title: 'Cost parameters saved', type: 'success' });
       await queryClient.invalidateQueries({ queryKey: ['cost-parameters', amendmentId] });
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not save parameters',
         description: e instanceof ApiError ? e.message : 'Unexpected error.',
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -135,11 +134,15 @@ function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Category</TableHead>
-            <TableHead>Parameter</TableHead>
-            <TableHead className="text-right">Value</TableHead>
-            <TableHead>Unit</TableHead>
-            <TableHead className="text-right">Engine fraction</TableHead>
+            <TableHead scope="col">Category</TableHead>
+            <TableHead scope="col">Parameter</TableHead>
+            <TableHead scope="col" className="text-right">
+              Value
+            </TableHead>
+            <TableHead scope="col">Unit</TableHead>
+            <TableHead scope="col" className="text-right">
+              Engine fraction
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

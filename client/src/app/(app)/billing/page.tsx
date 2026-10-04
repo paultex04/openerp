@@ -19,11 +19,11 @@ import {
   type InvoiceRow,
   type InvoiceTransitionOption,
 } from '@/lib/api';
-import { InvoiceTransitions, invoiceVariant } from '@/components/billing/InvoicePanel';
+import { InvoiceTransitions } from '@/components/billing/InvoicePanel';
+import { invoiceVariant } from '@/lib/lifecycle-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-  NumericCell,
   Table,
   TableBody,
   TableCell,
@@ -31,8 +31,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { NumericCell } from '@/components/data-table/NumericCell';
 import { formatDate, formatNumber, formatPercent, formatZar, formatZarRate } from '@/lib/format';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 
 const STATUSES = [
   'Draft',
@@ -63,7 +64,7 @@ export default function BillingPage() {
   const invoices = register.data?.invoices ?? [];
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
@@ -113,10 +114,12 @@ export default function BillingPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Invoice</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Issued</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead scope="col">Invoice</TableHead>
+                <TableHead scope="col">Status</TableHead>
+                <TableHead scope="col">Issued</TableHead>
+                <TableHead scope="col" className="text-right">
+                  Total
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -169,12 +172,11 @@ export default function BillingPage() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   );
 }
 
 function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: () => void }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const detail = useQuery({
@@ -200,15 +202,15 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/invoices/${invoiceId}`),
     onSuccess: () => {
-      toast({ title: 'Invoice deleted', variant: 'success' });
+      toast.add({ title: 'Invoice deleted', type: 'success' });
       onClose();
       void queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not delete',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -273,12 +275,18 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Code</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead className="text-right">Qty</TableHead>
-              <TableHead>UOM</TableHead>
-              <TableHead className="text-right">Unit price</TableHead>
-              <TableHead className="text-right">Subtotal</TableHead>
+              <TableHead scope="col">Code</TableHead>
+              <TableHead scope="col">Description</TableHead>
+              <TableHead scope="col" className="text-right">
+                Qty
+              </TableHead>
+              <TableHead scope="col">UOM</TableHead>
+              <TableHead scope="col" className="text-right">
+                Unit price
+              </TableHead>
+              <TableHead scope="col" className="text-right">
+                Subtotal
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

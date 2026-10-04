@@ -20,11 +20,10 @@ import {
   type RateCardRow,
   type ServiceCodeDetail,
 } from '@/lib/api';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  NumericCell,
   Table,
   TableBody,
   TableCell,
@@ -32,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { NumericCell } from '@/components/data-table/NumericCell';
 import { formatDelta, formatNumber, formatPercent, formatZarRate } from '@/lib/format';
 
 interface Props {
@@ -92,7 +92,6 @@ function VarianceBanner({
 
 export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
   const queryClient = useQueryClient();
-  const { toast: emit } = useToast();
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const codes = useQuery({
@@ -130,14 +129,14 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
   const acceptRate = useMutation({
     mutationFn: () => api.post(`/api/service-codes/${selectedId}/apply-rate`),
     onSuccess: async () => {
-      emit({ title: 'Recomputed rate applied', variant: 'success' });
+      toast.add({ title: 'Recomputed rate applied', type: 'success' });
       await invalidate();
     },
     onError: (e: Error) =>
-      emit({
+      toast.add({
         title: 'Could not apply rate',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -148,14 +147,14 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
       hoursPerUnit: number;
     }) => api.post(`/api/service-code-labour-items`, { serviceCodeId: selectedId, ...body }),
     onSuccess: async () => {
-      emit({ title: 'Labour line added', variant: 'success' });
+      toast.add({ title: 'Labour line added', type: 'success' });
       await invalidate();
     },
     onError: (e: Error) =>
-      emit({
+      toast.add({
         title: 'Could not add labour line',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -163,10 +162,10 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
     mutationFn: (id: number) => api.delete(`/api/service-code-labour-items/${id}`),
     onSuccess: invalidate,
     onError: (e: Error) =>
-      emit({
+      toast.add({
         title: 'Could not remove line',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -174,14 +173,14 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
     mutationFn: (body: { description: string; unitCost: number; quantity: number; uom: string }) =>
       api.post(`/api/service-code-material-items`, { serviceCodeId: selectedId, ...body }),
     onSuccess: async () => {
-      emit({ title: 'Material line added', variant: 'success' });
+      toast.add({ title: 'Material line added', type: 'success' });
       await invalidate();
     },
     onError: (e: Error) =>
-      emit({
+      toast.add({
         title: 'Could not add material line',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -189,10 +188,10 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
     mutationFn: (id: number) => api.delete(`/api/service-code-material-items/${id}`),
     onSuccess: invalidate,
     onError: (e: Error) =>
-      emit({
+      toast.add({
         title: 'Could not remove line',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -296,13 +295,22 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Trade role</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead className="text-right">Crew</TableHead>
-                      <TableHead className="text-right">Hours/unit</TableHead>
-                      <TableHead className="text-right">Loaded rate</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
-                      {canEdit && <TableHead />}
+                      <TableHead scope="col">Trade role</TableHead>
+                      <TableHead scope="col">Code</TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Crew
+                      </TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Hours/unit
+                      </TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Loaded rate
+                      </TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Subtotal
+                      </TableHead>
+                      {/* Spacer header for the row-action column; still a column header, so it needs the scope too. */}
+                      {canEdit && <TableHead scope="col" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -427,14 +435,21 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Item</TableHead>
-                      <TableHead>Code</TableHead>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead className="text-right">Unit cost</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead>UoM</TableHead>
-                      <TableHead className="text-right">Subtotal</TableHead>
-                      {canEdit && <TableHead />}
+                      <TableHead scope="col">Item</TableHead>
+                      <TableHead scope="col">Code</TableHead>
+                      <TableHead scope="col">Supplier</TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Unit cost
+                      </TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Qty
+                      </TableHead>
+                      <TableHead scope="col">UoM</TableHead>
+                      <TableHead scope="col" className="text-right">
+                        Subtotal
+                      </TableHead>
+                      {/* Spacer header for the row-action column; still a column header, so it needs the scope too. */}
+                      {canEdit && <TableHead scope="col" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>

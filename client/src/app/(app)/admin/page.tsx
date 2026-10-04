@@ -17,7 +17,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, ApiError } from '@/lib/api';
-import { useToast } from '@/components/ui/toast';
+import { useUrlParam } from '@/hooks/use-url-param';
+import { toast } from '@/components/ui/toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -64,11 +65,16 @@ interface AuditEntry {
 
 type Tab = 'users' | 'roles' | 'audit';
 
+/** Whitelist for the `tab` query parameter. */
+const TAB_KEYS: readonly Tab[] = ['users', 'roles', 'audit'];
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>('users');
+  // URL-backed so each admin screen is deep-linkable from the sidebar and the
+  // audit trail can be linked directly at a reviewer.
+  const [tab, setTab] = useUrlParam<Tab>('tab', TAB_KEYS, 'users');
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
         <p className="text-sm text-muted-foreground">
@@ -98,7 +104,7 @@ export default function AdminPage() {
       {tab === 'users' && <UsersPanel />}
       {tab === 'roles' && <RolesPanel />}
       {tab === 'audit' && <AuditPanel />}
-    </main>
+    </div>
   );
 }
 
@@ -110,7 +116,6 @@ function useMe() {
 }
 
 function UsersPanel() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const me = useMe();
   const myId = me.data?.user.id;
@@ -125,14 +130,14 @@ function UsersPanel() {
   const deactivate = useMutation({
     mutationFn: (id: number) => api.delete(`/api/admin/users/${id}`),
     onSuccess: () => {
-      toast({ title: 'Account deactivated', variant: 'success' });
+      toast.add({ title: 'Account deactivated', type: 'success' });
       refresh();
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not deactivate',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -148,12 +153,14 @@ function UsersPanel() {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Email</TableHead>
-          <TableHead>Employee</TableHead>
-          <TableHead>Roles</TableHead>
-          <TableHead className="text-right">Permissions</TableHead>
-          <TableHead>Last login</TableHead>
-          <TableHead>Status</TableHead>
+          <TableHead scope="col">Email</TableHead>
+          <TableHead scope="col">Employee</TableHead>
+          <TableHead scope="col">Roles</TableHead>
+          <TableHead scope="col" className="text-right">
+            Permissions
+          </TableHead>
+          <TableHead scope="col">Last login</TableHead>
+          <TableHead scope="col">Status</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -367,11 +374,11 @@ function AuditPanel() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>When</TableHead>
-            <TableHead>Actor</TableHead>
-            <TableHead>Action</TableHead>
-            <TableHead>Change</TableHead>
-            <TableHead>Route</TableHead>
+            <TableHead scope="col">When</TableHead>
+            <TableHead scope="col">Actor</TableHead>
+            <TableHead scope="col">Action</TableHead>
+            <TableHead scope="col">Change</TableHead>
+            <TableHead scope="col">Route</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

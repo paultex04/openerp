@@ -26,7 +26,8 @@
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test",
     "smoke:phase3": "node scripts/smoke-phase3.mjs",
     "smoke:phase4": "node scripts/smoke-phase4.mjs",
-    "smoke:phase5": "node scripts/smoke-phase5.mjs"
+    "smoke:phase5": "node scripts/smoke-phase5.mjs",
+    "smoke:phase6": "node scripts/smoke-phase6.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

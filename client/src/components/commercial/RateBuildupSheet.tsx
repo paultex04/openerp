@@ -20,11 +20,10 @@ import {
   type Tier1Result,
 } from '@openerp/shared';
 import { api, ApiError, type RateCardRow } from '@/lib/api';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-  NumericCell,
   Table,
   TableBody,
   TableCell,
@@ -32,6 +31,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { NumericCell } from '@/components/data-table/NumericCell';
 import { formatDelta, formatPercent, formatZar } from '@/lib/format';
 
 interface Draft {
@@ -125,8 +125,6 @@ function Line({
 }
 
 export function RateBuildupSheet({ amendmentId, engine, selected, canEdit }: Props) {
-  const { toast } = useToast();
-
   // The edit buffer is reset by keying the subtree, not by copying props into
   // state inside an effect. `key` changes unmount and remount this component,
   // which discards the draft and initialises it from the newly selected card —
@@ -141,20 +139,15 @@ export function RateBuildupSheet({ amendmentId, engine, selected, canEdit }: Pro
       engine={engine}
       selected={selected}
       canEdit={canEdit}
-      notify={toast}
     />
   );
 }
 
-interface FormProps extends Props {
-  notify: (input: {
-    title: string;
-    description?: string;
-    variant?: 'default' | 'success' | 'destructive';
-  }) => void;
-}
-
-function RateBuildupForm({ amendmentId, engine, selected, canEdit, notify }: FormProps) {
+// The toast manager is a module singleton, so the form reaches for it directly
+// rather than receiving it as a prop. Prop-drilling a global made the component
+// untestable without an importer and forced a hand-written signature to be kept
+// in sync with the toast API.
+function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
   const [draft, setDraft] = useState<Draft>(selected ? draftFrom(selected) : BLANK);
   const [profitPctInput, setProfitPctInput] = useState(String(engine.profitPct ?? 0.095));
 
@@ -248,12 +241,12 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit, notify }: For
         deriveOverheads: draft.deriveOverheads,
       });
     },
-    onSuccess: () => notify({ title: 'Rate card saved', variant: 'success' }),
+    onSuccess: () => toast.add({ title: 'Rate card saved', type: 'success' }),
     onError: (e: Error) =>
-      notify({
+      toast.add({
         title: 'Could not save rate card',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -361,9 +354,11 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit, notify }: For
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead>Basis</TableHead>
-                <TableHead className="text-right">ZAR</TableHead>
+                <TableHead scope="col">Component</TableHead>
+                <TableHead scope="col">Basis</TableHead>
+                <TableHead scope="col" className="text-right">
+                  ZAR
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

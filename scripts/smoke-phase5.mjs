@@ -47,7 +47,6 @@ if (!ADMIN_PASSWORD) {
 
 // Fixed, reused across runs. See the residue note in the header.
 const SMOKE_USER = 'smoke-p5@contractor.co.za';
-const SMOKE_CLIENT = 'smoke-p5-client@example.test';
 
 const fixture = { userIds: [], clientEmails: [], clientIds: [] };
 
@@ -172,8 +171,6 @@ async function main() {
     check('POST /api/admin/users', created.status, 201);
     if (created.body?.user?.id) fixture.userIds.push(created.body.user.id);
   }
-
-  const userId = fixture.userIds[0];
 
   // A weak password is refused during validation, before any row is written, so
   // this leaves no residue.
