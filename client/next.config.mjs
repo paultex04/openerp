@@ -3,22 +3,13 @@ const nextConfig = {
   reactStrictMode: true,
 
   /**
-   * No dev proxy for `/api/*`.
+   * No `rewrites()` proxy for `/api/*`.
    *
-   * One was tried and removed. It looked attractive — same-origin requests mean
-   * the session cookie is unambiguously first-party — but the rewrite silently
-   * failed to match and every proxied call returned 404, which is a far more
-   * confusing failure than a working cross-origin call.
+   * One was tried and removed: it never matched, so every proxied call returned
+   * 404 with nothing logged. Forwarding is handled instead by the Route Handler at
+   * `src/app/api/[...path]/route.ts`, which takes precedence over both rewrites
+   * and 404s. See that file for the full rationale.
    *
-   * Calling the API directly is safe here because `localhost:3000` and
-   * `localhost:4000` are the *same site* (the port is not part of the site
-   * calculation), so a `SameSite=Lax` session cookie is still sent. The API
-   * enables CORS with `credentials: true` and an explicit `CLIENT_ORIGIN`.
-   *
-   * Set `NEXT_PUBLIC_API_BASE_URL` to the API's absolute origin to use this path.
-   */
-
-  /**
    * `@openerp/shared` is a workspace-internal TypeScript package using
    * `moduleResolution: "bundler"`, so its relative imports are extensionless.
    *

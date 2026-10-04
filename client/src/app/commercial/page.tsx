@@ -57,23 +57,6 @@ export default function CommercialPage() {
     enabled: can('contract.read'),
   });
 
-  const parameters = useQuery({
-    queryKey: ['cost-parameters', amendmentId],
-    queryFn: () =>
-      api.get<{
-        parameters: unknown[];
-        engine: EngineParameters;
-        amendment: { amendmentNumber: string; vatRate: number };
-      }>(`/api/amendments/${amendmentId}/cost-parameters`),
-    enabled: tab === 'parameters' && amendmentId !== null && can('costparameter.read'),
-  });
-
-  const rates = useQuery({
-    queryKey: ['service-master-rates', amendmentId],
-    queryFn: () => api.get<{ rates: RateCardRow[] }>('/api/service-master-rates', { amendmentId }),
-    enabled: tab === 'rates' && amendmentId !== null && can('ratemaster.read'),
-  });
-
   const [selectedRateId, setSelectedRateId] = useState<number | null>(null);
 
   /** Every amendment across every contract, flattened for the picker. */
@@ -82,7 +65,36 @@ export default function CommercialPage() {
     [contracts.data],
   );
 
+  /**
+   * The amendment actually in effect.
+   *
+   * `amendmentId` is only set once the user picks one from the dropdown, so it
+   * starts as null. Every query MUST key off this derived value rather than the
+   * raw state, otherwise `enabled: amendmentId !== null` is false on first paint
+   * and the panel silently stays empty forever.
+   */
   const activeAmendmentId = amendmentId ?? amendments[0]?.id ?? null;
+
+  const parameters = useQuery({
+    queryKey: ['cost-parameters', activeAmendmentId],
+    queryFn: () =>
+      api.get<{
+        parameters: unknown[];
+        engine: EngineParameters;
+        amendment: { amendmentNumber: string; vatRate: number };
+      }>(`/api/amendments/${activeAmendmentId}/cost-parameters`),
+    enabled: tab === 'parameters' && activeAmendmentId !== null && can('costparameter.read'),
+  });
+
+  const rates = useQuery({
+    queryKey: ['service-master-rates', activeAmendmentId],
+    queryFn: () =>
+      api.get<{ rates: RateCardRow[] }>('/api/service-master-rates', {
+        amendmentId: activeAmendmentId,
+      }),
+    enabled: tab === 'rates' && activeAmendmentId !== null && can('ratemaster.read'),
+  });
+
   const activeAmendment = amendments.find((a) => a.id === activeAmendmentId);
   const selectedRate = rates.data?.rates.find((r) => r.id === selectedRateId) ?? null;
 

@@ -24,10 +24,13 @@ export class ApiError extends Error {
 /**
  * Base URL for API calls.
  *
- * Empty in development, which makes requests same-origin and lets the Next.js
- * rewrite proxy them; set `NEXT_PUBLIC_API_BASE_URL` to call the API directly
- * (e.g. when the rewrite proxy is unavailable). Must be an absolute origin in
- * that case, and the API must allow it via `CLIENT_ORIGIN`.
+ * Empty by design: requests go to the client's own origin and are forwarded to
+ * the API by the Route Handler at `app/api/[...path]/route.ts`. That keeps the
+ * HTTP-only session cookie first-party and avoids both CORS and the fragile
+ * dependency on `NEXT_PUBLIC_*` variables being inlined at build time.
+ *
+ * Set `NEXT_PUBLIC_API_BASE_URL` only if you deliberately want direct
+ * cross-origin calls; the API must then allow this origin via `CLIENT_ORIGIN`.
  */
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 
