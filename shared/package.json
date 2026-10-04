@@ -1,6 +1,6 @@
 {
   "name": "@openerp/shared",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Domain types, Zod schemas and the pure pricing/job-state engines shared by server and client.",
