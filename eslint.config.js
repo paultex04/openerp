@@ -2,6 +2,7 @@ import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 import globals from 'globals';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 export default tseslint.config(
   {
@@ -37,8 +38,17 @@ export default tseslint.config(
   {
     // Browser / React globals for the Next.js client workspace.
     files: ['client/**/*.{ts,tsx}'],
+    plugins: {
+      // The hooks rules catch stale-closure bugs that TypeScript cannot see,
+      // which matters here because the build-up sheet recomputes derived pricing
+      // inside useMemo.
+      'react-hooks': reactHooks,
+    },
     languageOptions: {
       globals: { ...globals.browser, ...globals.es2022 },
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
     },
   },
   prettier,
