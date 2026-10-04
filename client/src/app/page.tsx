@@ -10,18 +10,22 @@ export default function HomePage() {
 
   const destinations = [
     {
+      href: '/operations',
+      title: 'Operations',
+      description: 'Projects, job lifecycle, scoping and field actuals.',
+      permission: 'job.read',
+    },
+    {
+      href: '/field',
+      title: 'Field',
+      description: 'Mobile view for site supervisors: record measured quantities.',
+      permission: 'deliverable.read',
+    },
+    {
       href: '/commercial',
       title: 'Commercial',
       description: 'Contracts, amendments, cost parameters, labour rate build-up and recipes.',
       permission: 'contract.read',
-    },
-    // Phase 3 adds Operations; Phase 4 adds Billing. Listed as disabled so the
-    // navigation does not shift as phases land.
-    {
-      href: '#',
-      title: 'Operations',
-      description: 'Projects, job lifecycle and field actuals. Arrives in Phase 3.',
-      permission: null,
     },
     {
       href: '#',
@@ -78,7 +82,7 @@ export default function HomePage() {
               <h2 className="text-sm font-semibold">{d.title}</h2>
               <p className="mt-1 text-xs text-muted-foreground">{d.description}</p>
               <div className="mt-3">
-                {enabled ? (
+                {enabled && d.href !== '#' ? (
                   <Link href={d.href}>
                     <Button size="sm">Open</Button>
                   </Link>

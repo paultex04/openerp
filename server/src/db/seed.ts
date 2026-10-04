@@ -148,10 +148,165 @@ async function seedSuperAdmin(): Promise<void> {
   console.log(`  super admin    created ${user.email} (employee #${employee.id})`);
 }
 
+/**
+ * Role assignments for the demo accounts.
+ *
+ * The first three attach accounts to employees that already exist in the
+ * baseline, which keeps the operational data coherent — David Mokoena really is
+ * the supervisor on job 1, so his login really does see that job. The last two
+ * have nobody to attach to and get their own employee records.
+ */
+const DEMO_USERS: ReadonlyArray<{ email: string; roleKey: string; name: string; surname: string }> =
+  [
+    {
+      email: 'david.m@contractor.co.za',
+      roleKey: 'site_supervisor',
+      name: 'David',
+      surname: 'Mokoena',
+    },
+    {
+      email: 'sipho.z@contractor.co.za',
+      roleKey: 'site_supervisor',
+      name: 'Sipho',
+      surname: 'Zulu',
+    },
+    {
+      email: 'bongani.d@contractor.co.za',
+      roleKey: 'commercial_qs',
+      name: 'Bongani',
+      surname: 'Dlamini',
+    },
+    { email: 'pm@contractor.co.za', roleKey: 'project_manager', name: 'Nomsa', surname: 'Khumalo' },
+    {
+      email: 'billing@contractor.co.za',
+      roleKey: 'billing_clerk',
+      name: 'Riaan',
+      surname: 'Botha',
+    },
+  ];
+
+/**
+ * Creates one login per non-admin role so the RBAC matrix can actually be
+ * exercised.
+ *
+ * Without this the only account is the administrator, every permission check
+ * passes, and role-gated workflows ship unverified. Three defects reached Phase 3
+ * this way (webpack resolution, `.env` scoping, a null-state query guard) — none
+ * were caught by a suite where one account holds all 42 permissions.
+ *
+ * Guards, in order:
+ *  - opt-in: `SEED_DEMO_PASSWORD` must be set, so a production seed cannot
+ *    silently mint accounts;
+ *  - environment: refuses to run when `NODE_ENV=production`;
+ *  - idempotent: an existing account is left untouched, matching `seedSuperAdmin`;
+ *  - password policy: enforced by `hashPassword`, same as the admin path.
+ */
+async function seedDemoUsers(): Promise<void> {
+  const password = process.env.SEED_DEMO_PASSWORD;
+
+  if (!password) {
+    console.log('  demo users     skipped (SEED_DEMO_PASSWORD not set)');
+    return;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Refusing to seed demo users with NODE_ENV=production. These accounts share a ' +
+        'known password and must never exist in a live environment.',
+    );
+  }
+
+  let passwordHash: string;
+  try {
+    passwordHash = await hashPassword(password);
+  } catch (e) {
+    if (e instanceof PasswordPolicyError) {
+      throw new Error(
+        `SEED_DEMO_PASSWORD rejected by policy: ${e.message} ` +
+          'Use at least 12 characters mixing three of lowercase/uppercase/digit/symbol.',
+      );
+    }
+    throw e;
+  }
+
+  const contractType = await prisma.employeeContractType.findFirstOrThrow();
+  let created = 0;
+  let attached = 0;
+
+  for (const demo of DEMO_USERS) {
+    const role = await prisma.appRole.findUnique({ where: { key: demo.roleKey } });
+    if (!role) {
+      console.warn(`  demo users     SKIP ${demo.email}: role "${demo.roleKey}" is not seeded`);
+      continue;
+    }
+
+    const existingUser = await prisma.appUser.findUnique({ where: { email: demo.email } });
+    if (existingUser) {
+      // Backfill roles onto an account that exists but has none, so re-running
+      // the seed repairs a half-configured environment instead of skipping it.
+      const held = await prisma.appUserRole.count({ where: { userId: existingUser.id } });
+      if (held > 0) continue;
+      await prisma.appUserRole.create({
+        data: { userId: existingUser.id, roleId: role.id },
+      });
+      attached++;
+      console.log(`  demo users     attached "${demo.roleKey}" to ${demo.email}`);
+      continue;
+    }
+
+    // Reuse the baseline employee where one matches; otherwise create a record.
+    const existingEmployee = await prisma.employee.findFirst({
+      where: { email: demo.email },
+      select: { id: true },
+    });
+
+    const employeeId =
+      existingEmployee?.id ??
+      (
+        await prisma.employee.create({
+          data: {
+            name: demo.name,
+            surname: demo.surname,
+            email: demo.email,
+            startDate: new Date(),
+            contractTypeId: contractType.id,
+          },
+          select: { id: true },
+        })
+      ).id;
+
+    await prisma.appUser.create({
+      data: {
+        employeeId,
+        email: demo.email,
+        passwordHash,
+        isActive: true,
+        roles: { create: { roleId: role.id } },
+      },
+      select: { id: true },
+    });
+
+    created++;
+    console.log(
+      `  demo users     created ${demo.email} as "${demo.roleKey}" ` +
+        `(${existingEmployee ? 'reused' : 'new'} employee #${employeeId})`,
+    );
+  }
+
+  console.log(`  demo users     ${created} created, ${attached} role(s) attached`);
+  if (created > 0) {
+    console.warn(
+      '  demo users     WARNING: these accounts share one password from .env. ' +
+        'Change them via POST /api/auth/change-password before any shared use.',
+    );
+  }
+}
+
 async function main(): Promise<void> {
   console.log('Seeding OpenERP auth + RBAC data...');
   await seedRolesAndPermissions();
   await seedSuperAdmin();
+  await seedDemoUsers();
   console.log('Seed complete.');
 }
 

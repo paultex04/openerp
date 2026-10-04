@@ -6,3 +6,6 @@ export * from './pricing/vat';
 export * from './schemas/enums';
 export * from './schemas/prisma-enums';
 export * from './schemas/commercial';
+export * from './schemas/operations';
+export * from './job-status';
+export * from './deliverables';

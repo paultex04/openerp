@@ -283,3 +283,163 @@ export interface EngineParameters {
   transportHourlyRate?: number;
   r1MaterialMarkupPct?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Operations (Phase 3)
+// ---------------------------------------------------------------------------
+
+export interface JobRow {
+  id: number;
+  status: string;
+  priority: string;
+  description: string | null;
+  workOrder: string | null;
+  purchaseOrder: string | null;
+  area: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+  project: { id: number; code: string; year: number; contract: { number: string } };
+  supervisor: { id: number; name: string; surname: string } | null;
+  _count?: { serviceCodes: number; assignments: number; invoices: number };
+}
+
+export interface DeliverableRow {
+  id: number;
+  jobId: number;
+  serviceCodeId: number;
+  code: string;
+  description: string;
+  category: string;
+  uom: string;
+  /** Immutable price snapshot, ZAR per unit. */
+  appliedRate: number;
+  plannedQuantity: number;
+  actualQuantity: number;
+  plannedSubtotal: number;
+  actualSubtotal: number;
+  quantityVariance: number;
+  valueVariance: number;
+  /** True when the service code has been re-priced since scoping. */
+  rateHasDrifted: boolean;
+  currentRate: number | null;
+  plannedLocked: boolean;
+  plannedLockReason: string | null;
+  actualsLocked: boolean;
+  actualsLockReason: string | null;
+}
+
+export interface VarianceSummary {
+  plannedSubtotal: number;
+  actualSubtotal: number;
+  valueVariance: number;
+  lineCount: number;
+  linesWithActuals: number;
+  linesOverrun: number;
+}
+
+export interface TransitionOption {
+  to: string;
+  allowed: boolean;
+  reason: string;
+  requiredPermission?: string;
+}
+
+export interface JobDetail {
+  job: {
+    id: number;
+    status: string;
+    priority: string;
+    description: string | null;
+    workOrder: string | null;
+    purchaseOrder: string | null;
+    area: string | null;
+    plannedStartDate: string | null;
+    plannedEndDate: string | null;
+    actualStartDate: string | null;
+    actualEndDate: string | null;
+    amendmentId: number;
+    amendment: { id: number; amendmentNumber: string; status: string; vatRate: number } | null;
+    amendmentInherited: boolean;
+    project: {
+      id: number;
+      code: string;
+      year: number;
+      contract: { id: number; number: string; client: { name: string } };
+    };
+    supervisor: { id: number; name: string; surname: string } | null;
+    assignments: Array<{
+      id: number;
+      role: string | null;
+      assignedDate: string | null;
+      employee: { id: number; name: string; surname: string };
+    }>;
+    invoices: Array<{ id: number; invoiceNumber: string; status: string; totalWithTax: number }>;
+  };
+  permissions: {
+    canEditPlanned: boolean;
+    plannedLockReason: string | null;
+    canEditActuals: boolean;
+    actualsLockReason: string | null;
+    canAddDeliverable: boolean;
+    availableTransitions: string[];
+    scopedToAssignedJobs: boolean;
+  };
+  deliverables: DeliverableRow[];
+  summary: VarianceSummary;
+}
+
+export interface ProjectRow {
+  id: number;
+  code: string;
+  year: number;
+  description: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  contract: { id: number; number: string; client: { id: number; name: string } };
+  amendment: { id: number; amendmentNumber: string; status: string; vatRate: number };
+  jobs: Array<{ id: number; status: string; priority: string; description: string | null }>;
+  statusCounts: Record<string, number>;
+}
+
+export interface ProjectDetail {
+  project: Omit<ProjectRow, 'jobs' | 'statusCounts'> & {
+    jobs: Array<
+      JobRow & {
+        plannedSubtotal: number;
+        actualSubtotal: number;
+        valueVariance: number;
+        lineCount: number;
+        linesWithActuals: number;
+        linesOverrun: number;
+      }
+    >;
+    exposure: {
+      plannedSubtotal: number;
+      actualSubtotal: number;
+      valueVariance: number;
+      lineCount: number;
+      linesWithActuals: number;
+      linesOverrun: number;
+    };
+  };
+}
+
+export interface FieldJob {
+  id: number;
+  status: string;
+  description: string | null;
+  workOrder: string | null;
+  area: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+  project: { code: string; contract: { number: string } };
+  permissions: {
+    canEditActuals: boolean;
+    actualsLockReason: string | null;
+    availableTransitions: string[];
+  };
+  deliverables: DeliverableRow[];
+  summary: VarianceSummary;
+}
