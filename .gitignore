@@ -1,0 +1,50 @@
+# ---- Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# ---- Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# ---- Environment / secrets (NEVER COMMIT)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- Test + coverage
+coverage/
+.nyc_output/
+
+# ---- Logs
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Caches
+.cache/
+.vite/
+.turbo/
+.eslintcache
+.parcel-cache/
+
+# ---- Prisma generated client
+server/src/generated/
+server/prisma/migrations/dev.db*
+
+# ---- OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# ---- Local scratch
+tmp/
+*.local
