@@ -7,20 +7,14 @@
  * where money and risk sit without drilling into every job.
  */
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import { api, ApiError, type ProjectDetail, type ProjectRow } from '@/lib/api';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { StatusPill, varianceTone } from '@/components/lifecycle/status-badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { NumericCell } from '@/components/data-table/NumericCell';
+import { DataTable } from '@/components/data-table/data-table';
+import { Button } from '@/components/ui/button';
 import { formatDate, formatZar } from '@/lib/format';
 
 function Metric({
@@ -48,6 +42,24 @@ function daysBetween(start: string | null, end: string | null): number | null {
   if (!start || !end) return null;
   const ms = new Date(end).getTime() - new Date(start).getTime();
   return Math.round(ms / 86_400_000);
+}
+
+/** Statuses that stop a job counting as overdue - it is finished or abandoned. */
+const SETTLED = ['10. Invoiced', '11. Partially Invoiced', '00. Cancelled'];
+
+type ProjectJob = NonNullable<ProjectDetail['project']['jobs']>[number];
+
+/**
+ * A job is overdue when its planned end has passed and it has not settled.
+ *
+ * `now` is passed in rather than read from the clock: `Date.now()` inside a cell
+ * renderer is an impure read that would change every time the table re-sorted,
+ * and would make the overdue set drift while the page is open.
+ */
+function isOverdue(job: ProjectJob, now: number): boolean {
+  if (!job.plannedEndDate) return false;
+  if (SETTLED.includes(job.status)) return false;
+  return new Date(job.plannedEndDate).getTime() < now;
 }
 
 export function ProjectDashboard({ onSelectJob }: { onSelectJob: (id: number) => void }) {
@@ -142,6 +154,9 @@ function ProjectCard({
    * flags and which would also recompute on every unrelated re-render. Freezing it
    * in state means the overdue highlighting is stable for the life of the card.
    */
+  const [statusFilter, setStatusFilter] = useState('');
+  const [overdueFilter, setOverdueFilter] = useState('');
+
   const [now] = useState(() => Date.now());
 
   const detail = useQuery({
@@ -150,6 +165,103 @@ function ProjectCard({
   });
 
   const exposure = detail.data?.project.exposure;
+
+  // Built inside the component because the cells close over `now` and
+  // `onSelectJob`. Memoised on those two identities, both stable.
+  const jobColumns = useMemo<ColumnDef<ProjectJob, unknown>[]>(
+    () => [
+      {
+        id: 'id',
+        accessorKey: 'id',
+        header: 'Job',
+        cell: ({ row }) => (
+          <span className="flex items-baseline gap-1">
+            <button
+              type="button"
+              onClick={() => onSelectJob(row.original.id)}
+              className="font-medium hover:underline"
+            >
+              #{row.original.id}
+            </button>
+            {row.original.workOrder && (
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {row.original.workOrder}
+              </span>
+            )}
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => (
+          <span>
+            <StatusPill status={row.original.status} />
+            <span className="mt-0.5 block text-[10px] text-muted-foreground">
+              {row.original.priority}
+            </span>
+          </span>
+        ),
+      },
+      {
+        id: 'plannedEndDate',
+        accessorKey: 'plannedEndDate',
+        header: 'Schedule',
+        cell: ({ row }) => {
+          const job = row.original;
+          const plannedDays = daysBetween(job.plannedStartDate, job.plannedEndDate);
+          return (
+            <span className="text-xs whitespace-nowrap">
+              <span className={isOverdue(job, now) ? 'font-medium text-negative' : ''}>
+                {formatDate(job.plannedStartDate)} → {formatDate(job.plannedEndDate)}
+              </span>
+              {plannedDays !== null && (
+                <span className="block text-[10px] text-muted-foreground">{plannedDays} days</span>
+              )}
+            </span>
+          );
+        },
+      },
+      {
+        id: 'description',
+        accessorKey: 'description',
+        header: 'Description',
+        cell: ({ row }) => (
+          <span className="block max-w-[12rem] truncate" title={row.original.description ?? ''}>
+            {row.original.description ?? '-'}
+          </span>
+        ),
+      },
+      {
+        id: 'plannedSubtotal',
+        accessorKey: 'plannedSubtotal',
+        header: 'Planned',
+        meta: { align: 'right' },
+        cell: ({ row }) => formatZar(row.original.plannedSubtotal),
+      },
+      {
+        id: 'actualSubtotal',
+        accessorKey: 'actualSubtotal',
+        header: 'Actual',
+        meta: { align: 'right' },
+        cell: ({ row }) => formatZar(row.original.actualSubtotal),
+      },
+      {
+        id: 'valueVariance',
+        accessorKey: 'valueVariance',
+        header: 'Variance',
+        meta: { align: 'right' },
+        cell: ({ row }) => (
+          <span className={varianceTone(row.original.valueVariance)}>
+            {row.original.valueVariance > 0 ? '+' : ''}
+            {formatZar(row.original.valueVariance)}
+          </span>
+        ),
+      },
+    ],
+    [now, onSelectJob],
+  );
 
   return (
     <section className="space-y-3 rounded-lg border p-4">
@@ -183,89 +295,56 @@ function ProjectCard({
 
       {detail.isLoading && <p className="text-xs text-muted-foreground">Loading jobs…</p>}
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead scope="col">Job</TableHead>
-            <TableHead scope="col">Status</TableHead>
-            <TableHead scope="col">Schedule</TableHead>
-            <TableHead scope="col" className="hidden xl:table-cell">
-              Description
-            </TableHead>
-            <TableHead scope="col" className="text-right">
-              Planned
-            </TableHead>
-            <TableHead scope="col" className="text-right">
-              Actual
-            </TableHead>
-            <TableHead scope="col" className="text-right">
-              Variance
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {(detail.data?.project.jobs ?? []).map((job) => {
-            const plannedDays = daysBetween(job.plannedStartDate, job.plannedEndDate);
-            const overdue =
-              job.plannedEndDate !== null &&
-              new Date(job.plannedEndDate).getTime() < now &&
-              !['10. Invoiced', '11. Partially Invoiced', '00. Cancelled'].includes(job.status);
-
-            return (
-              <TableRow key={job.id}>
-                <TableCell>
-                  <button
-                    type="button"
-                    onClick={() => onSelectJob(job.id)}
-                    className="font-medium hover:underline"
-                  >
-                    #{job.id}
-                  </button>
-                  {job.workOrder && (
-                    <span className="ml-1 font-mono text-[10px] text-muted-foreground">
-                      {job.workOrder}
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <StatusPill status={job.status} />
-                  <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                    {job.priority}
-                  </span>
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-xs">
-                  <span className={overdue ? 'font-medium text-red-700 dark:text-red-400' : ''}>
-                    {formatDate(job.plannedStartDate)} → {formatDate(job.plannedEndDate)}
-                  </span>
-                  {plannedDays !== null && (
-                    <span className="block text-[10px] text-muted-foreground">
-                      {plannedDays} days
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell className="hidden xl:table-cell">
-                  <span className="block max-w-[12rem] truncate" title={job.description ?? ''}>
-                    {job.description ?? '—'}
-                  </span>
-                </TableCell>
-                <NumericCell>{formatZar(job.plannedSubtotal)}</NumericCell>
-                <NumericCell>{formatZar(job.actualSubtotal)}</NumericCell>
-                <NumericCell className={varianceTone(job.valueVariance)}>
-                  {job.valueVariance > 0 ? '+' : ''}
-                  {formatZar(job.valueVariance)}
-                </NumericCell>
-              </TableRow>
-            );
-          })}
-          {(detail.data?.project.jobs ?? []).length === 0 && (
-            <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground">
-                No jobs on this project.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
+      {/*
+        A project with two dozen jobs is a register, not a summary, so this gets
+        search, filters and sorting. The overdue flag is carried into a filter
+        because "which of these are late?" is the question this table is opened
+        to answer.
+      */}
+      <DataTable
+        caption={`Jobs on project ${detail.data?.project.code ?? ''}`}
+        fill
+        data={detail.data?.project.jobs ?? []}
+        columns={jobColumns}
+        rowKey={(job) => job.id}
+        searchKeys={['description', 'workOrder', 'status', 'priority']}
+        searchPlaceholder="Search job, work order or description…"
+        isLoading={detail.isLoading}
+        initialSort={[{ id: 'id', desc: false }]}
+        emptyMessage="No jobs on this project match the current search and filters."
+        filters={[
+          {
+            id: 'status',
+            label: 'Stage',
+            value: statusFilter,
+            options: [
+              { value: '', label: 'All stages' },
+              ...[...new Set((detail.data?.project.jobs ?? []).map((job) => job.status))].map(
+                (status) => ({ value: status, label: status }),
+              ),
+            ],
+            onChange: setStatusFilter,
+            predicate: (job, selected) => job.status === selected,
+          },
+          {
+            id: 'overdue',
+            label: 'Schedule',
+            value: overdueFilter,
+            options: [
+              { value: '', label: 'Any' },
+              { value: 'overdue', label: 'Overdue' },
+              { value: 'on-time', label: 'Not overdue' },
+            ],
+            onChange: setOverdueFilter,
+            predicate: (job, selected) => isOverdue(job, now) === (selected === 'overdue'),
+          },
+        ]}
+        renderRowActions={(job) => (
+          <Button size="sm" variant="ghost" onClick={() => onSelectJob(job.id)}>
+            Open
+          </Button>
+        )}
+      />
     </section>
   );
 }

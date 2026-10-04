@@ -35,6 +35,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -61,6 +62,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { api } from '@/lib/api';
 import { breadcrumbFor, visibleSections, type NavSection } from '@/lib/nav';
 import { useCollapsedSections, useSidebarOpen } from '@/lib/shell-preferences';
@@ -69,12 +71,18 @@ import { cn } from '@/lib/utils';
 /**
  * Avatar tint, chosen from the address so it is stable per user rather than
  * changing on every render or navigation.
+ *
+ * Built from theme tokens rather than literal colour ramps. The literals were a
+ * fixed set of four colours that ignored the active theme entirely, so under
+ * Midnight four dark-on-dark avatars rendered at near-zero contrast. A low-alpha
+ * fill plus the solid token for the text lets the tint follow the palette and
+ * keeps the lettering legible in every theme.
  */
 const ROLE_TINTS = [
-  'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200',
-  'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200',
-  'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
-  'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+  'bg-info/15 text-info',
+  'bg-primary/15 text-primary',
+  'bg-warning/15 text-warning',
+  'bg-success/15 text-success',
 ];
 
 /**
@@ -164,7 +172,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
+    /*
+     * `h-dvh overflow-hidden` is what makes "fill the screen" possible at all.
+     *
+     * shadcn's SidebarProvider sets only `min-h-svh`, a *minimum*. A flex child
+     * under a minimum-height parent still sizes to its content, so every
+     * `flex-1` below it collapses to zero and a filling table ends up with no
+     * height at all. A definite height lets `SidebarInset` take the remainder and
+     * the page's `flex-1` resolve to real pixels.
+     */
+    <SidebarProvider
+      open={sidebarOpen}
+      onOpenChange={setSidebarOpen}
+      className="h-dvh overflow-hidden"
+    >
       <AppSidebar
         sections={sections}
         collapsed={collapsed}
@@ -179,7 +200,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         that target ambiguous. The id therefore lives on SidebarInset, which is
         the element that actually *is* the landmark.
       */}
-      <SidebarInset id="main-content" className="min-w-0">
+      <SidebarInset id="main-content" className="min-w-0 overflow-hidden">
+        {/*
+          The shell is a fixed-height flex chain so a page can fill the viewport
+          exactly: viewport = header + content, and the content area is the only
+          thing that scrolls.
+
+          The `min-h-0` on the content wrapper is load-bearing. In a flex column a
+          child defaults to `min-height: auto`, which refuses to shrink below its
+          content - so a long table would push the page taller than the screen
+          and the shell would scroll as a whole, taking the sticky header with it
+          and leaving the table's own scroll region redundant.
+        */}
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
           <SidebarTrigger className="-ml-1" />
 
@@ -197,6 +229,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="ml-auto flex items-center gap-2">
             {loading && <Spinner className="size-4 text-muted-foreground" />}
+            {/*
+              Theme is a per-device preference, so it is offered to every
+              authenticated user rather than gated on a permission.
+            */}
+            <ThemePicker />
+            <ThemeAnnouncer />
             <UserMenu
               email={user?.user.email}
               displayName={
@@ -209,23 +247,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <div className="flex-1 p-4 sm:p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {/*
+            `h-full`, not `min-h-full`. The inner wrapper must be exactly the
+            scroll container's height so a page's `flex-1` child resolves against
+            a definite box; `min-h-full` lets the box grow with content, which
+            reintroduces the indefinite height the chain is trying to avoid.
+          */}
+          <div className="flex h-full flex-col p-4 sm:p-6">
+            {/*
             Pages read their tab and filters from the URL, so each of them needs
             this boundary too. The layout declares the same one for the page
             itself; this one exists because AppShell renders above the layout's
             boundary and must not opt itself out of prerendering.
           */}
-          <Suspense
-            fallback={
-              <div className="flex min-h-64 items-center justify-center">
-                <Spinner className="size-6 text-muted-foreground" />
-                <span className="sr-only">Loading…</span>
-              </div>
-            }
-          >
-            {children}
-          </Suspense>
+            <Suspense
+              fallback={
+                <div className="flex min-h-64 items-center justify-center">
+                  <Spinner className="size-6 text-muted-foreground" />
+                  <span className="sr-only">Loading…</span>
+                </div>
+              }
+            >
+              {children}
+            </Suspense>
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>
@@ -455,9 +501,16 @@ function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter>
-        <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
-          Session held in an HTTP-only cookie.
-        </p>
+        {/*
+          Hidden in icon mode. The rail is ~48px wide there, so this sentence
+          wrapped one word per line down the side of the screen, which is the most
+          visible layout bug in collapsed mode.
+        */}
+        {open && (
+          <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
+            Session held in an HTTP-only cookie.
+          </p>
+        )}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
@@ -497,13 +550,22 @@ function UserMenu({
         }
       />
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="flex flex-col gap-1">
-          <span className="truncate text-sm font-medium">{label}</span>
-          {email && email !== label && (
-            <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
-          )}
-          <span className="text-xs font-normal text-muted-foreground">{humanise(roles)}</span>
-        </DropdownMenuLabel>
+        {/*
+          `DropdownMenuGroup` is mandatory here, not decorative. In the base-nova
+          component `DropdownMenuLabel` wraps Base UI's `MenuGroupLabel`, which
+          throws "MenuGroupContext is missing" unless it is inside a menu group.
+          Rendering the label on its own crashed the whole tree, and it did so only
+          on click - the page looked perfectly healthy until the menu opened.
+        */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex flex-col gap-1">
+            <span className="truncate text-sm font-medium">{label}</span>
+            {email && email !== label && (
+              <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
+            )}
+            <span className="text-xs font-normal text-muted-foreground">{humanise(roles)}</span>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" disabled={loggingOut} onClick={onLogout}>
           {loggingOut ? 'Signing out…' : 'Sign out'}

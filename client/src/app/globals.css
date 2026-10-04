@@ -29,86 +29,336 @@
 /* Dark mode is class-driven, matching the previous `darkMode: ['class']`. */
 @custom-variant dark (&:is(.dark *));
 
-/*
- * Token definitions sit at the top level, not inside `@layer base`.
+/* ==========================================================================
+ * THEMING
+ * ==========================================================================
  *
- * In v4 `@layer` declares a CSS cascade layer, and a `@layer base {}` block that
- * wraps the token definitions makes them participate in the cascade instead of
- * being plain custom properties on `:root` - which the compiler rejects outright
- * ("`@layer base` is used but no matching `@tailwind base` directive is present")
- * when the surrounding `@import "tailwindcss"` has not already registered the
- * layer. Keeping them top-level is also what lets `.dark` override them and lets
- * `@theme inline` read them.
+ * How a theme is applied
+ * ----------------------
+ * A theme is nothing but a set of custom-property overrides selected by
+ * `[data-theme="<id>"]` on <html>. Nothing else in the application knows which
+ * theme is active: every component reads semantic tokens (`bg-primary`,
+ * `text-muted-foreground`, `border-border`), so switching `data-theme` restyles
+ * the entire app - sidebar, badges, tables, focus rings - from one attribute
+ * change, with no re-render and no flash.
+ *
+ * That is the reason the tokens exist, and the reason no component is allowed to
+ * hardcode a colour. Anything that did (`bg-emerald-100`, `text-red-700`) was
+ * invisible to the theme and has been moved onto `--success` / `--negative`.
+ *
+ * Two axes, deliberately separated:
+ *   - the neutral ramp (background, card, border, muted) - light or dark
+ *   - the accent (primary, ring, charts, sidebar highlight) - the theme's hue
+ *
+ * Each theme sets BOTH, so a theme is a complete coherent surface rather than a
+ * tint over a fixed grey. The light themes share a lightness skeleton and differ
+ * in hue and chroma, which is what makes them feel like one product in five
+ * colourways instead of five unrelated skins.
+ *
+ * `:root` is the Harbour palette, so the app is fully themed before any
+ * JavaScript runs and a theme can never be "unset".
  */
-:root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+/* --- Harbour: the default. Cool slate neutrals, industrial cyan-blue. ------- */
+:root,
+[data-theme='harbour'] {
+  color-scheme: light;
+
+  --background: oklch(0.985 0.002 250);
+  --foreground: oklch(0.21 0.015 255);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.21 0.015 255);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.21 0.015 255);
+
+  --primary: oklch(0.55 0.16 238);
+  --primary-foreground: oklch(0.99 0.005 238);
+
+  --secondary: oklch(0.96 0.008 250);
+  --secondary-foreground: oklch(0.28 0.02 255);
+  --muted: oklch(0.965 0.006 250);
+  --muted-foreground: oklch(0.5 0.022 255);
+  --accent: oklch(0.945 0.022 238);
+  --accent-foreground: oklch(0.3 0.055 245);
+
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.91 0.008 250);
+  --input: oklch(0.91 0.008 250);
+  --ring: oklch(0.55 0.16 238);
   --radius: 0.625rem;
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * Semantic status colours, kept separate from `destructive`.
+   *
+   * Money movement and lifecycle stage are not errors: a paid invoice and a
+   * "Pack Ready" job are good news that happen to need colour. Routing them
+   * through `destructive` made the app look alarming and trained the eye to
+   * ignore red - which is the point of having a colour system at all.
+   */
+  --success: oklch(0.52 0.15 156);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.56 0.15 75);
+  --warning-foreground: oklch(0.99 0 0);
+  --info: oklch(0.58 0.13 238);
+  --info-foreground: oklch(0.99 0 0);
+  --positive: oklch(0.5 0.15 156);
+  --negative: oklch(0.55 0.22 27);
+
+  --chart-1: oklch(0.58 0.15 238);
+  --chart-2: oklch(0.66 0.13 205);
+  --chart-3: oklch(0.64 0.12 178);
+  --chart-4: oklch(0.6 0.13 152);
+  --chart-5: oklch(0.58 0.16 295);
+
+  --sidebar: oklch(0.972 0.006 250);
+  --sidebar-foreground: oklch(0.21 0.015 255);
+  --sidebar-primary: oklch(0.55 0.16 238);
+  --sidebar-primary-foreground: oklch(0.99 0.005 238);
+  --sidebar-accent: oklch(0.925 0.03 238);
+  --sidebar-accent-foreground: oklch(0.3 0.055 245);
+  --sidebar-border: oklch(0.9 0.01 250);
+  --sidebar-ring: oklch(0.55 0.16 238);
 }
 
+/* --- Steel: cooler and bluer. Suits finance-led work. ---------------------- */
+[data-theme='steel'] {
+  color-scheme: light;
+
+  --background: oklch(0.985 0.003 268);
+  --foreground: oklch(0.2 0.02 272);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 272);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 272);
+
+  --primary: oklch(0.5 0.19 268);
+  --primary-foreground: oklch(0.99 0.005 268);
+
+  --secondary: oklch(0.96 0.01 268);
+  --secondary-foreground: oklch(0.28 0.03 272);
+  --muted: oklch(0.965 0.008 268);
+  --muted-foreground: oklch(0.49 0.028 272);
+  --accent: oklch(0.945 0.028 268);
+  --accent-foreground: oklch(0.28 0.07 272);
+
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.91 0.011 268);
+  --input: oklch(0.91 0.011 268);
+  --ring: oklch(0.5 0.19 268);
+
+  --success: oklch(0.52 0.15 156);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.56 0.15 75);
+  --warning-foreground: oklch(0.99 0 0);
+  --info: oklch(0.53 0.16 268);
+  --info-foreground: oklch(0.99 0 0);
+  --positive: oklch(0.5 0.15 156);
+  --negative: oklch(0.55 0.22 25);
+
+  --chart-1: oklch(0.5 0.19 268);
+  --chart-2: oklch(0.55 0.16 248);
+  --chart-3: oklch(0.6 0.15 228);
+  --chart-4: oklch(0.64 0.13 205);
+  --chart-5: oklch(0.55 0.17 300);
+
+  --sidebar: oklch(0.972 0.008 268);
+  --sidebar-foreground: oklch(0.2 0.02 272);
+  --sidebar-primary: oklch(0.5 0.19 268);
+  --sidebar-primary-foreground: oklch(0.99 0.005 268);
+  --sidebar-accent: oklch(0.925 0.036 268);
+  --sidebar-accent-foreground: oklch(0.28 0.07 272);
+  --sidebar-border: oklch(0.9 0.014 268);
+  --sidebar-ring: oklch(0.5 0.19 268);
+}
+
+/* --- Ember: warm neutrals, amber-orange accent. Site-facing teams. --------- */
+[data-theme='ember'] {
+  color-scheme: light;
+
+  --background: oklch(0.985 0.005 70);
+  --foreground: oklch(0.23 0.02 55);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.23 0.02 55);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.23 0.02 55);
+
+  --primary: oklch(0.58 0.16 48);
+  --primary-foreground: oklch(0.99 0.005 48);
+
+  --secondary: oklch(0.96 0.012 70);
+  --secondary-foreground: oklch(0.3 0.04 50);
+  --muted: oklch(0.965 0.01 70);
+  --muted-foreground: oklch(0.5 0.03 55);
+  --accent: oklch(0.945 0.03 60);
+  --accent-foreground: oklch(0.3 0.07 45);
+
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.91 0.014 70);
+  --input: oklch(0.91 0.014 70);
+  --ring: oklch(0.58 0.16 48);
+
+  --success: oklch(0.52 0.15 156);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.56 0.15 68);
+  --warning-foreground: oklch(0.99 0 0);
+  --info: oklch(0.58 0.13 48);
+  --info-foreground: oklch(0.99 0 0);
+  --positive: oklch(0.5 0.15 156);
+  --negative: oklch(0.55 0.22 25);
+
+  --chart-1: oklch(0.62 0.16 52);
+  --chart-2: oklch(0.7 0.15 78);
+  --chart-3: oklch(0.66 0.17 25);
+  --chart-4: oklch(0.76 0.14 92);
+  --chart-5: oklch(0.58 0.14 8);
+
+  --sidebar: oklch(0.972 0.009 70);
+  --sidebar-foreground: oklch(0.23 0.02 55);
+  --sidebar-primary: oklch(0.58 0.16 48);
+  --sidebar-primary-foreground: oklch(0.99 0.005 48);
+  --sidebar-accent: oklch(0.925 0.038 60);
+  --sidebar-accent-foreground: oklch(0.3 0.07 45);
+  --sidebar-border: oklch(0.9 0.017 70);
+  --sidebar-ring: oklch(0.58 0.16 48);
+}
+
+/* --- Verdant: green-tinted neutrals, emerald accent. ----------------------- */
+[data-theme='verdant'] {
+  color-scheme: light;
+
+  --background: oklch(0.985 0.004 165);
+  --foreground: oklch(0.22 0.02 165);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 165);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 165);
+
+  --primary: oklch(0.52 0.14 162);
+  --primary-foreground: oklch(0.99 0.005 162);
+
+  --secondary: oklch(0.96 0.01 165);
+  --secondary-foreground: oklch(0.28 0.03 165);
+  --muted: oklch(0.965 0.008 165);
+  --muted-foreground: oklch(0.49 0.026 165);
+  --accent: oklch(0.945 0.028 162);
+  --accent-foreground: oklch(0.28 0.06 162);
+
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.91 0.011 165);
+  --input: oklch(0.91 0.011 165);
+  --ring: oklch(0.52 0.14 162);
+
+  --success: oklch(0.52 0.15 156);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.56 0.15 75);
+  --warning-foreground: oklch(0.99 0 0);
+  --info: oklch(0.53 0.12 195);
+  --info-foreground: oklch(0.99 0 0);
+  --positive: oklch(0.5 0.15 156);
+  --negative: oklch(0.55 0.22 25);
+
+  --chart-1: oklch(0.55 0.14 162);
+  --chart-2: oklch(0.66 0.14 140);
+  --chart-3: oklch(0.68 0.12 120);
+  --chart-4: oklch(0.62 0.1 195);
+  --chart-5: oklch(0.6 0.12 90);
+
+  --sidebar: oklch(0.972 0.008 165);
+  --sidebar-foreground: oklch(0.22 0.02 165);
+  --sidebar-primary: oklch(0.52 0.14 162);
+  --sidebar-primary-foreground: oklch(0.99 0.005 162);
+  --sidebar-accent: oklch(0.925 0.036 162);
+  --sidebar-accent-foreground: oklch(0.28 0.06 162);
+  --sidebar-border: oklch(0.9 0.014 165);
+  --sidebar-ring: oklch(0.52 0.14 162);
+}
+
+/* --- Midnight: the dark theme. Deep cool neutrals, violet accent. ---------- */
+[data-theme='midnight'] {
+  color-scheme: dark;
+
+  --background: oklch(0.165 0.018 265);
+  --foreground: oklch(0.965 0.005 265);
+  --card: oklch(0.215 0.02 265);
+  --card-foreground: oklch(0.965 0.005 265);
+  --popover: oklch(0.215 0.02 265);
+  --popover-foreground: oklch(0.965 0.005 265);
+
+  /*
+   * A lighter accent than the light themes use. On a dark surface a
+   * 0.50-lightness primary fails contrast against its own foreground, so it is
+   * lifted to 0.68 - legible, but not in the "neon" register.
+   */
+  --primary: oklch(0.68 0.15 288);
+  --primary-foreground: oklch(0.16 0.02 288);
+
+  --secondary: oklch(0.275 0.022 265);
+  --secondary-foreground: oklch(0.965 0.005 265);
+  --muted: oklch(0.275 0.022 265);
+  --muted-foreground: oklch(0.74 0.018 265);
+  --accent: oklch(0.3 0.035 288);
+  --accent-foreground: oklch(0.97 0.01 288);
+
+  --destructive: oklch(0.65 0.19 25);
+  --destructive-foreground: oklch(0.16 0.02 25);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.68 0.15 288);
+
+  --success: oklch(0.72 0.16 158);
+  --success-foreground: oklch(0.17 0.02 158);
+  --warning: oklch(0.8 0.14 80);
+  --warning-foreground: oklch(0.2 0.04 80);
+  --info: oklch(0.72 0.13 258);
+  --info-foreground: oklch(0.17 0.02 258);
+  --positive: oklch(0.72 0.16 158);
+  --negative: oklch(0.65 0.19 25);
+
+  --chart-1: oklch(0.68 0.15 288);
+  --chart-2: oklch(0.66 0.14 258);
+  --chart-3: oklch(0.68 0.13 228);
+  --chart-4: oklch(0.7 0.14 198);
+  --chart-5: oklch(0.66 0.16 318);
+
+  --sidebar: oklch(0.195 0.019 265);
+  --sidebar-foreground: oklch(0.965 0.005 265);
+  --sidebar-primary: oklch(0.68 0.15 288);
+  --sidebar-primary-foreground: oklch(0.16 0.02 288);
+  --sidebar-accent: oklch(0.31 0.04 288);
+  --sidebar-accent-foreground: oklch(0.97 0.01 288);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.68 0.15 288);
+}
+
+/*
+ * `.dark` is kept as an alias for Midnight's colour scheme.
+ *
+ * shadcn's components ship `dark:` variants and shadcn's convention is that a
+ * dark surface is a `.dark` class on a wrapper. Rather than leave that
+ * convention inert, `.dark` inherits Midnight's `color-scheme` so native widgets
+ * - scrollbars, date pickers, the autofill colour - render dark too. Without it
+ * a dark theme gets light scrollbars, which is the most obvious tell that a dark
+ * theme was applied only half-way.
+ *
+ * The full token set is NOT repeated here: `[data-theme='midnight']` already owns
+ * it, and duplicating ~30 declarations would guarantee the two drift apart.
+ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  color-scheme: dark;
+}
+
+/*
+ * Forced-colours mode. Where the user has overridden the palette at the OS
+ * level, borders must come from the system palette or they disappear entirely.
+ */
+@media (forced-colors: active) {
+  * {
+    border-color: CanvasText;
+  }
 }
 
 /*
@@ -122,11 +372,12 @@
  * `@theme inline` replaces the `theme.extend.colors` block that used to live in
  * `tailwind.config.ts`.
  *
- * `inline` matters: without it v4 would emit `--color-background: var(--background)`
+ * `inline` matters: without it v4 emits `--color-background: var(--background)`
  * into `:root`, which is a self-reference for the same reason `.theme` was. With
  * `inline` the utilities are inlined at build time, so `bg-background` resolves
- * straight to `var(--background)` and the dark-mode override in `.dark` still
- * takes effect, because the token itself is redefined rather than the utility.
+ * straight to `var(--background)` and a theme override still takes effect,
+ * because the *token* is redefined rather than the utility. That indirection is
+ * the whole mechanism the theme switch relies on.
  *
  * Each token is a complete CSS colour (`oklch(...)`), never an HSL channel
  * triple. Wrapping one in `hsl()` - as the old config did - produces invalid CSS
@@ -153,6 +404,20 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  /*
+   * Status tokens. Exposed as utilities so a component can say
+   * `text-positive` / `bg-success/15` and follow whichever theme is active,
+   * instead of hardcoding an emerald or a red that ignores the palette.
+   */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -172,7 +437,7 @@
   /*
    * Radius scale. The generated components use `--radius-sm/md/lg/xl`, so the
    * scale has to be declared or they resolve to nothing. `--radius` itself is
-   * set above in `:root`.
+   * set by the theme, since a theme may legitimately want a different shape.
    */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -201,5 +466,39 @@
     font-feature-settings:
       'rlig' 1,
       'calt' 1;
+  }
+
+  /*
+   * Colour changes are cross-faded.
+   *
+   * Switching a theme replaces ~30 custom properties at once. Without a
+   * transition the whole surface snaps, which reads as a glitch rather than a
+   * choice. The transition is deliberately NOT applied to `border-color` on
+   * every element: it would animate every border in a dense table on first
+   * paint, which is slower and less legible than the snap.
+   */
+  body,
+  [data-slot='card'],
+  [data-slot='sidebar'],
+  [data-slot='dropdown-menu-content'],
+  [data-slot='popover-content'] {
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      border-color 150ms ease;
+  }
+
+  /*
+   * Respect a stated preference for reduced motion. A colour cross-fade is
+   * motion, and for some users it is motion that triggers nausea.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    body,
+    [data-slot='card'],
+    [data-slot='sidebar'],
+    [data-slot='dropdown-menu-content'],
+    [data-slot='popover-content'] {
+      transition: none;
+    }
   }
 }

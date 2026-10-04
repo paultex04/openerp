@@ -11,10 +11,17 @@ import type { HTMLAttributes } from 'react';
  * without touching a component, and no component can invent its own palette.
  */
 
-/** Text tone for a variance figure: neutral when nil, red over, green under. */
+/**
+ * Text tone for a variance figure: neutral when nil, red over, green under.
+ *
+ * Uses the `--negative` / `--positive` tokens rather than a literal
+ * `text-emerald-700 dark:text-red-700` pair. That literal was correct in exactly
+ * two of the five themes and wrong in the other three, because it hardcoded the
+ * light and dark ramp while the surface around it came from the active theme.
+ */
 export function varianceTone(value: number): string {
   if (Math.abs(value) < 0.005) return 'text-muted-foreground';
-  return value > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400';
+  return value > 0 ? 'text-negative' : 'text-positive';
 }
 
 /**

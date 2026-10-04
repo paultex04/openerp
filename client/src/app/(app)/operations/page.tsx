@@ -50,7 +50,7 @@ export default function OperationsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Operations</h1>
@@ -403,7 +403,7 @@ function JobBilling({
       </div>
 
       {!billable && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
           Billing takes ownership at 07. Pack Ready. This job is at {job.status}, so an invoice
           cannot be raised yet — revenue is not recognised against work whose scope is still being
           planned or executed.

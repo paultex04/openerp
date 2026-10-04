@@ -53,7 +53,7 @@ function VarianceBanner({
 }) {
   if (computation.variance.matches) {
     return (
-      <div className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-xs dark:bg-emerald-950/30">
+      <div className="rounded-md border border-success/40 bg-success/10 p-3 text-xs text-success">
         <span className="font-medium">Rate in agreement.</span>{' '}
         <span className="text-muted-foreground">
           Recomputed {formatZarRate(computation.variance.computed)} matches the stored rate.
@@ -63,7 +63,7 @@ function VarianceBanner({
   }
 
   return (
-    <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:bg-amber-950/30">
+    <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
       <p className="font-medium">Recomputed rate differs from the stored rate</p>
       <p className="mt-1 text-muted-foreground">
         Computed{' '}
@@ -335,7 +335,7 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
                           <NumericCell
                             className={
                               Math.abs(expected - line.lineSubtotal) > 0.0001
-                                ? 'font-semibold text-amber-700'
+                                ? 'font-semibold text-warning'
                                 : undefined
                             }
                           >

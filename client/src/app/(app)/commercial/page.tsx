@@ -25,15 +25,8 @@ import { Button } from '@/components/ui/button';
 import { CostParameterTable } from '@/components/commercial/CostParameterTable';
 import { RateBuildupSheet } from '@/components/commercial/RateBuildupSheet';
 import { ServiceCodeRecipeBuilder } from '@/components/commercial/ServiceCodeRecipeBuilder';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { NumericCell } from '@/components/data-table/NumericCell';
+import { DataTable } from '@/components/data-table/data-table';
+import type { ColumnDef } from '@tanstack/react-table';
 import { useUrlParam } from '@/hooks/use-url-param';
 import { formatDate, formatPercent, formatZar, formatZarRate } from '@/lib/format';
 
@@ -49,8 +42,152 @@ const TABS: Array<{ key: Tab; label: string; permission: string }> = [
   { key: 'recipes', label: 'Service Code Recipes', permission: 'servicecode.read' },
 ];
 
+/** Module-scope so the identity is stable; see `invoiceColumns`. */
+const contractColumns: ColumnDef<ContractRow, unknown>[] = [
+  {
+    id: 'number',
+    accessorKey: 'number',
+    header: 'Contract',
+    cell: ({ row }) => <span className="font-mono text-sm">{row.original.number}</span>,
+  },
+  {
+    id: 'description',
+    accessorKey: 'description',
+    header: 'Description',
+    cell: ({ row }) => (
+      <span className="block max-w-[16rem] truncate" title={row.original.description}>
+        {row.original.description}
+      </span>
+    ),
+  },
+  {
+    id: 'client',
+    accessorFn: (row) => row.client.name,
+    header: 'Client',
+    cell: ({ row }) => <span className="truncate">{row.original.client.name}</span>,
+  },
+  {
+    id: 'vat',
+    header: 'VAT',
+    enableSorting: false,
+    cell: ({ row }) => (
+      <Badge variant={row.original.client.isVatRegistered ? 'success' : 'secondary'}>
+        {row.original.client.isVatRegistered
+          ? (row.original.client.vatNumber ?? 'Registered')
+          : 'Not registered'}
+      </Badge>
+    ),
+  },
+  {
+    id: 'amendments',
+    header: 'Amendments',
+    enableSorting: false,
+    cell: ({ row }) => (
+      <ul className="space-y-1">
+        {row.original.amendments.map((amendment) => (
+          <li key={amendment.id} className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-mono">{amendment.amendmentNumber}</span>
+            <Badge variant={statusVariant(amendment.status)}>{amendment.status}</Badge>
+            <span className="text-muted-foreground">
+              {formatDate(amendment.effectiveDate)} → {formatDate(amendment.expiryDate)} · VAT{' '}
+              {formatPercent(amendment.vatRate)}
+            </span>
+          </li>
+        ))}
+        {row.original.amendments.length === 0 && (
+          <li className="text-xs text-muted-foreground">None</li>
+        )}
+      </ul>
+    ),
+  },
+];
+
+/**
+ * Rate card summary columns.
+ *
+ * Every money column is declared with `meta: { align: 'right' }` so
+ * `DataTable` applies right-alignment and tabular figures uniformly - the reason
+ * a numeric column lines up is that it was declared that way, not that each call
+ * site remembered to add the classes.
+ */
+const rateCardColumns: ColumnDef<RateCardRow, unknown>[] = [
+  {
+    id: 'serviceMasterCode',
+    accessorKey: 'serviceMasterCode',
+    header: 'Code',
+    cell: ({ row }) => <span className="font-mono text-xs">{row.original.serviceMasterCode}</span>,
+  },
+  { id: 'labourType', accessorKey: 'labourType', header: 'Trade' },
+  {
+    id: 'shiftType',
+    accessorKey: 'shiftType',
+    header: 'Shift',
+    cell: ({ row }) => <span className="text-xs">{row.original.shiftType}</span>,
+  },
+  {
+    id: 'base',
+    // "Base" is whichever of custom/council was actually stored, so it sorts on
+    // the value shown rather than on a column the user cannot see.
+    accessorFn: (row) => row.customRate ?? row.councilRate ?? 0,
+    header: 'Base',
+    meta: { align: 'right' },
+    cell: ({ row }) => formatZar(row.original.customRate ?? row.original.councilRate ?? 0),
+  },
+  {
+    id: 'manInPocket',
+    accessorKey: 'manInPocket',
+    header: 'In pocket',
+    meta: { align: 'right' },
+    cell: ({ row }) => formatZarRate(row.original.manInPocket),
+  },
+  {
+    id: 'bdl',
+    header: 'BDL',
+    meta: { align: 'right' },
+    accessorFn: (row) => row.manInPocket + row.leavePay + row.totalStatutoryCost,
+    cell: ({ row }) =>
+      formatZarRate(
+        row.original.manInPocket + row.original.leavePay + row.original.totalStatutoryCost,
+      ),
+  },
+  {
+    id: 'overheadCost',
+    accessorKey: 'overheadCost',
+    header: 'OH',
+    meta: { align: 'right' },
+    cell: ({ row }) => formatZar(row.original.overheadCost),
+  },
+  {
+    id: 'sgaCost',
+    accessorKey: 'sgaCost',
+    header: 'SG&A',
+    meta: { align: 'right' },
+    cell: ({ row }) => formatZar(row.original.sgaCost),
+  },
+  {
+    id: 'profitCost',
+    accessorKey: 'profitCost',
+    header: 'Profit',
+    meta: { align: 'right' },
+    cell: ({ row }) => formatZar(row.original.profitCost),
+  },
+  {
+    id: 'fullLoadedRate',
+    accessorKey: 'fullLoadedRate',
+    header: 'Full loaded',
+    meta: { align: 'right' },
+    cell: ({ row }) => (
+      <span className="font-semibold">{formatZar(row.original.fullLoadedRate)}</span>
+    ),
+  },
+];
+
 export default function CommercialPage() {
   const { permissions, loading: authLoading } = usePermissions();
+  const [vatFilter, setVatFilter] = useState('');
+  const [amendmentsFilter, setAmendmentsFilter] = useState('');
+  const [shiftFilter, setShiftFilter] = useState('');
+  const [labourFilter, setLabourFilter] = useState('');
   // Tab lives in the URL so the sidebar can deep-link to it and a reload keeps
   // the user where they were. See `useUrlParam` for the validation rationale.
   const [tab, setTab] = useUrlParam<Tab>('tab', TAB_KEYS, 'contracts');
@@ -124,7 +261,7 @@ export default function CommercialPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Commercial</h1>
@@ -187,50 +324,62 @@ export default function CommercialPage() {
                 : 'Could not load contracts.'}
             </p>
           )}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Contract</TableHead>
-                <TableHead scope="col">Description</TableHead>
-                <TableHead scope="col">Client</TableHead>
-                <TableHead scope="col">VAT</TableHead>
-                <TableHead scope="col">Amendments</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(contracts.data?.contracts ?? []).map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-mono text-sm">{c.number}</TableCell>
-                  <TableCell>{c.description}</TableCell>
-                  <TableCell>{c.client.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={c.client.isVatRegistered ? 'success' : 'secondary'}>
-                      {c.client.isVatRegistered
-                        ? (c.client.vatNumber ?? 'Registered')
-                        : 'Not registered'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <ul className="space-y-1">
-                      {c.amendments.map((a) => (
-                        <li key={a.id} className="flex items-center gap-2 text-xs">
-                          <span className="font-mono">{a.amendmentNumber}</span>
-                          <Badge variant={statusVariant(a.status)}>{a.status}</Badge>
-                          <span className="text-muted-foreground">
-                            {formatDate(a.effectiveDate)} → {formatDate(a.expiryDate)} · VAT{' '}
-                            {formatPercent(a.vatRate)}
-                          </span>
-                        </li>
-                      ))}
-                      {c.amendments.length === 0 && (
-                        <li className="text-xs text-muted-foreground">None</li>
-                      )}
-                    </ul>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {/*
+            Contracts are a register, so it gets search, filters and sorting.
+            The amendment list stays inside the contract row because an amendment
+            has no meaning without its contract - flattening it would produce rows
+            whose most important column is a lookup.
+          */}
+          <DataTable<ContractRow>
+            caption="Contracts and their amendments"
+            fill
+            data={contracts.data?.contracts ?? []}
+            columns={contractColumns}
+            rowKey={(contract) => contract.id}
+            searchKeys={[
+              'number',
+              'description',
+              'client.name',
+              'amendments.amendmentNumber',
+              'amendments.status',
+            ]}
+            searchPlaceholder="Search contract, client or amendment…"
+            isLoading={contracts.isLoading}
+            initialSort={[{ id: 'number', desc: false }]}
+            emptyMessage="No contracts match the current search and filters."
+            filters={[
+              {
+                id: 'vat',
+                label: 'VAT',
+                value: vatFilter,
+                options: [
+                  { value: '', label: 'Any' },
+                  { value: 'registered', label: 'Registered' },
+                  { value: 'not-registered', label: 'Not registered' },
+                ],
+                onChange: setVatFilter,
+                predicate: (contract, selected) =>
+                  selected === 'registered'
+                    ? contract.client.isVatRegistered
+                    : !contract.client.isVatRegistered,
+              },
+              {
+                id: 'amendments',
+                label: 'Amendments',
+                value: amendmentsFilter,
+                options: [
+                  { value: '', label: 'Any' },
+                  { value: 'yes', label: 'At least one' },
+                  { value: 'no', label: 'None' },
+                ],
+                onChange: setAmendmentsFilter,
+                predicate: (contract, selected) =>
+                  selected === 'yes'
+                    ? contract.amendments.length > 0
+                    : contract.amendments.length === 0,
+              },
+            ]}
+          />
         </section>
       )}
 
@@ -299,54 +448,52 @@ export default function CommercialPage() {
       {tab === 'rates' && activeAmendmentId !== null && rates.data && (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold">Rate card summary</h3>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Code</TableHead>
-                <TableHead scope="col">Trade</TableHead>
-                <TableHead scope="col">Shift</TableHead>
-                <TableHead scope="col" className="text-right">
-                  Base
-                </TableHead>
-                <TableHead scope="col" className="text-right">
-                  In pocket
-                </TableHead>
-                <TableHead scope="col" className="text-right">
-                  BDL
-                </TableHead>
-                <TableHead scope="col" className="text-right">
-                  OH
-                </TableHead>
-                <TableHead scope="col" className="text-right">
-                  SG&amp;A
-                </TableHead>
-                <TableHead scope="col" className="text-right">
-                  Profit
-                </TableHead>
-                <TableHead scope="col" className="text-right">
-                  Full loaded
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rates.data.rates.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.serviceMasterCode}</TableCell>
-                  <TableCell>{r.labourType}</TableCell>
-                  <TableCell className="text-xs">{r.shiftType}</TableCell>
-                  <NumericCell>{formatZar(r.customRate ?? r.councilRate ?? 0)}</NumericCell>
-                  <NumericCell>{formatZarRate(r.manInPocket)}</NumericCell>
-                  <NumericCell>
-                    {formatZarRate(r.manInPocket + r.leavePay + r.totalStatutoryCost)}
-                  </NumericCell>
-                  <NumericCell>{formatZar(r.overheadCost)}</NumericCell>
-                  <NumericCell>{formatZar(r.sgaCost)}</NumericCell>
-                  <NumericCell>{formatZar(r.profitCost)}</NumericCell>
-                  <NumericCell className="font-semibold">{formatZar(r.fullLoadedRate)}</NumericCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {/*
+            Ten numeric columns across two dozen rate rows is exactly where a
+            register stops being readable, so this gets the full toolbar: search
+            by code or trade, filter by shift, and sort by any money column to
+            answer "what is our most expensive fully-loaded rate?".
+          */}
+          <DataTable<RateCardRow>
+            caption="Rate card summary"
+            fill
+            data={rates.data.rates}
+            columns={rateCardColumns}
+            rowKey={(rate) => rate.id}
+            searchKeys={['serviceMasterCode', 'labourType', 'shiftType']}
+            searchPlaceholder="Search code or trade…"
+            initialSort={[{ id: 'fullLoadedRate', desc: true }]}
+            pageSize={25}
+            emptyMessage="No rate cards match the current search and filters."
+            filters={[
+              {
+                id: 'shift',
+                label: 'Shift',
+                value: shiftFilter,
+                options: [
+                  { value: '', label: 'All shifts' },
+                  ...[...new Set(rates.data.rates.map((rate) => rate.shiftType))]
+                    .sort()
+                    .map((shift) => ({ value: shift, label: shift })),
+                ],
+                onChange: setShiftFilter,
+                predicate: (rate, selected) => rate.shiftType === selected,
+              },
+              {
+                id: 'labour',
+                label: 'Trade',
+                value: labourFilter,
+                options: [
+                  { value: '', label: 'All trades' },
+                  ...[...new Set(rates.data.rates.map((rate) => rate.labourType))]
+                    .sort()
+                    .map((trade) => ({ value: trade, label: trade })),
+                ],
+                onChange: setLabourFilter,
+                predicate: (rate, selected) => rate.labourType === selected,
+              },
+            ]}
+          />
           <p className="text-xs text-muted-foreground">
             OH and SG&amp;A are authoritative stored values (ADR-001 Q1), not re-derived from the
             parameter table.

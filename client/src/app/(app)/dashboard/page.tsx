@@ -14,7 +14,8 @@
  * commercial or billing numbers rather than an empty shell with locked panels.
  */
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import type { ColumnDef } from '@tanstack/react-table';
 import {
   AlertTriangle,
   CalendarClock,
@@ -24,22 +25,13 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SectionHeading, varianceTone } from '@/components/lifecycle/status-badge';
 import { statusVariant, invoiceVariant } from '@/lib/lifecycle-status';
-import { NumericCell } from '@/components/data-table/NumericCell';
+import { DataTable } from '@/components/data-table/data-table';
 import { usePermissions } from '@/components/auth/usePermissions';
 import {
   api,
@@ -114,8 +106,102 @@ interface ExpiringAmendment {
   days: number;
 }
 
+/**
+ * Column definitions.
+ *
+ * Module scope so the array identity is stable: `DataTable` memoises its row
+ * model on these references, and definitions rebuilt each render would re-run
+ * sorting on every keystroke in the search box.
+ */
+const expiringColumns: ColumnDef<ExpiringAmendment, unknown>[] = [
+  {
+    id: 'amendment',
+    header: 'Amendment',
+    // Sorts on the reference so the column is orderable.
+    accessorFn: (row) => `${row.contractNumber}/${row.amendment.amendmentNumber}`,
+    cell: ({ row }) => (
+      <span className="block max-w-0 w-full">
+        <span
+          className="block truncate font-medium"
+          title={`${row.original.contractNumber}/${row.original.amendment.amendmentNumber}`}
+        >
+          {row.original.contractNumber}/{row.original.amendment.amendmentNumber}
+        </span>
+        <span
+          className="block truncate text-xs text-muted-foreground"
+          title={row.original.clientName}
+        >
+          {row.original.clientName}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: 'expiryDate',
+    accessorFn: (row) => row.amendment.expiryDate ?? '',
+    header: 'Expires',
+    cell: ({ row }) => (
+      <span className="text-xs whitespace-nowrap">
+        {formatDate(row.original.amendment.expiryDate)}
+      </span>
+    ),
+  },
+  {
+    // Sorted by days remaining, which is the ordering that matters, rather than
+    // by date string - same order, but the intent is legible.
+    id: 'days',
+    accessorFn: (row) => row.days,
+    header: 'Left',
+    cell: ({ row }) => <ExpiryBadge band={row.original.band} days={row.original.days} />,
+  },
+];
+
+const pendingInvoiceColumns: ColumnDef<InvoiceRow, unknown>[] = [
+  {
+    id: 'invoiceNumber',
+    accessorKey: 'invoiceNumber',
+    header: 'Invoice',
+    cell: ({ row }) => <span className="font-medium">{row.original.invoiceNumber}</span>,
+  },
+  {
+    id: 'client',
+    accessorFn: (row) => row.job.project.contract.client.name,
+    header: 'Client',
+    cell: ({ row }) => (
+      <span className="block max-w-[12rem] truncate text-muted-foreground">
+        {row.original.job.project.contract.client.name}
+      </span>
+    ),
+  },
+  {
+    id: 'status',
+    accessorKey: 'status',
+    header: 'Status',
+    cell: ({ row }) => (
+      <Badge variant={invoiceVariant(row.original.status)}>{row.original.status}</Badge>
+    ),
+  },
+  {
+    id: 'dueDate',
+    accessorKey: 'dueDate',
+    header: 'Due',
+    cell: ({ row }) => (
+      <span className="text-xs whitespace-nowrap">{formatDate(row.original.dueDate)}</span>
+    ),
+  },
+  {
+    id: 'totalWithTax',
+    accessorKey: 'totalWithTax',
+    header: 'Total incl. VAT',
+    meta: { align: 'right' },
+    cell: ({ row }) => <span className="font-medium">{formatZar(row.original.totalWithTax)}</span>,
+  },
+];
+
 export default function DashboardPage() {
   const { can, loading: authLoading } = usePermissions();
+  const [bandFilter, setBandFilter] = useState('');
+  const [pendingStatusFilter, setPendingStatusFilter] = useState('');
   const mayReadProjects = can('project.read');
   const mayReadJobs = can('job.read') || can('job.read.assigned');
   const mayReadInvoices = can('invoice.read');
@@ -221,7 +307,7 @@ export default function DashboardPage() {
     !loading && !mayReadProjects && !mayReadJobs && !mayReadInvoices && !mayReadContracts;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">Command Centre</h1>
         <p className="text-sm text-muted-foreground">
@@ -336,7 +422,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
             {(mayReadJobs || mayReadProjects) && (
               <Card>
                 <CardHeader>
@@ -373,7 +459,7 @@ export default function DashboardPage() {
             )}
 
             {mayReadContracts && (
-              <Card>
+              <Card className="flex min-h-0 flex-col">
                 <CardHeader>
                   <CardTitle className="text-base">Amendments expiring</CardTitle>
                   <CardDescription>
@@ -381,7 +467,7 @@ export default function DashboardPage() {
                     authority to bill the work beneath it.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="min-h-0 flex-1">
                   {loading ? (
                     <Skeleton className="h-32 w-full" />
                   ) : expiring.length === 0 ? (
@@ -389,60 +475,33 @@ export default function DashboardPage() {
                       <EmptyDescription>No amendment expires within 90 days.</EmptyDescription>
                     </Empty>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        {/*
-                          A caption is required, not decorative: this is a table
-                          of contract instruments, and a screen-reader user needs
-                          to know what the numbers mean before entering it.
-                        */}
-                        <TableCaption>
-                          Contract amendments within 90 days of expiry, soonest first.
-                        </TableCaption>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead scope="col">Amendment</TableHead>
-                            <TableHead scope="col">Client</TableHead>
-                            <TableHead scope="col" className="text-right">
-                              Expires
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {expiring.map((row) => (
-                            <TableRow key={row.amendment.id}>
-                              {/*
-                                Truncated with the full value on `title`. A
-                                contract reference like
-                                `SASOL-ECI-2026-TERM/AMD-00` is unbreakable, so
-                                without a width cap it forces the whole table to
-                                scroll sideways and pushes the expiry date - the
-                                reason the row exists - out of view.
-                              */}
-                              <TableCell className="max-w-[10rem]">
-                                <span
-                                  className="block truncate font-medium"
-                                  title={`${row.contractNumber}/${row.amendment.amendmentNumber}`}
-                                >
-                                  {row.contractNumber}/{row.amendment.amendmentNumber}
-                                </span>
-                              </TableCell>
-                              <TableCell className="max-w-[10rem] truncate text-muted-foreground">
-                                {row.clientName}
-                              </TableCell>
-                              <NumericCell className="whitespace-nowrap">
-                                <span className="flex items-center justify-end gap-2">
-                                  <span className="text-xs text-muted-foreground">
-                                    {formatDate(row.amendment.expiryDate)}
-                                  </span>
-                                  <ExpiryBadge band={row.band} days={row.days} />
-                                </span>
-                              </NumericCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
+                    <DataTable<ExpiringAmendment>
+                      caption="Contract amendments within 90 days of expiry"
+                      fill
+                      data={expiring}
+                      columns={expiringColumns}
+                      rowKey={(row) => row.amendment.id}
+                      searchKeys={['contractNumber', 'clientName', 'amendment.amendmentNumber']}
+                      searchPlaceholder="Search contract or client…"
+                      initialSort={[{ id: 'days', desc: false }]}
+                      pageSize={10}
+                      emptyMessage="No amendment expires within 90 days."
+                      filters={[
+                        {
+                          id: 'band',
+                          label: 'Urgency',
+                          value: bandFilter,
+                          options: [
+                            { value: '', label: 'Any' },
+                            { value: EXPIRED, label: 'Lapsed' },
+                            { value: WITHIN_30, label: 'Within 30 days' },
+                            { value: WITHIN_90, label: 'Within 90 days' },
+                          ],
+                          onChange: setBandFilter,
+                          predicate: (row, selected) => row.band === selected,
+                        },
+                      ]}
+                    />
                   )}
                 </CardContent>
               </Card>
@@ -450,14 +509,14 @@ export default function DashboardPage() {
           </div>
 
           {mayReadInvoices && (
-            <Card>
+            <Card className="flex min-h-0 flex-[2] flex-col">
               <CardHeader>
                 <CardTitle className="text-base">Invoices awaiting money</CardTitle>
                 <CardDescription>
                   Draft, submitted, approved and part-paid invoices, newest first.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="min-h-0 flex-1">
                 {loading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : pendingInvoices.length === 0 ? (
@@ -465,47 +524,38 @@ export default function DashboardPage() {
                     <EmptyDescription>Nothing outstanding.</EmptyDescription>
                   </Empty>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableCaption>
-                        Invoices not yet paid or cancelled, with total including VAT.
-                      </TableCaption>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead scope="col">Invoice</TableHead>
-                          <TableHead scope="col">Client</TableHead>
-                          <TableHead scope="col">Status</TableHead>
-                          <TableHead scope="col" className="text-right">
-                            Due
-                          </TableHead>
-                          <TableHead scope="col" className="text-right">
-                            Total incl. VAT
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {pendingInvoices.map((invoice) => (
-                          <TableRow key={invoice.id}>
-                            <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {invoice.job.project.contract.client.name}
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant={invoiceVariant(invoice.status)}>
-                                {invoice.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {formatDate(invoice.dueDate)}
-                            </TableCell>
-                            <NumericCell className="font-medium">
-                              {formatZar(invoice.totalWithTax)}
-                            </NumericCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  <DataTable<InvoiceRow>
+                    caption="Invoices awaiting money"
+                    fill
+                    data={pendingInvoices}
+                    columns={pendingInvoiceColumns}
+                    rowKey={(invoice) => invoice.id}
+                    searchKeys={[
+                      'invoiceNumber',
+                      'job.project.contract.number',
+                      'job.project.contract.client.name',
+                    ]}
+                    searchPlaceholder="Search invoice or client…"
+                    initialSort={[{ id: 'totalWithTax', desc: true }]}
+                    pageSize={10}
+                    emptyMessage="Nothing outstanding."
+                    filters={[
+                      {
+                        id: 'status',
+                        label: 'Status',
+                        value: pendingStatusFilter,
+                        options: [
+                          { value: '', label: 'All pending' },
+                          ...[...PENDING_INVOICE_STATUSES].map((status) => ({
+                            value: status,
+                            label: status,
+                          })),
+                        ],
+                        onChange: setPendingStatusFilter,
+                        predicate: (invoice, selected) => invoice.status === selected,
+                      },
+                    ]}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -552,8 +602,8 @@ function MetricTile({
         <p
           className={cn(
             'text-2xl leading-9 font-semibold tabular-nums',
-            tone === 'negative' && 'text-red-700 dark:text-red-400',
-            tone === 'positive' && 'text-emerald-700 dark:text-emerald-400',
+            tone === 'negative' && 'text-negative',
+            tone === 'positive' && 'text-positive',
           )}
         >
           {value ?? <Skeleton className="h-9 w-24" />}

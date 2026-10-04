@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/card';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { api, ApiError } from '@/lib/api';
 
 export default function LoginForm() {
@@ -78,24 +79,35 @@ export default function LoginForm() {
       */}
       <aside
         aria-hidden="true"
-        className="relative hidden flex-col justify-between overflow-hidden bg-slate-900 p-10 text-slate-100 lg:flex"
+        /*
+          Tinted with `--primary` rather than a literal `bg-slate-900`, so the
+          sign-in screen is themed too. It used to be a fixed dark panel with a
+          cyan wash, which meant signing in under Midnight showed two unrelated
+          dark surfaces side by side and the accent appeared nowhere.
+        */
+        className="relative hidden flex-col justify-between overflow-hidden bg-primary p-10 text-primary-foreground lg:flex"
       >
-        {/* Cyan accent wash: the industrial blue/cyan palette, used once. */}
+        {/*
+          A wash of the same hue, one step lighter, using an alpha of the panel's
+          own foreground. `color-mix` keeps it tied to the active theme; the
+          previous hardcoded `rgb(14 165 233 / 0.28)` could not follow a theme
+          because it named a colour rather than a relationship.
+        */}
         <div
-          className="pointer-events-none absolute inset-0 opacity-70"
+          className="pointer-events-none absolute inset-0"
           style={{
             background:
-              'radial-gradient(60rem 40rem at 15% -10%, rgb(14 165 233 / 0.28), transparent 60%), radial-gradient(40rem 30rem at 90% 110%, rgb(6 182 212 / 0.22), transparent 60%)',
+              'radial-gradient(60rem 40rem at 15% -10%, color-mix(in oklch, var(--primary-foreground) 16%, transparent), transparent 60%), radial-gradient(40rem 30rem at 90% 110%, color-mix(in oklch, var(--primary-foreground) 10%, transparent), transparent 60%)',
           }}
         />
         <div className="relative">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-cyan-400 text-sm font-bold text-slate-900">
+            <div className="flex size-10 items-center justify-center rounded-lg bg-primary-foreground text-sm font-bold text-primary">
               OE
             </div>
             <div>
               <p className="text-base font-semibold">OpenERP</p>
-              <p className="text-xs text-slate-400">EC&amp;I Contracting</p>
+              <p className="text-xs text-primary-foreground/70">EC&amp;I Contracting</p>
             </div>
           </div>
         </div>
@@ -104,14 +116,14 @@ export default function LoginForm() {
           <h2 className="text-2xl font-semibold tracking-tight text-balance">
             Contracts to cash, in one system of record.
           </h2>
-          <p className="text-sm leading-relaxed text-slate-400">
+          <p className="text-sm leading-relaxed text-primary-foreground/75">
             Rate-card build-up, job lifecycle, field actuals and invoice status are all governed by
             the same rules the API enforces — the interface shows the same state machine, so a
             control is never offered that the server would refuse.
           </p>
         </div>
 
-        <p className="relative flex items-center gap-2 text-xs text-slate-500">
+        <p className="relative flex items-center gap-2 text-xs text-primary-foreground/60">
           <ShieldCheck aria-hidden="true" className="size-4" />
           Sessions are held in HTTP-only cookies and never exposed to page scripts.
         </p>
@@ -120,11 +132,21 @@ export default function LoginForm() {
       <div className="flex items-center justify-center p-6 sm:p-10">
         <Card className="w-full max-w-sm">
           <CardHeader className="space-y-1.5">
-            <div className="mb-2 flex items-center gap-2 lg:hidden">
-              <div className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
-                OE
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+                  OE
+                </div>
+                <p className="text-sm font-semibold">OpenERP</p>
               </div>
-              <p className="text-sm font-semibold">OpenERP</p>
+              {/*
+                The picker is here as well as in the app shell. Appearance is a
+                per-device preference, and someone who wants a dark theme should
+                not have to sign in to get one - the first screen they see should
+                already be the one they want.
+              */}
+              <ThemePicker />
+              <ThemeAnnouncer />
             </div>
             <CardTitle className="text-xl">Sign in</CardTitle>
             <CardDescription>Use your OpenERP account to continue.</CardDescription>

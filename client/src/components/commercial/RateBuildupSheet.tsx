@@ -107,7 +107,7 @@ function Line({
   highlight?: boolean;
 }) {
   return (
-    <TableRow className={highlight ? 'bg-emerald-50/60 dark:bg-emerald-950/30' : undefined}>
+    <TableRow className={highlight ? 'bg-success/10' : undefined}>
       <TableCell>
         <span className="font-medium">{label}</span>
         {muted && (
@@ -411,7 +411,7 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
         )}
 
         {comparison && !draft.deriveOverheads && (
-          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs dark:bg-amber-950/30">
+          <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
             <p className="font-medium">Parameter-derived comparison</p>
             <p className="mt-1 text-muted-foreground">
               Re-deriving overheads from this amendment&rsquo;s parameters (

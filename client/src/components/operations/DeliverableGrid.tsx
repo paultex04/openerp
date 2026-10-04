@@ -23,10 +23,12 @@ import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  getSortedRowModel,
   useReactTable,
   type ColumnDef,
+  type SortingState,
 } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api, ApiError, type DeliverableRow, type VarianceSummary } from '@/lib/api';
 import { formatNumber, formatZar, formatZarRate } from '@/lib/format';
 import { toast } from '@/components/ui/toast';
@@ -41,6 +43,9 @@ import {
 } from '@/components/ui/table';
 import { NumericCell } from '@/components/data-table/NumericCell';
 import { varianceTone } from '@/components/lifecycle/status-badge';
+import { Input } from '@/components/ui/input';
+import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const helper = createColumnHelper<DeliverableRow>();
 
@@ -100,7 +105,7 @@ function QuantityCell({
         className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right font-mono text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={hint}
       />
-      {dirty && <span className="text-[10px] text-amber-700">↵</span>}
+      {dirty && <span className="text-[10px] text-warning">↵</span>}
     </span>
   );
 }
@@ -115,6 +120,26 @@ export function DeliverableGrid({
   onChanged,
 }: Props) {
   const queryClient = useQueryClient();
+
+  // Grid filters. Declared before the mutations so the toolbar reads them.
+  const [term, setTerm] = useState('');
+  const [overrunOnly, setOverrunOnly] = useState(false);
+  const [sorting, setSorting] = useState<SortingState>([]);
+
+  const visible = useMemo(() => {
+    const needle = term.trim().toLowerCase();
+    const terms = needle ? needle.split(/\s+/).filter(Boolean) : [];
+
+    return deliverables.filter((row) => {
+      // Every term must match somewhere, so a two-word search narrows.
+      if (terms.length > 0) {
+        const haystack = `${row.description ?? ''} ${row.code ?? ''}`.toLowerCase();
+        if (!terms.every((part) => haystack.includes(part))) return false;
+      }
+      if (overrunOnly && !(row.quantityVariance > 0.005 || row.valueVariance > 0.005)) return false;
+      return true;
+    });
+  }, [deliverables, term, overrunOnly]);
 
   const savePlanned = useMutation({
     mutationFn: ({ id, quantity }: { id: number; quantity: number }) =>
@@ -175,7 +200,7 @@ export function DeliverableGrid({
             <span className="font-mono tabular-nums">{formatZarRate(row.appliedRate)}</span>
             {row.rateHasDrifted && (
               <span
-                className="cursor-help text-[10px] text-amber-700"
+                className="cursor-help text-[10px] text-warning"
                 title={
                   `The service code has since been re-priced to ${formatZarRate(row.currentRate ?? 0)}.\n` +
                   'This job keeps the rate captured at scoping time.'
@@ -243,13 +268,51 @@ export function DeliverableGrid({
   ] as ColumnDef<DeliverableRow>[];
 
   const table = useReactTable({
-    data: deliverables,
+    data: visible,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
   });
+
+  const total = deliverables.length;
 
   return (
     <div className="space-y-3">
+      {/*
+        A job can carry every scoped service code, so the grid is a register
+        before it is a grid. This toolbar is hand-rolled rather than the shared
+        `DataTable` because the body cells hold inline quantity inputs: TanStack
+        recycles rows by index, and a re-sort or re-filter would move an input
+        out from under the cursor mid-edit. Filtering here happens *before* the
+        table sees the rows, so no row identity ever shifts.
+      */}
+      <div
+        role="search"
+        className="flex flex-wrap items-center gap-2"
+        aria-label="Filter deliverables"
+      >
+        <Input
+          type="search"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+          placeholder="Search description or code…"
+          aria-label="Search deliverables"
+          className="h-8 max-w-xs"
+        />
+        <Button
+          size="sm"
+          variant={overrunOnly ? 'default' : 'outline'}
+          aria-pressed={overrunOnly}
+          onClick={() => setOverrunOnly((current) => !current)}
+        >
+          Overruns only
+        </Button>
+        <span aria-live="polite" className="ml-auto text-xs text-muted-foreground">
+          {visible.length} of {total} {total === 1 ? 'deliverable' : 'deliverables'}
+        </span>
+      </div>
       {/* The grid has ten columns of financial detail, so it scrolls horizontally
           on narrow screens. Say so, rather than letting the variance columns look
           simply missing. */}
@@ -260,19 +323,60 @@ export function DeliverableGrid({
         <TableHeader>
           {table.getHeaderGroups().map((group) => (
             <TableRow key={group.id}>
-              {group.headers.map((header) => (
-                <TableHead
-                  key={header.id}
-                  scope="col"
-                  className={
-                    header.id.includes('Subtotal') || header.id.includes('Variance')
-                      ? 'text-right'
-                      : ''
-                  }
-                >
-                  {flexRender(header.column.columnDef.header, header.getContext())}
-                </TableHead>
-              ))}
+              {group.headers.map((header) => {
+                const direction = header.column.getIsSorted();
+                const sortable = header.column.getCanSort();
+                return (
+                  <TableHead
+                    key={header.id}
+                    scope="col"
+                    aria-sort={
+                      direction === 'asc'
+                        ? 'ascending'
+                        : direction === 'desc'
+                          ? 'descending'
+                          : sortable
+                            ? 'none'
+                            : undefined
+                    }
+                    className={
+                      header.id.includes('Subtotal') || header.id.includes('Variance')
+                        ? 'text-right'
+                        : ''
+                    }
+                  >
+                    {/*
+                      Sortable where the column is numeric - "show me the biggest
+                      overrun first" is the question this grid exists to answer.
+                      `aria-sort` carries it for assistive tech, since the arrow
+                      glyph alone conveys nothing to a screen reader.
+                    */}
+                    {sortable ? (
+                      <button
+                        type="button"
+                        onClick={header.column.getToggleSortingHandler()}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded px-1 hover:text-foreground',
+                          'focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                          (header.id.includes('Subtotal') || header.id.includes('Variance')) &&
+                            'flex-row-reverse',
+                        )}
+                      >
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {direction === 'asc' ? (
+                          <ArrowUp aria-hidden="true" className="size-3.5" />
+                        ) : direction === 'desc' ? (
+                          <ArrowDown aria-hidden="true" className="size-3.5" />
+                        ) : (
+                          <ChevronsUpDown aria-hidden="true" className="size-3.5 opacity-40" />
+                        )}
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
+                  </TableHead>
+                );
+              })}
             </TableRow>
           ))}
         </TableHeader>
@@ -293,10 +397,10 @@ export function DeliverableGrid({
               ))}
             </TableRow>
           ))}
-          {deliverables.length === 0 && (
+          {visible.length === 0 && (
             <TableRow>
               <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
-                No deliverables scoped on this job yet.
+                No deliverables match the current filter.
               </TableCell>
             </TableRow>
           )}
@@ -324,7 +428,7 @@ export function DeliverableGrid({
 
       {/* ---- Lock explanations, shown only when something is locked ---- */}
       {!canEditPlanned && plannedLockReason && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
           {plannedLockReason}
         </p>
       )}

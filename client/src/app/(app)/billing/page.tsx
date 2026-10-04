@@ -11,6 +11,7 @@
  * serves both.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
 import {
   api,
@@ -32,6 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { NumericCell } from '@/components/data-table/NumericCell';
+import { DataTable } from '@/components/data-table/data-table';
 import { formatDate, formatNumber, formatPercent, formatZar, formatZarRate } from '@/lib/format';
 import { toast } from '@/components/ui/toast';
 
@@ -45,26 +47,77 @@ const STATUSES = [
   'Cancelled',
 ];
 
+/**
+ * Column definitions for the register.
+ *
+ * Declared at module scope so the array identity is stable across renders.
+ * `DataTable` memoises the row model on this reference; a definition rebuilt on
+ * every render would defeat that and re-run sorting on each keystroke.
+ */
+const invoiceColumns: ColumnDef<InvoiceRow, unknown>[] = [
+  {
+    id: 'invoiceNumber',
+    accessorKey: 'invoiceNumber',
+    header: 'Invoice',
+    cell: ({ row }) => (
+      <span className="block max-w-[12rem]">
+        <span className="block font-medium">{row.original.invoiceNumber}</span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {row.original.job.project.contract.client.name}
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: 'status',
+    accessorKey: 'status',
+    header: 'Status',
+    cell: ({ row }) => (
+      <Badge variant={invoiceVariant(row.original.status)}>{row.original.status}</Badge>
+    ),
+  },
+  {
+    id: 'issueDate',
+    accessorKey: 'issueDate',
+    header: 'Issued',
+    cell: ({ row }) => (
+      <span className="text-xs whitespace-nowrap">{formatDate(row.original.issueDate)}</span>
+    ),
+  },
+  {
+    id: 'dueDate',
+    accessorKey: 'dueDate',
+    header: 'Due',
+    cell: ({ row }) => (
+      <span className="text-xs whitespace-nowrap">{formatDate(row.original.dueDate)}</span>
+    ),
+  },
+  {
+    id: 'totalWithTax',
+    accessorKey: 'totalWithTax',
+    header: 'Total incl. VAT',
+    meta: { align: 'right' },
+    cell: ({ row }) => <span className="font-medium">{formatZar(row.original.totalWithTax)}</span>,
+  },
+];
+
 export default function BillingPage() {
   const [statusFilter, setStatusFilter] = useState('');
-  const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const register = useQuery({
-    queryKey: ['invoices', statusFilter, search],
-    queryFn: () =>
-      api.get<{ invoices: InvoiceRow[] }>(
-        `/api/invoices?${new URLSearchParams({
-          ...(statusFilter ? { status: statusFilter } : {}),
-          ...(search ? { search } : {}),
-        })}`,
-      ),
+    // Fetched unfiltered: `DataTable` owns filtering. The previous version sent
+    // `status` and `search` to the server and refetched on every keystroke,
+    // which meant a request per character typed and a round trip to answer a
+    // question the client already had the data for.
+    queryKey: ['invoices'],
+    queryFn: () => api.get<{ invoices: InvoiceRow[] }>('/api/invoices'),
   });
 
   const invoices = register.data?.invoices ?? [];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
@@ -72,93 +125,68 @@ export default function BillingPage() {
             Invoices generated from measured actuals, with VAT treatment and lifecycle control.
           </p>
         </div>
-        <span className="text-sm text-muted-foreground">
-          {invoices.length} invoice{invoices.length === 1 ? '' : 's'}
-        </span>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         {/* ---- Register ---- */}
         <section className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search number or client"
-              aria-label="Search invoices"
-              className="flex-1 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filter by status"
-              className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-            >
-              <option value="">All statuses</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {register.isError && (
-            <p className="text-sm text-destructive">
+            <p className="text-sm text-negative">
               {register.error instanceof ApiError
                 ? register.error.message
                 : 'Could not load the invoice register.'}
             </p>
           )}
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead scope="col">Invoice</TableHead>
-                <TableHead scope="col">Status</TableHead>
-                <TableHead scope="col">Issued</TableHead>
-                <TableHead scope="col" className="text-right">
-                  Total
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoices.map((invoice) => (
-                <TableRow
-                  key={invoice.id}
-                  data-state={invoice.id === selectedId ? 'selected' : undefined}
-                  className={invoice.id === selectedId ? 'bg-accent' : undefined}
-                >
-                  <TableCell>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(invoice.id)}
-                      className="text-left font-medium hover:underline"
-                    >
-                      {invoice.invoiceNumber}
-                    </button>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {invoice.job.project.contract.client.name}
-                    </span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={invoiceVariant(invoice.status)}>{invoice.status}</Badge>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    {formatDate(invoice.issueDate)}
-                  </TableCell>
-                  <NumericCell>{formatZar(invoice.totalWithTax)}</NumericCell>
-                </TableRow>
-              ))}
-              {invoices.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    No invoices match this filter.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          {/*
+            The register is a search-and-act list, so it gets the shared
+            DataTable: free-text search, a status filter, sortable columns and
+            pagination. Its previous hand-rolled toolbar had search and a status
+            filter but no sorting and no paging, and the two controls were styled
+            separately from every other register in the app.
+
+            Note the invoice *lines* further down are deliberately NOT a
+            DataTable: they are the body of a printable document, and a toolbar
+            would appear on the printed page.
+          */}
+          <DataTable<InvoiceRow>
+            caption="Invoice register"
+            fill
+            data={invoices}
+            columns={invoiceColumns}
+            rowKey={(invoice) => invoice.id}
+            searchKeys={[
+              'invoiceNumber',
+              'job.project.contract.number',
+              'job.project.contract.client.name',
+            ]}
+            searchPlaceholder="Search invoice, contract or client…"
+            isLoading={register.isLoading}
+            initialSort={[{ id: 'issueDate', desc: true }]}
+            emptyMessage="No invoices match the current search and filters."
+            filters={[
+              {
+                id: 'status',
+                label: 'Status',
+                value: statusFilter,
+                options: [
+                  { value: '', label: 'All statuses' },
+                  ...STATUSES.map((status) => ({ value: status, label: status })),
+                ],
+                onChange: setStatusFilter,
+                predicate: (invoice, selected) => invoice.status === selected,
+              },
+            ]}
+            renderRowActions={(invoice) => (
+              <Button
+                size="sm"
+                variant={invoice.id === selectedId ? 'secondary' : 'ghost'}
+                onClick={() => setSelectedId(invoice.id)}
+              >
+                Open
+              </Button>
+            )}
+          />
         </section>
 
         {/* ---- Document ---- */}
@@ -260,7 +288,7 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
 
       {/* ---- Compliance ---- */}
       {!compliance.ok && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
           <p className="font-medium">Compliance warnings</p>
           <ul className="mt-1 list-disc pl-4">
             {compliance.warnings.map((w) => (
