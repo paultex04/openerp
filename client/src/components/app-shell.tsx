@@ -1,0 +1,514 @@
+'use client';
+
+/**
+ * Enterprise application shell.
+ *
+ * Replaces the five bespoke `<header>` + `<nav>` blocks the pages each carried,
+ * which is the reason the app previously felt like five unrelated tools sharing
+ * one database.
+ *
+ * Layout contract:
+ *   sidebar (collapsible to icons, persisted) | inset = breadcrumb bar + content
+ *
+ * Authorisation: the sidebar mirrors what the API will allow, using the same
+ * permission catalogue. It is a courtesy, not a boundary - hiding a link does
+ * not protect the route, and the API still refuses every call independently.
+ *
+ * NOTE ON BASE UI: this project uses the `base-nova` shadcn base, so components
+ * take a `render` prop rather than Radix's `asChild`. See ADR-006.
+ */
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, Gauge } from 'lucide-react';
+import Link from 'next/link';
+import { usePathname, useSearchParams, useRouter } from 'next/navigation';
+import { Suspense, useMemo } from 'react';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSkeleton,
+  SidebarProvider,
+  SidebarRail,
+  SidebarSeparator,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
+import { toast } from '@/components/ui/toast';
+import { usePermissions } from '@/components/auth/usePermissions';
+import { api } from '@/lib/api';
+import { breadcrumbFor, visibleSections, type NavSection } from '@/lib/nav';
+import { useCollapsedSections, useSidebarOpen } from '@/lib/shell-preferences';
+import { cn } from '@/lib/utils';
+
+/**
+ * Avatar tint, chosen from the address so it is stable per user rather than
+ * changing on every render or navigation.
+ */
+const ROLE_TINTS = [
+  'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200',
+  'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200',
+  'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+  'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+];
+
+/**
+ * Derives avatar initials from either a person's name or an email address.
+ *
+ * Names split on whitespace ("Bongani Dlamini" -> "BD"); addresses fall back to
+ * the local part with separators treated as word breaks ("david.m" -> "DM"), since
+ * not every account has a linked employee record.
+ */
+function initials(value: string | undefined): string {
+  if (!value) return '?';
+  if (value.includes('@')) {
+    const local = value.split('@')[0] ?? '';
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    const letters = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '');
+    return letters.join('') || (local[0] ?? '?').toUpperCase();
+  }
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  const letters = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '');
+  return letters.join('') || (value[0] ?? '?').toUpperCase();
+}
+
+/** `commercial_qs` -> "Commercial QS"; acronyms stay uppercase. */
+function humanise(roles: readonly string[]): string {
+  if (roles.length === 0) return 'No roles assigned';
+  const ACRONYMS = new Set(['qs', 'ecn', 'ie']);
+  return roles
+    .map((role) =>
+      role
+        .split('_')
+        .map((part) =>
+          ACRONYMS.has(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1),
+        )
+        .join(' '),
+    )
+    .join(', ');
+}
+
+/**
+ * True when every query filter named by `href` is present and equal in `search`.
+ *
+ * This is what stops "Valuation Packs" and "Jobs Board" - the same path, the
+ * same `view` - from both lighting up as active.
+ */
+function filtersMatch(href: string, search: string): boolean {
+  const [, query] = href.split('?');
+  if (!query) return true;
+  const current = new URLSearchParams(search);
+  for (const [key, value] of new URLSearchParams(query)) {
+    if (current.get(key) !== value) return false;
+  }
+  return true;
+}
+
+export function AppShell({ children }: { children: React.ReactNode }) {
+  const { user, permissions, loading } = usePermissions();
+  const sections = useMemo(() => visibleSections(permissions), [permissions]);
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  /*
+   * Both persisted values are read through `useSyncExternalStore` rather than
+   * seeded in an effect: they exist before React does, and seeding them in an
+   * effect would cascade an extra render on every mount and let the rail snap
+   * into place after first paint. See `lib/shell-preferences.ts`.
+   */
+  const [sidebarOpen, setSidebarOpen] = useSidebarOpen();
+  const [collapsed, toggleSection] = useCollapsedSections();
+
+  const logout = useMutation({
+    mutationFn: () => api.post<{ ok: true }>('/api/auth/logout'),
+    onSuccess: () => {
+      // Clear before leaving: otherwise the next person at this machine sees the
+      // previous session's data flash past while queries revalidate.
+      queryClient.clear();
+      router.push('/login');
+      router.refresh();
+    },
+    onError: () =>
+      // The cookie is cleared server-side regardless. A failed call must not
+      // strand the user in a half-signed-out state.
+      toast.add({
+        title: 'Sign-out request failed',
+        description: 'Continuing anyway. Close the browser if this is a shared machine.',
+        type: 'warning',
+      }),
+  });
+
+  return (
+    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
+      <AppSidebar
+        sections={sections}
+        collapsed={collapsed}
+        onToggleSection={toggleSection}
+        loading={loading}
+      />
+
+      {/*
+        `SidebarInset` already renders a <main>. Wrapping the page in another
+        one produced two main landmarks - a real accessibility defect, since the
+        main landmark is what a screen-reader user jumps to and a duplicate makes
+        that target ambiguous. The id therefore lives on SidebarInset, which is
+        the element that actually *is* the landmark.
+      */}
+      <SidebarInset id="main-content" className="min-w-0">
+        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <SidebarTrigger className="-ml-1" />
+
+          {/*
+            The breadcrumb resolves against the query string, so it must sit
+            below its own Suspense boundary - `useSearchParams` opts a client
+            component out of static prerendering and Next fails the build
+            otherwise. Scoping the boundary this narrowly keeps the header,
+            sidebar chrome and user menu painting immediately instead of
+            replacing the whole shell with a spinner.
+          */}
+          <Suspense fallback={<Skeleton className="h-4 w-40" />}>
+            <BreadcrumbTrail />
+          </Suspense>
+
+          <div className="ml-auto flex items-center gap-2">
+            {loading && <Spinner className="size-4 text-muted-foreground" />}
+            <UserMenu
+              email={user?.user.email}
+              displayName={
+                user?.employee ? `${user.employee.name} ${user.employee.surname}`.trim() : undefined
+              }
+              roles={user?.roles.map((role) => role.key) ?? []}
+              loggingOut={logout.isPending}
+              onLogout={() => logout.mutate()}
+            />
+          </div>
+        </header>
+
+        <div className="flex-1 p-4 sm:p-6">
+          {/*
+            Pages read their tab and filters from the URL, so each of them needs
+            this boundary too. The layout declares the same one for the page
+            itself; this one exists because AppShell renders above the layout's
+            boundary and must not opt itself out of prerendering.
+          */}
+          <Suspense
+            fallback={
+              <div className="flex min-h-64 items-center justify-center">
+                <Spinner className="size-6 text-muted-foreground" />
+                <span className="sr-only">Loading…</span>
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+
+/**
+ * Breadcrumb trail for the current URL.
+ *
+ * Isolated in its own component so the single `useSearchParams()` call is
+ * enclosed by the shell's Suspense boundary. Reading the hook in `AppShell`
+ * itself would opt the whole shell out of prerendering and fail the build.
+ */
+function BreadcrumbTrail() {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  const trail = breadcrumbFor(pathname, search);
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          {trail ? (
+            <>
+              <BreadcrumbLink render={<Link href="/dashboard" />}>OpenERP</BreadcrumbLink>
+              {/*
+                A literal separator rather than BreadcrumbSeparator: that
+                component carries its own accessible role, and nesting a
+                decorative glyph between two items is what it is for.
+              */}
+              <span aria-hidden="true" className="mx-1 text-muted-foreground">
+                /
+              </span>
+              <BreadcrumbPage>{trail.item.label}</BreadcrumbPage>
+            </>
+          ) : (
+            <BreadcrumbPage>OpenERP</BreadcrumbPage>
+          )}
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+}
+
+/** Placeholder rows while the real navigation resolves. */
+function SidebarMenuSkeletonList() {
+  return (
+    <SidebarMenu>
+      {[0, 1, 2].map((row) => (
+        <SidebarMenuItem key={row}>
+          <SidebarMenuSkeleton showIcon />
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
+  );
+}
+
+/**
+ * The permission-filtered navigation list.
+ *
+ * Separated from `AppSidebar` so the one `useSearchParams()` call it needs sits
+ * under a Suspense boundary: a hook read higher up would opt the entire shell
+ * out of static prerendering and Next would fail the build on every route.
+ */
+function NavSectionList({
+  sections,
+  collapsed,
+  onToggleSection,
+  loading,
+}: {
+  sections: NavSection[];
+  collapsed: ReadonlySet<string>;
+  onToggleSection: (key: string) => void;
+  loading: boolean;
+}) {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  const { open } = useSidebar();
+
+  if (loading && sections.length === 0) {
+    return <p className="px-2 py-3 text-xs text-muted-foreground">Loading navigation…</p>;
+  }
+
+  if (!loading && sections.length === 0) {
+    return (
+      <p className="px-2 py-3 text-xs text-muted-foreground">
+        Your roles grant no navigation. Contact an administrator.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {sections.map((section) => {
+        const isCollapsed = collapsed.has(section.key);
+        return (
+          // Controlled: `open` comes from persisted state, and the trigger's
+          // own toggle is routed back through `onOpenChange` so the two cannot
+          // disagree. Without that, the disclosure animates but never persists.
+          <Collapsible
+            key={section.key}
+            open={!isCollapsed}
+            onOpenChange={() => onToggleSection(section.key)}
+          >
+            <SidebarGroup>
+              {/*
+                A real button, not a styled div: this is a disclosure control
+                and must be reachable and operable from the keyboard. shadcn's
+                SidebarGroupLabel renders a div, so the trigger carries the
+                label's styling itself.
+              */}
+              <CollapsibleTrigger
+                className={cn(
+                  'flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase',
+                  'hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                  !open && 'justify-center',
+                )}
+                aria-label={open ? section.label : undefined}
+              >
+                <section.icon aria-hidden="true" className="size-4 shrink-0" />
+                {open && (
+                  <>
+                    <span className="truncate">{section.label}</span>
+                    <ChevronDown
+                      aria-hidden="true"
+                      className={cn(
+                        'ml-auto size-3.5 shrink-0 transition-transform duration-200',
+                        isCollapsed && '-rotate-90',
+                      )}
+                    />
+                  </>
+                )}
+              </CollapsibleTrigger>
+            </SidebarGroup>
+
+            <CollapsibleContent>
+              <SidebarMenu>
+                {section.items.map((item) => {
+                  const [hrefPath] = item.href.split('?');
+                  const isActive = pathname === hrefPath && filtersMatch(item.href, search);
+                  return (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton
+                        isActive={isActive}
+                        tooltip={item.label}
+                        render={<Link href={item.href} />}
+                      >
+                        <item.icon aria-hidden="true" />
+                        <span>{item.label}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </CollapsibleContent>
+          </Collapsible>
+        );
+      })}
+    </>
+  );
+}
+
+function AppSidebar({
+  sections,
+  collapsed,
+  onToggleSection,
+  loading,
+}: {
+  sections: NavSection[];
+  collapsed: ReadonlySet<string>;
+  onToggleSection: (key: string) => void;
+  loading: boolean;
+}) {
+  const { open } = useSidebar();
+  const pathname = usePathname();
+
+  return (
+    <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <div className="flex h-8 items-center gap-2 px-2">
+          <div
+            aria-hidden="true"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground"
+          >
+            OE
+          </div>
+          {open && (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold leading-tight">OpenERP</p>
+              <p className="truncate text-[11px] leading-tight text-muted-foreground">
+                EC&amp;I Contracting
+              </p>
+            </div>
+          )}
+        </div>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === '/dashboard'}
+              tooltip="Dashboard"
+              render={<Link href="/dashboard" />}
+            >
+              <Gauge aria-hidden="true" />
+              <span>Dashboard</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+
+        <SidebarSeparator />
+
+        {/*
+          Active-state highlighting compares against the query string, so this
+          subtree reads `useSearchParams` and is given its own boundary. The
+          header, brand block and user menu above it paint without waiting.
+        */}
+        <Suspense fallback={<SidebarMenuSkeletonList />}>
+          <NavSectionList
+            sections={sections}
+            collapsed={collapsed}
+            onToggleSection={onToggleSection}
+            loading={loading}
+          />
+        </Suspense>
+      </SidebarContent>
+
+      <SidebarFooter>
+        <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
+          Session held in an HTTP-only cookie.
+        </p>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  );
+}
+
+function UserMenu({
+  email,
+  displayName,
+  roles,
+  loggingOut,
+  onLogout,
+}: {
+  email: string | undefined;
+  displayName: string | undefined;
+  roles: readonly string[];
+  loggingOut: boolean;
+  onLogout: () => void;
+}) {
+  const tint = ROLE_TINTS[(email ?? 'anon').length % ROLE_TINTS.length];
+  // Prefer the person's name; fall back to the address when no employee record is
+  // linked. Never render both in the trigger - it is too long for the header.
+  const label = displayName || email || 'Signed in';
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="sm" className="h-9 gap-2 px-2">
+            <Avatar className="size-7">
+              <AvatarFallback className={cn('text-[11px] font-semibold', tint)}>
+                {initials(displayName || email)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="hidden max-w-40 truncate text-sm font-medium sm:inline">{label}</span>
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="flex flex-col gap-1">
+          <span className="truncate text-sm font-medium">{label}</span>
+          {email && email !== label && (
+            <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
+          )}
+          <span className="text-xs font-normal text-muted-foreground">{humanise(roles)}</span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" disabled={loggingOut} onClick={onLogout}>
+          {loggingOut ? 'Signing out…' : 'Sign out'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}

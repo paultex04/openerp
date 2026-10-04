@@ -1,0 +1,234 @@
+/**
+ * Navigation model.
+ *
+ * One declarative tree, consumed by both the sidebar and the breadcrumb. It used
+ * to be five hand-written `<nav>` blocks, one per page, which is why the pages
+ * looked like five different applications.
+ *
+ * Two rules hold this together:
+ *
+ *  1. Every entry points at a screen that exists. A nav item whose destination
+ *     is unimplemented is a broken promise, so entries are only added here once
+ *     there is a route and a screen behind them.
+ *  2. Every entry carries `anyOf`: the permission set that reveals it. This is
+ *     mirroring, not enforcement - the API re-checks every call independently -
+ *     but it is what makes the navigation honest about what a role can reach.
+ *
+ * Permissions are drawn from the same catalogue the API guard enforces
+ * (`@openerp/shared`), so a typo here is a compile error rather than a link that
+ * silently never appears.
+ */
+import {
+  Boxes,
+  Building2,
+  Columns3,
+  FileSpreadsheet,
+  FileText,
+  FolderKanban,
+  HardHat,
+  LayoutDashboard,
+  PackageCheck,
+  Receipt,
+  Ruler,
+  ScrollText,
+  ShieldCheck,
+  SlidersHorizontal,
+  Users,
+  type LucideIcon,
+} from 'lucide-react';
+
+export interface NavItem {
+  /** Path, optionally with a query that pre-selects a tab or filter. */
+  readonly href: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  /** Visible when the user holds any one of these permissions. */
+  readonly anyOf: readonly string[];
+}
+
+export interface NavSection {
+  readonly key: string;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly anyOf: readonly string[];
+  readonly items: readonly NavItem[];
+}
+
+/**
+ * Pipeline order is pipeline order: a valuation pack belongs *before* an
+ * invoice, so that is the order the sidebar walks.
+ */
+export const NAV_SECTIONS: readonly NavSection[] = [
+  {
+    key: 'commercial',
+    label: 'Commercial & Contracts',
+    icon: Building2,
+    // The section is shown if any of its children would be.
+    anyOf: [
+      'contract.read',
+      'amendment.read',
+      'costparameter.read',
+      'ratemaster.read',
+      'servicecode.read',
+    ],
+    items: [
+      {
+        href: '/commercial?tab=contracts',
+        label: 'Contracts & Amendments',
+        icon: FileText,
+        anyOf: ['contract.read', 'amendment.read'],
+      },
+      {
+        href: '/commercial?tab=parameters',
+        label: 'Cost Parameters',
+        icon: SlidersHorizontal,
+        anyOf: ['costparameter.read'],
+      },
+      {
+        href: '/commercial?tab=rates',
+        label: 'Labour Rate Masters (Tier 1)',
+        icon: HardHat,
+        anyOf: ['ratemaster.read'],
+      },
+      {
+        href: '/commercial?tab=recipes',
+        label: 'Activity & Material Codes (Tier 2)',
+        icon: Boxes,
+        anyOf: ['servicecode.read'],
+      },
+    ],
+  },
+  {
+    key: 'operations',
+    label: 'Operations',
+    icon: FolderKanban,
+    anyOf: ['project.read', 'job.read', 'deliverable.read', 'job.read.assigned'],
+    items: [
+      {
+        href: '/operations?view=dashboard',
+        label: 'Projects Register',
+        icon: LayoutDashboard,
+        anyOf: ['project.read', 'job.read'],
+      },
+      {
+        href: '/operations?view=board',
+        label: 'Jobs Board',
+        icon: Columns3,
+        anyOf: ['job.read'],
+      },
+      {
+        href: '/operations?view=board&status=07.%20Pack%20Ready',
+        label: 'Valuation Packs (Ready for Signature)',
+        icon: PackageCheck,
+        // Reading a pack is a job read; moving one out is a pack transition.
+        anyOf: ['job.transition.pack'],
+      },
+      {
+        href: '/field',
+        label: 'Field Measurements & Actuals',
+        icon: Ruler,
+        anyOf: ['deliverable.read', 'job.read.assigned'],
+      },
+    ],
+  },
+  {
+    key: 'billing',
+    label: 'Billing & Finance',
+    icon: Receipt,
+    anyOf: ['invoice.read'],
+    items: [
+      {
+        href: '/billing',
+        label: 'Invoice Register',
+        icon: FileSpreadsheet,
+        anyOf: ['invoice.read'],
+      },
+    ],
+  },
+  {
+    key: 'administration',
+    label: 'Administration',
+    icon: ShieldCheck,
+    // Admin screens are permission-gated individually too; this only decides
+    // whether the section header appears at all.
+    anyOf: ['admin.user.read', 'admin.role.read', 'admin.audit.read'],
+    items: [
+      {
+        href: '/admin?tab=users',
+        label: 'User Directory & Employee Links',
+        icon: Users,
+        anyOf: ['admin.user.read'],
+      },
+      {
+        href: '/admin?tab=roles',
+        label: 'Roles & Permissions Matrix',
+        icon: ShieldCheck,
+        anyOf: ['admin.role.read'],
+      },
+      {
+        href: '/admin?tab=audit',
+        label: 'System Audit Log',
+        icon: ScrollText,
+        anyOf: ['admin.audit.read'],
+      },
+    ],
+  },
+];
+
+function granted(permissions: ReadonlySet<string>, anyOf: readonly string[]): boolean {
+  return anyOf.some((permission) => permissions.has(permission));
+}
+
+/**
+ * Narrows the tree to what this user may see.
+ *
+ * Sections whose every child is hidden are dropped too, so a field supervisor
+ * does not see an empty "Billing & Finance" heading. An empty result is
+ * meaningful: it means the account holds no navigation-bearing permission, and
+ * the shell renders a "no access" state rather than a bare frame.
+ */
+export function visibleSections(permissions: readonly string[]): NavSection[] {
+  const set = new Set(permissions);
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => granted(set, item.anyOf)),
+  })).filter((section) => section.items.length > 0);
+}
+
+/**
+ * Resolves a pathname to its breadcrumb trail.
+ *
+ * Matching ignores the query string and any trailing detail segment, so
+ * `/operations?view=board&status=07.%20Pack%20Ready` still resolves to
+ * "Jobs Board" rather than to a label nobody can match.
+ */
+export function breadcrumbFor(
+  pathname: string,
+  search: string,
+): { section: NavSection; item: NavItem } | null {
+  const query = new URLSearchParams(search);
+
+  // A more specific entry wins: try every item and keep the longest match.
+  let best: { section: NavSection; item: NavItem; score: number } | null = null;
+
+  for (const section of NAV_SECTIONS) {
+    for (const item of section.items) {
+      const [path, itemQuery] = item.href.split('?');
+      if (path !== pathname) continue;
+
+      let score = 1;
+      if (itemQuery) {
+        // Every filter the entry specifies must match, or it is not this entry.
+        let matches = true;
+        for (const [key, value] of new URLSearchParams(itemQuery)) {
+          if (query.get(key) !== value) matches = false;
+        }
+        if (!matches) continue;
+        score = 2;
+      }
+      if (!best || score > best.score) best = { section, item, score };
+    }
+  }
+
+  return best ? { section: best.section, item: best.item } : null;
+}

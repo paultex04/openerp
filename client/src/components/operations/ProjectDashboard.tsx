@@ -11,9 +11,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError, type ProjectDetail, type ProjectRow } from '@/lib/api';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
-import { StatusPill, varianceTone } from '@/components/ui/status-badge';
+import { StatusPill, varianceTone } from '@/components/lifecycle/status-badge';
 import {
-  NumericCell,
   Table,
   TableBody,
   TableCell,
@@ -21,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { NumericCell } from '@/components/data-table/NumericCell';
 import { formatDate, formatZar } from '@/lib/format';
 
 function Metric({
@@ -186,13 +186,21 @@ function ProjectCard({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Job</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Schedule</TableHead>
-            <TableHead className="hidden xl:table-cell">Description</TableHead>
-            <TableHead className="text-right">Planned</TableHead>
-            <TableHead className="text-right">Actual</TableHead>
-            <TableHead className="text-right">Variance</TableHead>
+            <TableHead scope="col">Job</TableHead>
+            <TableHead scope="col">Status</TableHead>
+            <TableHead scope="col">Schedule</TableHead>
+            <TableHead scope="col" className="hidden xl:table-cell">
+              Description
+            </TableHead>
+            <TableHead scope="col" className="text-right">
+              Planned
+            </TableHead>
+            <TableHead scope="col" className="text-right">
+              Actual
+            </TableHead>
+            <TableHead scope="col" className="text-right">
+              Variance
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

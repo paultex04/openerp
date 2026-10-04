@@ -17,29 +17,40 @@ import {
   type TransitionOption,
   type VarianceSummary,
 } from '@/lib/api';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { JobKanban, JobStepper } from '@/components/operations/JobStepper';
 import { DeliverableGrid } from '@/components/operations/DeliverableGrid';
 import { ProjectDashboard } from '@/components/operations/ProjectDashboard';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
-import { StatusPill } from '@/components/ui/status-badge';
+import { StatusPill } from '@/components/lifecycle/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useUrlParam } from '@/hooks/use-url-param';
 import { formatDate, formatPercent, formatZar } from '@/lib/format';
 
 type View = 'dashboard' | 'board' | 'job';
 
+/** The board's status filter: a job status, or empty for "all". */
+type StatusFilter = '' | (typeof JOB_STATUSES)[number];
+
+/** Whitelist for the `view` query parameter. `job` is reachable only by selecting. */
+const VIEW_KEYS: readonly View[] = ['dashboard', 'board'];
+
 export default function OperationsPage() {
-  const [view, setView] = useState<View>('dashboard');
+  // URL-backed so the sidebar can link straight to a view, and so "Valuation
+  // Packs" can deep-link into a pre-filtered board.
+  const [view, setView] = useUrlParam<View>('view', VIEW_KEYS, 'dashboard');
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
+  // Selecting a job is not a URL state: it is a drill-down that always resolves
+  // back to the board, so it stays local rather than becoming a shareable link.
   const selectJob = (id: number) => {
     setSelectedJobId(id);
     setView('job');
   };
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Operations</h1>
@@ -83,14 +94,20 @@ export default function OperationsPage() {
         ) : (
           <p className="text-sm text-muted-foreground">Select a job to see its detail.</p>
         ))}
-    </main>
+    </div>
   );
 }
 
 /** ------------------------------------------------------------------------- */
 
 function BoardView({ onSelectJob }: { onSelectJob: (id: number) => void }) {
-  const [statusFilter, setStatusFilter] = useState('');
+  // '' means "no filter", which is not one of JOB_STATUSES, so the empty string is
+  // admitted as an explicit member of the whitelist rather than special-cased.
+  const [statusFilter, setStatusFilter] = useUrlParam<StatusFilter>(
+    'status',
+    ['', ...JOB_STATUSES],
+    '',
+  );
 
   const jobs = useQuery({
     queryKey: ['jobs'],
@@ -114,11 +131,20 @@ function BoardView({ onSelectJob }: { onSelectJob: (id: number) => void }) {
         <label htmlFor="status" className="text-sm text-muted-foreground">
           Status
         </label>
+        {/*
+          A native <select> rather than the shadcn wrapper. `ui/select.tsx` as
+          generated exports SelectGroup/SelectValue/SelectTrigger/SelectContent/
+          SelectItem but no root `Select`, so adopting it would mean importing
+          Base UI's root directly and hand-assembling the parts. That is a larger
+          change than this filter justifies, and a native select is fully
+          keyboard- and screen-reader-accessible on its own.
+          See ADR-006, finding F3.
+        */}
         <select
           id="status"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+          className="h-8 rounded-md border border-input bg-background px-2 text-sm"
         >
           <option value="">All statuses</option>
           {JOB_STATUSES.map((s) => (
@@ -321,7 +347,6 @@ function JobBilling({
   summary: VarianceSummary;
   onChanged: () => void;
 }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const generate = useMutation({
@@ -331,21 +356,21 @@ function JobBilling({
         invoice: { invoiceNumber: string };
         compliance: { ok: boolean; warnings: string[] };
       };
-      toast({
+      toast.add({
         title: `Draft ${outcome.invoice.invoiceNumber} raised`,
         description: outcome.compliance.ok
           ? undefined
           : `Compliance: ${outcome.compliance.warnings.join(' ')}`,
-        variant: outcome.compliance.ok ? 'success' : 'default',
+        type: outcome.compliance.ok ? 'success' : 'info',
       });
       void queryClient.invalidateQueries({ queryKey: ['invoices'] });
       onChanged();
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not raise an invoice',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 

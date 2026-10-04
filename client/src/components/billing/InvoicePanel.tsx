@@ -14,19 +14,11 @@
 import { useMutation } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
+import { invoiceVariant } from '@/lib/lifecycle-status';
 import { api, ApiError, type InvoiceTransitionOption } from '@/lib/api';
 
 const TERMINAL = new Set(['Paid', 'Cancelled']);
-
-export function invoiceVariant(status: string) {
-  if (status === 'Paid') return 'success';
-  if (status === 'Cancelled') return 'destructive';
-  if (status === 'Disputed') return 'destructive';
-  if (status === 'Approved' || status === 'Partially Paid') return 'success';
-  if (status === 'Submitted') return 'warning';
-  return 'secondary';
-}
 
 export function InvoiceTransitions({
   invoiceId,
@@ -39,24 +31,22 @@ export function InvoiceTransitions({
   transitions: InvoiceTransitionOption[];
   onTransitioned?: () => void;
 }) {
-  const { toast } = useToast();
-
   const move = useMutation({
     mutationFn: (to: string) => api.post(`/api/invoices/${invoiceId}/transition`, { status: to }),
     onSuccess: (result) => {
       const jobStatus = (result as { transition?: { jobStatus?: string } }).transition?.jobStatus;
-      toast({
+      toast.add({
         title: 'Invoice updated',
         description: jobStatus ? `Job moved to ${jobStatus}.` : undefined,
-        variant: 'success',
+        type: 'success',
       });
       onTransitioned?.();
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Transition refused',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 

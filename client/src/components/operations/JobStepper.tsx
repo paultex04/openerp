@@ -11,10 +11,10 @@
  */
 import { useMutation } from '@tanstack/react-query';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
-import { statusVariant } from '@/components/ui/status-badge';
+import { statusVariant } from '@/lib/lifecycle-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { api, ApiError, type TransitionOption } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -36,19 +36,17 @@ interface Props {
 }
 
 export function JobStepper({ jobId, currentStatus, transitions, onTransitioned }: Props) {
-  const { toast } = useToast();
-
   const move = useMutation({
     mutationFn: (to: string) => api.post(`/api/jobs/${jobId}/transition`, { status: to }),
     onSuccess: () => {
-      toast({ title: 'Job status updated', variant: 'success' });
+      toast.add({ title: 'Job status updated', type: 'success' });
       onTransitioned?.();
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Transition refused',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 

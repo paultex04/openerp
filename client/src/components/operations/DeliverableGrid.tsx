@@ -29,10 +29,9 @@ import {
 import { useState } from 'react';
 import { api, ApiError, type DeliverableRow, type VarianceSummary } from '@/lib/api';
 import { formatNumber, formatZar, formatZarRate } from '@/lib/format';
-import { useToast } from '@/components/ui/toast';
+import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import {
-  NumericCell,
   Table,
   TableBody,
   TableCell,
@@ -40,7 +39,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { varianceTone } from '@/components/ui/status-badge';
+import { NumericCell } from '@/components/data-table/NumericCell';
+import { varianceTone } from '@/components/lifecycle/status-badge';
 
 const helper = createColumnHelper<DeliverableRow>();
 
@@ -114,22 +114,21 @@ export function DeliverableGrid({
   actualsLockReason,
   onChanged,
 }: Props) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const savePlanned = useMutation({
     mutationFn: ({ id, quantity }: { id: number; quantity: number }) =>
       api.patch(`/api/job-deliverables/${id}/planned`, { plannedQuantity: quantity }),
     onSuccess: () => {
-      toast({ title: 'Planned quantity updated', variant: 'success' });
+      toast.add({ title: 'Planned quantity updated', type: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       onChanged?.();
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not update the plan',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -137,15 +136,15 @@ export function DeliverableGrid({
     mutationFn: ({ id, quantity }: { id: number; quantity: number }) =>
       api.patch(`/api/job-deliverables/${id}/actual`, { actualQuantity: quantity }),
     onSuccess: () => {
-      toast({ title: 'Actual recorded', variant: 'success' });
+      toast.add({ title: 'Actual recorded', type: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       onChanged?.();
     },
     onError: (e: Error) =>
-      toast({
+      toast.add({
         title: 'Could not record the actual',
         description: e instanceof ApiError ? e.message : e.message,
-        variant: 'destructive',
+        type: 'error',
       }),
   });
 
@@ -264,6 +263,7 @@ export function DeliverableGrid({
               {group.headers.map((header) => (
                 <TableHead
                   key={header.id}
+                  scope="col"
                   className={
                     header.id.includes('Subtotal') || header.id.includes('Variance')
                       ? 'text-right'

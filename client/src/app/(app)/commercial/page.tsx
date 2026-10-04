@@ -19,13 +19,13 @@ import {
   type RateCardRow,
 } from '@/lib/api';
 import { usePermissions } from '@/components/auth/usePermissions';
-import { Badge, statusVariant } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
+import { statusVariant } from '@/lib/lifecycle-status';
 import { Button } from '@/components/ui/button';
 import { CostParameterTable } from '@/components/commercial/CostParameterTable';
 import { RateBuildupSheet } from '@/components/commercial/RateBuildupSheet';
 import { ServiceCodeRecipeBuilder } from '@/components/commercial/ServiceCodeRecipeBuilder';
 import {
-  NumericCell,
   Table,
   TableBody,
   TableCell,
@@ -33,9 +33,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { NumericCell } from '@/components/data-table/NumericCell';
+import { useUrlParam } from '@/hooks/use-url-param';
 import { formatDate, formatPercent, formatZar, formatZarRate } from '@/lib/format';
 
 type Tab = 'contracts' | 'parameters' | 'rates' | 'recipes';
+
+/** Whitelist for the `tab` query parameter. */
+const TAB_KEYS: readonly Tab[] = ['contracts', 'parameters', 'rates', 'recipes'];
 
 const TABS: Array<{ key: Tab; label: string; permission: string }> = [
   { key: 'contracts', label: 'Contracts & Amendments', permission: 'contract.read' },
@@ -46,7 +51,9 @@ const TABS: Array<{ key: Tab; label: string; permission: string }> = [
 
 export default function CommercialPage() {
   const { permissions, loading: authLoading } = usePermissions();
-  const [tab, setTab] = useState<Tab>('contracts');
+  // Tab lives in the URL so the sidebar can deep-link to it and a reload keeps
+  // the user where they were. See `useUrlParam` for the validation rationale.
+  const [tab, setTab] = useUrlParam<Tab>('tab', TAB_KEYS, 'contracts');
   const [amendmentId, setAmendmentId] = useState<number | null>(null);
 
   const can = (permission: string) => permissions.includes(permission);
@@ -117,7 +124,7 @@ export default function CommercialPage() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Commercial</h1>
@@ -183,11 +190,11 @@ export default function CommercialPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Contract</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>VAT</TableHead>
-                <TableHead>Amendments</TableHead>
+                <TableHead scope="col">Contract</TableHead>
+                <TableHead scope="col">Description</TableHead>
+                <TableHead scope="col">Client</TableHead>
+                <TableHead scope="col">VAT</TableHead>
+                <TableHead scope="col">Amendments</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -295,16 +302,30 @@ export default function CommercialPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Trade</TableHead>
-                <TableHead>Shift</TableHead>
-                <TableHead className="text-right">Base</TableHead>
-                <TableHead className="text-right">In pocket</TableHead>
-                <TableHead className="text-right">BDL</TableHead>
-                <TableHead className="text-right">OH</TableHead>
-                <TableHead className="text-right">SG&amp;A</TableHead>
-                <TableHead className="text-right">Profit</TableHead>
-                <TableHead className="text-right">Full loaded</TableHead>
+                <TableHead scope="col">Code</TableHead>
+                <TableHead scope="col">Trade</TableHead>
+                <TableHead scope="col">Shift</TableHead>
+                <TableHead scope="col" className="text-right">
+                  Base
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  In pocket
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  BDL
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  OH
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  SG&amp;A
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  Profit
+                </TableHead>
+                <TableHead scope="col" className="text-right">
+                  Full loaded
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -332,7 +353,7 @@ export default function CommercialPage() {
           </p>
         </section>
       )}
-    </main>
+    </div>
   );
 }
 

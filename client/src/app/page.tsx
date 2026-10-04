@@ -1,107 +1,17 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import Link from 'next/link';
-import { usePermissions } from '@/components/auth/usePermissions';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-
-export default function HomePage() {
-  const { user, roles, loading } = usePermissions();
-
-  const destinations = [
-    {
-      href: '/operations',
-      title: 'Operations',
-      description: 'Projects, job lifecycle, scoping and field actuals.',
-      permission: 'job.read',
-    },
-    {
-      href: '/field',
-      title: 'Field',
-      description: 'Mobile view for site supervisors: record measured quantities.',
-      permission: 'deliverable.read',
-    },
-    {
-      href: '/commercial',
-      title: 'Commercial',
-      description: 'Contracts, amendments, cost parameters, labour rate build-up and recipes.',
-      permission: 'contract.read',
-    },
-    {
-      href: '/billing',
-      title: 'Billing',
-      description: 'Invoice register, VAT treatment, lifecycle and the printable tax layout.',
-      permission: 'invoice.read',
-    },
-    {
-      href: '/admin',
-      title: 'Administration',
-      description: 'User accounts, role permissions and the audit trail.',
-      permission: 'admin.user.read',
-    },
-  ];
-
-  return (
-    <main className="mx-auto max-w-4xl space-y-8 p-8">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">OpenERP</h1>
-        <p className="text-muted-foreground">
-          ERP for industrial electrical and instrumentation contracting.
-        </p>
-      </header>
-
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading session…</p>
-      ) : user ? (
-        <div className="rounded-lg border p-4 text-sm">
-          <p>
-            Signed in as <span className="font-medium">{user.user.email}</span>
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            Employee {user.employee.name} {user.employee.surname} (#
-            {user.employee.id})
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {roles.map((role) => (
-              <Badge key={role} variant="outline">
-                {role}
-              </Badge>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {user.permissions.length} effective permissions
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-          Not signed in. The API expects a session cookie; use the login endpoint to obtain one.
-        </div>
-      )}
-
-      <section className="grid gap-3 sm:grid-cols-3">
-        {destinations.map((d) => {
-          const enabled =
-            d.permission !== null && !loading && user?.permissions.includes(d.permission);
-
-          return (
-            <div key={d.title} className="rounded-lg border p-4">
-              <h2 className="text-sm font-semibold">{d.title}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{d.description}</p>
-              <div className="mt-3">
-                {enabled && d.href !== '#' ? (
-                  <Link href={d.href}>
-                    <Button size="sm">Open</Button>
-                  </Link>
-                ) : (
-                  <Button size="sm" disabled>
-                    {d.permission === null ? 'Coming soon' : 'Not permitted'}
-                  </Button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </section>
-    </main>
-  );
+/**
+ * `/` is a router, not a page.
+ *
+ * `src/middleware.ts` handles the normal path with a real 302 before any render
+ * happens. This component is the fallback for the case where middleware is
+ * bypassed - a direct server-side invocation, or a request that never matched the
+ * matcher - so there is no way to land on an unstyled or misleading root.
+ *
+ * It deliberately does not inspect the cookie: the cookie is HTTP-only, its
+ * contents cannot be read here, and its presence is not proof of a valid
+ * session. Authentication belongs to the API.
+ */
+export default function RootPage(): never {
+  redirect('/dashboard');
 }

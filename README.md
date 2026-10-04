@@ -6,12 +6,12 @@ labour recipes and material BOMs, planned-vs-actual job tracking, an invoice lif
 
 ## Stack
 
-| Layer    | Technology                                                       |
-| -------- | ---------------------------------------------------------------- |
-| Database | PostgreSQL 18 (`192.168.50.7:5432/openerp-dev`)                  |
-| Backend  | Node.js + TypeScript, Fastify 5, Prisma 6, Zod, Vitest           |
-| Frontend | Next.js 15 (App Router), React 19, Tailwind, shadcn/ui, TanStack |
-| Shared   | Zod schemas + pure pricing / state-machine engines               |
+| Layer    | Technology                                                                    |
+| -------- | ----------------------------------------------------------------------------- |
+| Database | PostgreSQL 18 (`192.168.50.7:5432/openerp-dev`)                               |
+| Backend  | Node.js + TypeScript, Fastify 5, Prisma 6, Zod, Vitest                        |
+| Frontend | Next.js 15 (App Router), React 19, Tailwind v4, shadcn/ui (Base UI), TanStack |
+| Shared   | Zod schemas + pure pricing / state-machine engines                            |
 
 ## Repository layout
 
@@ -39,18 +39,19 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Scripts
 
-| Command                | Purpose                                    |
-| ---------------------- | ------------------------------------------ |
-| `npm run db:check`     | Verify TCP + authenticated DB connectivity |
-| `npm run verify`       | format + lint + typecheck + test           |
-| `npm run test`         | Run all workspace test suites              |
-| `npm run db:generate`  | Regenerate the Prisma client               |
-| `npm run db:push`      | Apply schema changes to the database       |
-| `npm run seed`         | Provision default roles + super admin      |
-| `npm run smoke:phase2` | HTTP smoke test against a running API      |
-| `npm run smoke:phase3` | As above, for the operations surface       |
-| `npm run smoke:phase4` | As above, for billing and invoicing        |
-| `npm run smoke:phase5` | As above, for admin and the audit log      |
+| Command                | Purpose                                                             |
+| ---------------------- | ------------------------------------------------------------------- |
+| `npm run db:check`     | Verify TCP + authenticated DB connectivity                          |
+| `npm run verify`       | format + lint + typecheck + test                                    |
+| `npm run test`         | Run all workspace test suites                                       |
+| `npm run db:generate`  | Regenerate the Prisma client                                        |
+| `npm run db:push`      | Apply schema changes to the database                                |
+| `npm run seed`         | Provision default roles + super admin                               |
+| `npm run smoke:phase2` | HTTP smoke test against a running API                               |
+| `npm run smoke:phase3` | As above, for the operations surface                                |
+| `npm run smoke:phase4` | As above, for billing and invoicing                                 |
+| `npm run smoke:phase5` | As above, for admin and the audit log                               |
+| `npm run smoke:phase6` | As above, for routing, nav and RBAC (needs **both** API and web up) |
 
 ## Running the stack
 
@@ -103,6 +104,21 @@ figure. See [ADR-002](docs/adr-002-pricing-engine.md) for the full rationale.
 generated migration is destructive. See
 [ADR-001](docs/adr-001-baseline-findings.md).
 
+**Frontend design system.** There is **no `tailwind.config.ts`** — Tailwind v4 is
+CSS-first, and the theme lives in `client/src/app/globals.css`, where `@theme inline` maps the
+`:root` tokens onto utilities. Two rules matter:
+
+- `client/src/components/ui/` is owned by the shadcn registry and is replaced wholesale by
+  `shadcn add --overwrite`. It is excluded from lint for that reason. Anything OpenERP adds on
+  top of it must live **outside** that directory, or the next component update deletes it.
+- shadcn's base here is **Base UI**, so components take a `render` prop rather than Radix's
+  `asChild`. The two are not interchangeable, and `asChild` is a type error rather than a soft
+  failure.
+
+The application shell, navigation and RBAC filtering are documented in
+[ADR-006](docs/adr-006-enterprise-ui-overhaul.md), which also records the six browser-only
+defects found during the UI pass.
+
 ## Branching and releases
 
 Production code lives on `main`. Each phase is developed on a `phase/NN-*` branch and merged only
@@ -116,6 +132,7 @@ after its automated tests and verification gates pass:
 | `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals           |
 | `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing              |
 | `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                |
+| `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass |
 
 The schema in `server/prisma/schema.prisma` is the source of truth, but the
 migrations are hand-written and additive-only. `prisma migrate deploy` refuses

@@ -2,7 +2,8 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { ToastProvider } from '@/components/ui/toast';
+import { Toaster } from '@/components/ui/toast';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export function Providers({ children }: { children: ReactNode }) {
   // One client per browser session, created lazily so server renders do not
@@ -28,7 +29,14 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>{children}</ToastProvider>
+      <TooltipProvider>
+        {children}
+        {/*
+          One toaster for the whole app. Sits outside the route tree so a toast
+          raised by a query that resolves after navigation still survives.
+        */}
+        <Toaster />
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }
