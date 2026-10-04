@@ -115,9 +115,23 @@ CSS-first, and the theme lives in `client/src/app/globals.css`, where `@theme in
   `asChild`. The two are not interchangeable, and `asChild` is a type error rather than a soft
   failure.
 
+**Colour and themes.** Five themes — Harbour (default), Steel, Ember, Verdant and
+Midnight (dark) — chosen from the palette icon in the header or on the sign-in screen. A theme
+is a `[data-theme='<id>']` block of custom-property overrides in `globals.css`; switching one
+attribute on `<html>` restyles everything, including the sidebar, badges, tables and focus rings.
+The choice persists per device.
+
+The consequence to respect: **never hardcode a colour.** A literal `bg-amber-50` or
+`text-red-700` ignores the palette and looks wrong under four of the five themes. Use the
+semantic tokens, and `--success` / `--warning` / `--info` / `--positive` / `--negative` for
+status. `smoke-phase6.mjs` Gate 7 asserts every theme is chromatic, precisely so a near-grey
+`--primary` cannot come back unnoticed.
+
 The application shell, navigation and RBAC filtering are documented in
-[ADR-006](docs/adr-006-enterprise-ui-overhaul.md), which also records the six browser-only
-defects found during the UI pass.
+[ADR-006](docs/adr-006-enterprise-ui-overhaul.md), which also records the browser-only defects
+found during the UI pass — including the two found by _using_ the app: a dropdown that crashed
+the page on open, and the fact that `--primary` was near-black, which is why the UI looked
+colourless.
 
 ## Branching and releases
 

@@ -80,7 +80,7 @@ export function JobStepper({ jobId, currentStatus, transitions, onTransitioned }
                     : reached
                       ? 'bg-primary/40'
                       : isBranch
-                        ? 'bg-amber-400/50'
+                        ? 'bg-warning/20'
                         : 'bg-muted',
                 )}
               />

@@ -21,9 +21,21 @@ const badgeVariants = cva(
         // lifecycles need a colour per stage, and `destructive` alone cannot
         // express "in progress" or "awaiting approval". Declared here rather than
         // as bespoke classNames at call sites so every badge in the app agrees.
-        success: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100',
-        warning: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100',
-        info: 'bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-100',
+        //
+        // Built from the semantic `--success` / `--warning` / `--info` tokens
+        // rather than literal emerald/amber/sky ramps. Hardcoding those made the
+        // badges ignore the active theme: they stayed emerald under Ember and
+        // Verdant, and were unreadably dark under Midnight. Using the token for
+        // the text and an alpha of the same token for the fill means one hue
+        // drives both, so contrast holds in every theme, including dark ones -
+        // and there is no separate `dark:` branch to keep in sync.
+        //
+        // The three are identical in shape on purpose. An earlier version needed
+        // `dark:text-warning` because the light-theme warning sat at 3:1; the
+        // token itself was darkened instead, so every variant is one rule.
+        success: 'bg-success/15 text-success',
+        warning: 'bg-warning/15 text-warning',
+        info: 'bg-info/15 text-info',
       },
     },
     defaultVariants: {

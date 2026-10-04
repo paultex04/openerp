@@ -401,8 +401,16 @@ export default function DashboardPage() {
                         </TableCaption>
                         <TableHeader>
                           <TableRow>
+                            {/*
+                              Two columns, not three. This card sits in a two-up
+                              grid and is ~440px wide at desktop; a reference, a
+                              client name and a date plus badge measured 487px and
+                              scrolled sideways, which clipped the one column the
+                              row exists to show. The client moves under the
+                              reference, where it is still readable and the expiry
+                              date stays on screen without a scroll.
+                            */}
                             <TableHead scope="col">Amendment</TableHead>
-                            <TableHead scope="col">Client</TableHead>
                             <TableHead scope="col" className="text-right">
                               Expires
                             </TableHead>
@@ -414,23 +422,34 @@ export default function DashboardPage() {
                               {/*
                                 Truncated with the full value on `title`. A
                                 contract reference like
-                                `SASOL-ECI-2026-TERM/AMD-00` is unbreakable, so
-                                without a width cap it forces the whole table to
-                                scroll sideways and pushes the expiry date - the
-                                reason the row exists - out of view.
+                                `SASOL-ECI-2026-TERM/AMD-00` has no break
+                                opportunity, so without a width cap it forces the
+                                whole table to scroll sideways.
                               */}
-                              <TableCell className="max-w-[10rem]">
+                              {/*
+                                `max-w-0` is the load-bearing part. A table cell
+                                sizes to its content and will not shrink, so
+                                `truncate` on the inner span never engages and the
+                                unbreakable reference pushes the expiry column out
+                                of view. `max-w-0 w-full` collapses the cell to
+                                zero intrinsic width and lets it take exactly the
+                                space left over by the non-wrapping date column.
+                              */}
+                              <TableCell className="max-w-0 w-full">
                                 <span
                                   className="block truncate font-medium"
                                   title={`${row.contractNumber}/${row.amendment.amendmentNumber}`}
                                 >
                                   {row.contractNumber}/{row.amendment.amendmentNumber}
                                 </span>
+                                <span
+                                  className="block truncate text-xs text-muted-foreground"
+                                  title={row.clientName}
+                                >
+                                  {row.clientName}
+                                </span>
                               </TableCell>
-                              <TableCell className="max-w-[10rem] truncate text-muted-foreground">
-                                {row.clientName}
-                              </TableCell>
-                              <NumericCell className="whitespace-nowrap">
+                              <NumericCell className="whitespace-nowrap align-top">
                                 <span className="flex items-center justify-end gap-2">
                                   <span className="text-xs text-muted-foreground">
                                     {formatDate(row.amendment.expiryDate)}
@@ -552,8 +571,8 @@ function MetricTile({
         <p
           className={cn(
             'text-2xl leading-9 font-semibold tabular-nums',
-            tone === 'negative' && 'text-red-700 dark:text-red-400',
-            tone === 'positive' && 'text-emerald-700 dark:text-emerald-400',
+            tone === 'negative' && 'text-negative',
+            tone === 'positive' && 'text-positive',
           )}
         >
           {value ?? <Skeleton className="h-9 w-24" />}

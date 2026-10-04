@@ -403,7 +403,7 @@ function JobBilling({
       </div>
 
       {!billable && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
           Billing takes ownership at 07. Pack Ready. This job is at {job.status}, so an invoice
           cannot be raised yet — revenue is not recognised against work whose scope is still being
           planned or executed.

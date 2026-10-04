@@ -100,7 +100,7 @@ function QuantityCell({
         className="w-20 rounded border border-input bg-background px-1.5 py-0.5 text-right font-mono text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={hint}
       />
-      {dirty && <span className="text-[10px] text-amber-700">↵</span>}
+      {dirty && <span className="text-[10px] text-warning">↵</span>}
     </span>
   );
 }
@@ -175,7 +175,7 @@ export function DeliverableGrid({
             <span className="font-mono tabular-nums">{formatZarRate(row.appliedRate)}</span>
             {row.rateHasDrifted && (
               <span
-                className="cursor-help text-[10px] text-amber-700"
+                className="cursor-help text-[10px] text-warning"
                 title={
                   `The service code has since been re-priced to ${formatZarRate(row.currentRate ?? 0)}.\n` +
                   'This job keeps the rate captured at scoping time.'
@@ -324,7 +324,7 @@ export function DeliverableGrid({
 
       {/* ---- Lock explanations, shown only when something is locked ---- */}
       {!canEditPlanned && plannedLockReason && (
-        <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
           {plannedLockReason}
         </p>
       )}

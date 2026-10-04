@@ -256,7 +256,7 @@ function RolesPanel() {
             </div>
 
             {drifted && (
-              <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+              <p className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
                 The live grants differ from the seeded catalogue
                 {missing.length > 0 && `; missing ${missing.join(', ')}`}
                 {extra.length > 0 && `; unexpected ${extra.join(', ')}`}. Run &quot;npm run seed
@@ -331,7 +331,7 @@ function AuditPanel() {
       )}
 
       {summary.data && summary.data.auditWriteFailures > 0 && (
-        <p className="rounded-md border border-red-300 bg-red-50 p-2 text-xs text-red-900 dark:bg-red-950/30 dark:text-red-100">
+        <p className="rounded-md border border-negative/40 bg-negative/10 p-2 text-xs text-negative">
           {summary.data.auditWriteFailures} audit write(s) failed. Entries may be missing; see the
           server log.
         </p>

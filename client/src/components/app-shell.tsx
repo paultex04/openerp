@@ -35,6 +35,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -61,6 +62,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { api } from '@/lib/api';
 import { breadcrumbFor, visibleSections, type NavSection } from '@/lib/nav';
 import { useCollapsedSections, useSidebarOpen } from '@/lib/shell-preferences';
@@ -69,12 +71,18 @@ import { cn } from '@/lib/utils';
 /**
  * Avatar tint, chosen from the address so it is stable per user rather than
  * changing on every render or navigation.
+ *
+ * Built from theme tokens rather than literal colour ramps. The literals were a
+ * fixed set of four colours that ignored the active theme entirely, so under
+ * Midnight four dark-on-dark avatars rendered at near-zero contrast. A low-alpha
+ * fill plus the solid token for the text lets the tint follow the palette and
+ * keeps the lettering legible in every theme.
  */
 const ROLE_TINTS = [
-  'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200',
-  'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200',
-  'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
-  'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+  'bg-info/15 text-info',
+  'bg-primary/15 text-primary',
+  'bg-warning/15 text-warning',
+  'bg-success/15 text-success',
 ];
 
 /**
@@ -197,6 +205,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="ml-auto flex items-center gap-2">
             {loading && <Spinner className="size-4 text-muted-foreground" />}
+            {/*
+              Theme is a per-device preference, so it is offered to every
+              authenticated user rather than gated on a permission.
+            */}
+            <ThemePicker />
+            <ThemeAnnouncer />
             <UserMenu
               email={user?.user.email}
               displayName={
@@ -455,9 +469,16 @@ function AppSidebar({
       </SidebarContent>
 
       <SidebarFooter>
-        <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
-          Session held in an HTTP-only cookie.
-        </p>
+        {/*
+          Hidden in icon mode. The rail is ~48px wide there, so this sentence
+          wrapped one word per line down the side of the screen, which is the most
+          visible layout bug in collapsed mode.
+        */}
+        {open && (
+          <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
+            Session held in an HTTP-only cookie.
+          </p>
+        )}
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
@@ -497,13 +518,22 @@ function UserMenu({
         }
       />
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="flex flex-col gap-1">
-          <span className="truncate text-sm font-medium">{label}</span>
-          {email && email !== label && (
-            <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
-          )}
-          <span className="text-xs font-normal text-muted-foreground">{humanise(roles)}</span>
-        </DropdownMenuLabel>
+        {/*
+          `DropdownMenuGroup` is mandatory here, not decorative. In the base-nova
+          component `DropdownMenuLabel` wraps Base UI's `MenuGroupLabel`, which
+          throws "MenuGroupContext is missing" unless it is inside a menu group.
+          Rendering the label on its own crashed the whole tree, and it did so only
+          on click - the page looked perfectly healthy until the menu opened.
+        */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex flex-col gap-1">
+            <span className="truncate text-sm font-medium">{label}</span>
+            {email && email !== label && (
+              <span className="truncate text-xs font-normal text-muted-foreground">{email}</span>
+            )}
+            <span className="text-xs font-normal text-muted-foreground">{humanise(roles)}</span>
+          </DropdownMenuLabel>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" disabled={loggingOut} onClick={onLogout}>
           {loggingOut ? 'Signing out…' : 'Sign out'}

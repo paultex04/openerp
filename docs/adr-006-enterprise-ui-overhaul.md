@@ -255,3 +255,127 @@ Applied while building, not deferred:
    Only `tw-animate-css` is imported. The former is unused and could be dropped.
 5. **Demo accounts still share one password** (`Ops#Field2026x`). Unchanged from
    earlier phases; rotate before any shared use.
+
+---
+
+# Addendum: post-`v1.1.0` fixes and the theming system
+
+Two items landed after `v1.1.0` was tagged. They are recorded here rather than in
+a new ADR because they are the same phase's work, discovered by using the thing.
+
+## F7 - The user menu crashed the page on open
+
+`DropdownMenuLabel` in the `base-nova` component set wraps Base UI's
+`MenuGroupLabel`, and Base UI throws `MenuGroupContext is missing` unless that
+part is inside a menu group. The label was rendered directly inside
+`DropdownMenuContent`.
+
+The signature of this defect is why it is worth recording: **the page was
+completely healthy until the menu was clicked.** Every automated gate passed,
+and the failure only existed on an interaction no test performed. It is the same
+class as F1 - invisible to the toolchain, obvious in a browser - which is the
+third time in two phases that the browser was the only thing that could find the
+bug.
+
+Fix: wrap the label in `DropdownMenuGroup`, which is required rather than
+decorative. Documented at the call site so the next person does not "simplify" it
+away.
+
+## D7 - Colour is a theme, not a constant
+
+The complaint at `v1.1.0` was blunt: _the application uses no colour._ The cause
+was not an absence of palette but the opposite - `--primary` was
+`oklch(0.205 0 0)`, a near-black. Everything derived from it was grey, including
+the accent every component draws its emphasis from.
+
+### Five themes
+
+| id         | Label    | Character                                           |
+| ---------- | -------- | --------------------------------------------------- |
+| `harbour`  | Harbour  | Cool slate neutrals, industrial cyan-blue. Default. |
+| `steel`    | Steel    | Cooler and bluer.                                   |
+| `ember`    | Ember    | Warm neutrals, amber-orange.                        |
+| `verdant`  | Verdant  | Green-tinted neutrals, emerald.                     |
+| `midnight` | Midnight | **Dark** surface, violet.                           |
+
+A theme is nothing but a `[data-theme='<id>']` block of custom-property overrides
+on `<html>`. Nothing in the application knows which theme is active: switching
+one attribute restyles the entire app - sidebar, badges, tables, focus rings -
+in a single frame, with no re-render and no flash. That is the whole payoff of
+having semantic tokens in the first place, and it is why hardcoded colours are
+now a defect rather than a shortcut.
+
+Each theme sets **both** the neutral ramp and the accent, so it is a coherent
+surface rather than a tint over fixed grey. The light themes share a lightness
+skeleton and differ in hue and chroma; that is what makes them feel like one
+product in five colourways.
+
+### D7a - Status colour is separate from `destructive`
+
+`--success`, `--warning`, `--info`, `--positive` and `--negative` were added. A
+paid invoice and a "Pack Ready" job are **good news that needs colour**, not
+errors; routing them through `destructive` made the app look alarming and trained
+the eye to ignore red. Every lifecycle badge and the variance figure now read
+from these.
+
+### D7b - Hardcoded colours were removed, not just themed around
+
+Nine files carried literal ramps (`bg-amber-50`, `text-red-700 dark:text-red-400`,
+`bg-slate-900`, `bg-cyan-400`). These ignored the palette entirely: under
+Midnight they rendered amber panels on a near-black surface, and the variance
+figure used a colour correct in only two of the five themes. All were migrated to
+tokens, using an alpha of the same token for fills and the solid token for text -
+which removes the paired `dark:` branches that had to be hand-synced.
+
+The sign-in brand panel was `bg-slate-900` with a hardcoded cyan gradient. It now
+uses `--primary` and a `color-mix` wash of its own foreground, so signing in under
+Midnight shows one surface rather than two unrelated darks.
+
+### D7c - The theme is applied before first paint
+
+A synchronous inline script in `<head>` reads `localStorage` and sets
+`data-theme` during HTML parsing. A React effect runs after hydration, which is
+late enough for the user to see a full frame of the wrong palette on every
+navigation. The script is a build-time constant from our own module, cannot
+throw, and falls back to the CSS default.
+
+`useSyncExternalStore` then carries the value into React. `getSnapshot` reads the
+attribute; `getServerSnapshot` returns a constant. This matters: the first
+implementation seeded `useState` from `document.documentElement.dataset.theme`,
+which returned `ember` on the client while the server had rendered `harbour` -
+a hydration mismatch React cannot patch. `useSyncExternalStore` is built for
+exactly this and resolves it deterministically.
+
+Theme changes are announced through an `aria-live="polite"` region. A colour change
+is completely invisible to a screen-reader user, so without it the picker would
+close and appear to have done nothing.
+
+### D7d - One theme axis, not two
+
+There is no separate light/dark toggle. The five themes include the dark one, so
+the choice is single-axis: pick a theme, get the surface it implies. Two
+independent axes produce ten combinations, most of which nobody wants, and a
+"dark mode" switch that silently does nothing when the theme is Midnight is worse
+than no switch at all.
+
+`.dark` is retained purely as a `color-scheme` alias, because the shadcn
+components' own `dark:` variants are keyed off that class. It deliberately does
+**not** repeat the ~30 Midnight declarations - a second copy of a palette is
+guaranteed to drift.
+
+## Verification of the theming
+
+`smoke-phase6.mjs` Gate 7 asserts the theme catalogue and the stylesheet agree,
+because they are two views of one list:
+
+- exactly five `[data-theme]` blocks exist, and each named theme is present
+- all five declare `--primary`, all five are **distinct**, and all five are
+  **chromatic** (chroma >= 0.1). This is the direct regression test for the
+  `oklch(0.205 0 0)` near-black that caused "no colour" in the first place
+- the five status tokens are present
+- Midnight sets `color-scheme: dark`
+- the theme bootstrap is inlined in the served HTML
+
+Checked in-browser on all five themes: `--primary`, body, card, sidebar, buttons
+and badges all re-resolve; Midnight measures 8:1 on muted text against its
+surface.

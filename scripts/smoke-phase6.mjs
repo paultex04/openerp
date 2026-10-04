@@ -238,10 +238,14 @@ async function main() {
   const html = await cssProbe.text();
   const cssHref = /href="(\/_next\/static\/css\/[^"]+\.css[^"]*)"/.exec(html)?.[1];
 
+  // Declared out here so Gate 7 can reuse it; `const` inside the `if` below
+  // would not be visible to the later block.
+  let cssText = '';
+
   if (cssHref) {
     const css = await fetch(`${WEB}${cssHref}`, { redirect: 'manual' });
     check('stylesheet -> status', css.status, 200);
-    const cssText = await css.text();
+    cssText = await css.text();
     // The Phase 6 defect that made the entire app render unstyled: the utility
     // compiled but resolved to an invalid colour, so nothing was applied.
     checkThat(
@@ -353,6 +357,80 @@ async function main() {
     const result = await probe(`${WEB}${route}`, adminCookie);
     check(`GET ${route} as administrator -> status`, result.status, 200);
   }
+
+  // =====================================================================
+  section('Gate 7: the theme catalogue and the stylesheet agree');
+  // =====================================================================
+  // `client/src/lib/theme.ts` and the `[data-theme='...']` blocks in
+  // `globals.css` are two views of one list. A theme added to only one of them
+  // is the defect this gate exists to catch: it would render perfectly but be
+  // impossible to select, or be selectable and render nothing.
+
+  const themeIdsFromCss = [...cssText.matchAll(/\[data-theme=['"]([a-z]+)['"]\]/g)].map(
+    (match) => match[1],
+  );
+  const uniqueCssThemes = [...new Set(themeIdsFromCss)].sort();
+
+  check(
+    'stylesheets define five themes',
+    uniqueCssThemes.length,
+    5,
+    `found: ${uniqueCssThemes.join(', ')}`,
+  );
+  for (const id of ['harbour', 'steel', 'ember', 'verdant', 'midnight']) {
+    checkThat(`stylesheet defines the "${id}" theme`, uniqueCssThemes.includes(id));
+  }
+
+  // Every theme must actually differ, or "five themes" is five labels over one
+  // palette - which is exactly the "the application uses no colour" complaint
+  // this feature was written to fix.
+  const primaryByTheme = new Map();
+  for (const id of uniqueCssThemes) {
+    const block = new RegExp(`\\[data-theme=['"]${id}['"]\\]\\s*\\{([^}]*)\\}`).exec(cssText);
+    const primary = block?.[1]?.match(/--primary:\s*([^;]+);/)?.[1]?.trim();
+    if (primary) primaryByTheme.set(id, primary);
+  }
+  check('every theme declares --primary', primaryByTheme.size, 5);
+  check(
+    'all five themes use a distinct accent colour',
+    new Set(primaryByTheme.values()).size,
+    5,
+    `accents: ${[...primaryByTheme.entries()].map(([id, c]) => `${id}=${c}`).join(' | ')}`,
+  );
+
+  // The accent must be a real colour, not a near-black placeholder. The v1.1.0
+  // "no colour" problem was precisely `--primary: oklch(0.205 0 0)`.
+  for (const [id, primary] of primaryByTheme) {
+    const chroma = Number(primary.match(/oklch\(\s*[0-9.]+\s+([0-9.]+)/)?.[1] ?? 0);
+    checkThat(
+      `"${id}" has a chromatic primary (not grey)`,
+      chroma >= 0.1,
+      `${primary} -> chroma ${chroma}`,
+    );
+  }
+
+  // The status tokens must be present too: job and invoice lifecycle colour is
+  // carried by them, and without them the badges fall back to grey.
+  for (const token of ['--success', '--warning', '--info', '--positive', '--negative']) {
+    checkThat(`stylesheet exposes ${token}`, cssText.includes(`${token}:`));
+  }
+
+  // The dark theme must switch the browser's own widget rendering, or it gets
+  // light scrollbars and looks half-applied.
+  checkThat(
+    'the dark theme sets color-scheme: dark',
+    /\[data-theme=['"]midnight['"]\][\s\S]{0,400}?color-scheme:\s*dark/.test(cssText),
+  );
+
+  // The theme must be applied before first paint, or every navigation flashes
+  // the default palette. The bootstrap script has to be inline in the document.
+  const loginHtml = await (await fetch(`${WEB}/login`)).text();
+  checkThat(
+    '/login inlines a pre-paint theme bootstrap',
+    /localStorage\.getItem\(['"]openerp_theme/.test(loginHtml) ||
+      /openerp_theme_v1/.test(loginHtml),
+    'expected the theme bootstrap script in the served HTML',
+  );
 
   // =====================================================================
   // Summary

@@ -260,7 +260,7 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
 
       {/* ---- Compliance ---- */}
       {!compliance.ok && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
           <p className="font-medium">Compliance warnings</p>
           <ul className="mt-1 list-disc pl-4">
             {compliance.warnings.map((w) => (

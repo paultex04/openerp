@@ -234,7 +234,7 @@ function ProjectCard({
                   </span>
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-xs">
-                  <span className={overdue ? 'font-medium text-red-700 dark:text-red-400' : ''}>
+                  <span className={overdue ? 'font-medium text-negative' : ''}>
                     {formatDate(job.plannedStartDate)} → {formatDate(job.plannedEndDate)}
                   </span>
                   {plannedDays !== null && (
