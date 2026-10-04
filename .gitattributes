@@ -1,0 +1,25 @@
+# Normalise line endings in the repository to LF.
+#
+# Windows checkouts with core.autocrlf=true were rewriting the working tree to
+# CRLF, which conflicted with Prettier's `endOfLine: "lf"` and made
+# `npm run format:check` fail on files nobody had touched.
+#
+# This file makes the normalisation explicit and reproducible for every
+# contributor and platform.
+
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF to remain directly executable.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary assets must never be line-ending translated.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
