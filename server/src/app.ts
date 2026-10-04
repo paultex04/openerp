@@ -7,6 +7,7 @@ import { registerClientRoutes } from './routes/contracts.js';
 import { registerAmendmentRoutes } from './routes/amendments.js';
 import { registerRateMasterRoutes } from './routes/rates.js';
 import { registerServiceCodeRoutes } from './routes/serviceCodes.js';
+import { registerOperationsRoutes } from './routes/operations.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 
@@ -58,6 +59,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await registerAmendmentRoutes(app);
   await registerRateMasterRoutes(app);
   await registerServiceCodeRoutes(app);
+
+  // ---- Phase 3: operations ----------------------------------------------
+  await registerOperationsRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

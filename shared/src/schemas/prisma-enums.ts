@@ -28,6 +28,7 @@ import {
   jobStatusValues,
   serviceCodeCategoryValues,
   shiftTypeValues,
+  type JobStatus,
 } from './enums';
 
 /** Compile-time exhaustiveness guard. */
@@ -168,6 +169,21 @@ export const INVOICE_STATUS = buildMapping(invoiceStatusValues, [
 // Convenience typed accessors for the most frequently converted fields.
 // ---------------------------------------------------------------------------
 
+/**
+ * Direct lookups between a Prisma enum key and its business label.
+ *
+ * Reading a database row gives the Prisma key (`JOB_WIP`), while the shared
+ * state machine and every API payload use the label (`04. WIP`). These two maps
+ * keep that translation in one place rather than at each call site.
+ */
+export const JOB_STATUS_TO_KEY: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(JOB_STATUS.labels.map((label) => [JOB_STATUS.toKey(label), label])),
+);
+
+export const JOB_PRIORITY_TO_KEY: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(JOB_PRIORITY.labels.map((label) => [JOB_PRIORITY.toKey(label), label])),
+);
+
 export type PrismaServiceCodeCategory = 'ACTIVITY' | 'R1_MATERIAL';
 
 export function serviceCodeCategoryToKey(label: string): PrismaServiceCodeCategory {
@@ -176,6 +192,33 @@ export function serviceCodeCategoryToKey(label: string): PrismaServiceCodeCatego
 
 export function serviceCodeCategoryToLabel(key: string): string {
   return SERVICE_CODE_CATEGORY.toLabel(key);
+}
+
+/** Business label ('04. WIP') -> Prisma enum key ('JOB_WIP'). */
+export function jobStatusToKey(label: string): string {
+  return JOB_STATUS.toKey(label);
+}
+
+/**
+ * Prisma enum key ('JOB_WIP') -> business label ('04. WIP').
+ *
+ * Throws on an unknown key rather than returning `undefined`. Under
+ * `noUncheckedIndexedAccess` a plain map lookup widens to `string | undefined`,
+ * which would force a cast at every call site; a function keeps the return type
+ * honest and turns a data problem into a loud failure.
+ */
+export function jobStatusFromKey(key: string): JobStatus {
+  return JOB_STATUS.toLabel(key) as JobStatus;
+}
+
+/** Business label -> Prisma job status key, typed for Prisma writes. */
+export function jobPriorityToKey(label: string): string {
+  return JOB_PRIORITY.toKey(label);
+}
+
+/** Prisma enum key ('P2_URGENT') -> business label ('P2 - Urgent'). */
+export function jobPriorityFromKey(key: string): string {
+  return JOB_PRIORITY.toLabel(key);
 }
 
 export type PrismaShiftType = 'NT' | 'OT' | 'DT' | 'NS' | 'ST';
