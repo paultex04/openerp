@@ -18,20 +18,32 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     '/api/clients',
     { preHandler: [app.authenticate, app.requirePermission('contract.read')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      const { search } = z
-        .object({ search: z.string().trim().min(1).optional() })
+      const { search, includeArchived } = z
+        .object({
+          search: z.string().trim().min(1).optional(),
+          includeArchived: z
+            .enum(['true', 'false'])
+            .optional()
+            .transform((v) => v === 'true'),
+        })
         .parse(request.query ?? {});
 
       const clients = await prisma.client.findMany({
-        where: search
-          ? {
-              OR: [
-                { name: { contains: search, mode: 'insensitive' } },
-                { email: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : undefined,
-        orderBy: { name: 'asc' },
+        where: {
+          // Archived clients are hidden unless asked for. The default is what
+          // matters: a register that quietly fills with retired rows stops being
+          // readable, and every picker would offer dead clients.
+          ...(includeArchived ? {} : { isArchived: false }),
+          ...(search
+            ? {
+                OR: [
+                  { name: { contains: search, mode: 'insensitive' } },
+                  { email: { contains: search, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ isArchived: 'asc' }, { name: 'asc' }],
         select: {
           id: true,
           name: true,
@@ -39,6 +51,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
           address: true,
           isVatRegistered: true,
           vatNumber: true,
+          isArchived: true,
           _count: { select: { contracts: true } },
         },
       });
@@ -72,6 +85,42 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       await prisma.client.delete({ where: { id } });
       return reply.code(204).send();
+    },
+  );
+
+  app.post(
+    '/api/clients/:id/archive',
+    { preHandler: [app.authenticate, app.requirePermission('client.archive')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+
+      const existing = await prisma.client.findUnique({
+        where: { id },
+        select: { id: true, isArchived: true, name: true },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
+      if (existing.isArchived) return reply.code(200).send({ archived: { id, isArchived: true } });
+
+      // Archiving a client does NOT archive its contracts. A cascade here would be
+      // invisible, one keystroke wide, and capable of retiring a contract that four
+      // live jobs depend on. The warning belongs in the UI; the refusal belongs here.
+      await prisma.client.update({ where: { id }, data: { isArchived: true } });
+      return reply.code(200).send({ archived: { id, isArchived: true } });
+    },
+  );
+
+  app.delete(
+    '/api/clients/:id/archive',
+    { preHandler: [app.authenticate, app.requirePermission('client.archive')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const existing = await prisma.client.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
+      await prisma.client.update({ where: { id }, data: { isArchived: false } });
+      return reply.code(200).send({ archived: { id, isArchived: false } });
     },
   );
 
@@ -120,19 +169,86 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
   );
 
   // --- Contracts ---------------------------------------------------------
+  app.post(
+    '/api/contracts/:id/archive',
+    { preHandler: [app.authenticate, app.requirePermission('contract.archive')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const existing = await prisma.contract.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          isArchived: true,
+          number: true,
+          projects: {
+            select: {
+              jobs: { select: { id: true, status: true } },
+            },
+          },
+        },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
+      if (existing.isArchived) return reply.code(200).send({ archived: { id, isArchived: true } });
+
+      // The one place where the engine, not the interface, has to be the judge.
+      // A contract whose work is still running cannot be archived: the jobs are
+      // priced against it and its amendments are their legal basis. Once every job
+      // is Cancelled or Invoiced, archiving is safe and reversible.
+      const live = existing.projects.flatMap((p) =>
+        p.jobs.filter(
+          (j) =>
+            !String(j.status).startsWith('CANCELLED') &&
+            !String(j.status).startsWith('INVOICED') &&
+            !String(j.status).startsWith('PARTIALLY'),
+        ),
+      );
+      if (live.length > 0) {
+        throw new HttpError(
+          409,
+          'CONFLICT',
+          `Contract ${existing.number} still has ${live.length} job(s) that are not cancelled or ` +
+            `invoiced. Finish or cancel them before archiving the contract.`,
+        );
+      }
+
+      await prisma.contract.update({ where: { id }, data: { isArchived: true } });
+      return reply.code(200).send({ archived: { id, isArchived: true } });
+    },
+  );
+
+  app.delete(
+    '/api/contracts/:id/archive',
+    { preHandler: [app.authenticate, app.requirePermission('contract.archive')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const existing = await prisma.contract.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
+      await prisma.contract.update({ where: { id }, data: { isArchived: false } });
+      return reply.code(200).send({ archived: { id, isArchived: false } });
+    },
+  );
+
   app.get(
     '/api/contracts',
     { preHandler: [app.authenticate, app.requirePermission('contract.read')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      const { search, status } = z
+      const { search, status, includeArchived } = z
         .object({
           search: z.string().trim().min(1).optional(),
           status: z.string().trim().min(1).optional(),
+          includeArchived: z
+            .enum(['true', 'false'])
+            .optional()
+            .transform((v) => v === 'true'),
         })
         .parse(request.query ?? {});
 
       const contracts = await prisma.contract.findMany({
         where: {
+          ...(includeArchived ? {} : { isArchived: false }),
           ...(search
             ? {
                 OR: [
@@ -148,6 +264,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
           // Echoed alongside the nested `client` so the edit form can preselect
           // the current client without inferring it from the sub-object.
           clientId: true,
+          isArchived: true,
           number: true,
           description: true,
           type: true,

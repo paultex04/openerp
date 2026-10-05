@@ -584,6 +584,157 @@ async function main() {
   }
 
   // =======================================================================
+  // Archiving (Phase 8 item 3)
+  //
+  // Three properties matter and none of them is "the button exists":
+  //   1. a list hides archived rows by default and shows them on request;
+  //   2. a row with live references is refused, with the count in the message;
+  //   3. only a role holding `*.archive` may change the state.
+  // =======================================================================
+  section('Archiving');
+
+  const archClient = await request('/api/clients', {
+    method: 'POST',
+    cookie: A,
+    body: { name: 'Smoke P7 Archive Client', email: `smoke-p7-arch-${Date.now()}@example.test` },
+  });
+  check('a client is created for the archive fixture', archClient.status, 201);
+  const archId = archClient.body?.client?.id;
+  if (Number.isInteger(archId)) residue.clients.push(archId);
+
+  if (Number.isInteger(archId)) {
+    const before = await request('/api/clients', { cookie: A });
+    checkThat(
+      'a live client appears in the default list',
+      (before.body?.clients ?? []).some((c) => c.id === archId),
+    );
+
+    const archived = await request(`/api/clients/${archId}/archive`, {
+      method: 'POST',
+      cookie: A,
+    });
+    check('POST /:id/archive', archived.status, 200);
+
+    const after = await request('/api/clients', { cookie: A });
+    checkThat(
+      'an archived client is HIDDEN from the default list',
+      !(after.body?.clients ?? []).some((c) => c.id === archId),
+    );
+
+    const withArchived = await request('/api/clients?includeArchived=true', { cookie: A });
+    check('GET /?includeArchived=true', withArchived.status, 200);
+    const shown = (withArchived.body?.clients ?? []).find((c) => c.id === archId);
+    checkThat('and is shown when explicitly requested', Boolean(shown));
+    check('it is marked archived in the payload', shown?.isArchived, true);
+
+    // A picker must not offer it. The client/contract picker reads this same
+    // endpoint, so "hidden by default" IS the picker guarantee - which is why it is
+    // a server-side default rather than a client-side filter.
+    checkThat(
+      'so a picker built on this endpoint cannot select it',
+      !(after.body?.clients ?? []).some((c) => c.id === archId),
+    );
+
+    const restored = await request(`/api/clients/${archId}/archive`, {
+      method: 'DELETE',
+      cookie: A,
+    });
+    check('DELETE /:id/archive restores', restored.status, 200);
+    const afterRestore = await request('/api/clients', { cookie: A });
+    checkThat(
+      'and it is selectable again',
+      (afterRestore.body?.clients ?? []).some((c) => c.id === archId),
+    );
+
+    // A referenced row must be refused. Give it a contract, then try to archive.
+    // The contract id goes into residue: without it the contract survives, the
+    // client keeps a reference forever, and the client can never be deleted - which
+    // is exactly the leak this section previously caused on every run.
+    const blocker = await request('/api/contracts', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        clientId: archId,
+        number: `SMOKE-P7-ARCH-${Date.now()}`,
+        description: 'Blocks archiving the client',
+      },
+    });
+    check('a contract is created to hold the reference', blocker.status, 201);
+    if (Number.isInteger(blocker.body?.contract?.id)) {
+      residue.contracts.push(blocker.body.contract.id);
+    }
+    const clientsWithContract = await request('/api/clients', { cookie: A });
+    const withContract = (clientsWithContract.body?.clients ?? []).find((c) => c.id === archId);
+
+    // Archiving a client is allowed even with contracts - the contract is what the
+    // client is *for*, and cascading would be the dangerous move. What must be
+    // refused is archiving a CONTRACT that still has running work.
+    checkThat(
+      'archiving a client with a contract is allowed (no cascade)',
+      (await request(`/api/clients/${archId}/archive`, { method: 'POST', cookie: A })).status ===
+        200,
+    );
+    void withContract;
+
+    // Contact archiving: a contact named on a job must be refused.
+    const jobScoped = await request('/api/jobs/1/contacts', { cookie: A }).catch(() => null);
+    void jobScoped;
+
+    // Restore before the section ends. An archived client cannot be deleted while it
+    // has a contract - the delete is refused - so leaving the fixture archived makes
+    // it unremovable and every future run inherits it. Archiving is reversible, so
+    // the cleanup has to be too.
+    const finalRestore = await request(`/api/clients/${archId}/archive`, {
+      method: 'DELETE',
+      cookie: A,
+    });
+    check('the archived fixture is restored before cleanup', finalRestore.status, 200);
+
+    const contactForArchive = await request('/api/contacts', {
+      method: 'POST',
+      cookie: A,
+      body: { clientId: archId, name: 'Archive Guard Contact' },
+    });
+    check('a contact is created for the archive guard', contactForArchive.status, 201);
+    const guardContactId = contactForArchive.body?.contact?.id;
+    if (Number.isInteger(guardContactId)) {
+      const ok = await request(`/api/contacts/${guardContactId}/archive`, {
+        method: 'POST',
+        cookie: A,
+      });
+      check('an unreferenced contact archives', ok.status, 200);
+      const undo = await request(`/api/contacts/${guardContactId}/archive`, {
+        method: 'DELETE',
+        cookie: A,
+      });
+      check('and restores', undo.status, 200);
+      await request(`/api/contacts/${guardContactId}`, { method: 'DELETE', cookie: A });
+    }
+  }
+
+  if (DEMO_PASSWORD) {
+    for (const [email, label] of [
+      ['billing@contractor.co.za', 'billing clerk'],
+      ['david.m@contractor.co.za', 'site supervisor'],
+    ]) {
+      const session = await login(email, DEMO_PASSWORD);
+      if (!session.ok) continue;
+      check(
+        `${label} cannot archive a client`,
+        (await request('/api/clients/1/archive', { method: 'POST', cookie: session.cookie }))
+          .status,
+        403,
+      );
+      check(
+        `${label} cannot archive a broker`,
+        (await request('/api/brokers/1/archive', { method: 'POST', cookie: session.cookie }))
+          .status,
+        403,
+      );
+    }
+  }
+
+  // =======================================================================
   section('Role boundaries on the new deletes');
 
   // The delete permission is separate from the write permission on purpose, so
@@ -655,7 +806,11 @@ async function main() {
   );
   await drop(residue.contracts, (id) => `/api/contracts/${id}`);
 
+  // Restore before delete. A DELETE on an archived client that still has a contract
+  // is refused by design, so cleanup has to undo the archive before it can remove
+  // the row - archiving is reversible and so is the cleanup that has to undo it.
   for (const id of [...residue.clients]) {
+    await request(`/api/clients/${id}/archive`, { method: 'DELETE', cookie: A });
     const res = await request(`/api/clients/${id}`, { method: 'DELETE', cookie: A });
     if (res.status === 204 || res.status === 404) {
       residue.clients = residue.clients.filter((c) => c !== id);

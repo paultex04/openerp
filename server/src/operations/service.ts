@@ -12,6 +12,7 @@
  *    procurement; actuals are only recordable during execution.
  *  - **Price snapshots.** `applied_rate` is written once and never recomputed.
  */
+import { createHash } from 'node:crypto';
 import type { JobStatus } from '@openerp/shared';
 import {
   actualsLockReason,
@@ -333,6 +334,15 @@ export async function addDeliverable(
 
   const plannedSubtotal = roundMoney(plannedQuantity * appliedRate);
 
+  // Phase 8 item 6: record WHAT produced this rate, not just the rate.
+  //
+  // `appliedRate` already makes the number reproducible, which is why the published
+  // acceptance vectors hold. What it cannot answer is "why was this priced that
+  // way?" - and that is the question a client query or an audit actually asks.
+  // Captured here, at the moment of scoping, because afterwards the inputs may
+  // have moved and the record would be a reconstruction presented as a fact.
+  const snapshotSource = await buildSnapshotSource(serviceCodeId, jobAmendmentId);
+
   await prisma.jobServiceCode.create({
     data: {
       jobId,
@@ -342,6 +352,7 @@ export async function addDeliverable(
       appliedRate,
       plannedSubtotal,
       actualSubtotal: 0,
+      snapshotSource: snapshotSource as never,
     },
   });
 
@@ -457,3 +468,124 @@ export async function removeDeliverable(deliverableId: number): Promise<void> {
 }
 
 export { roundRate };
+
+/**
+ * Captures the inputs behind a service code's unit rate, for storage on the job's
+ * pricing snapshot (Phase 8 item 6).
+ *
+ * Recorded: the service code and its amendment, its markup, every labour line with
+ * the rate card it priced from, every material line, and the amendment's cost
+ * parameters. Decimals go over as strings so the JSON round-trips them exactly -
+ * `JSON.stringify` on a Decimal would lose trailing zeros and could turn 0.15 into
+ * 0.15000000000000002 in the reader's eyes.
+ *
+ * A `digest` over the canonical form makes the record tamper-evident. Nothing in
+ * the application edits a snapshot in place - `appliedRate` is documented as
+ * immutable - but if one ever did, the digest would stop matching and the change
+ * would be detectable rather than silent.
+ *
+ * Returns null rather than throwing. Provenance is valuable but it is not worth
+ * refusing to scope a job over: a job with no provenance is recoverable by
+ * recomputing from the inputs, whereas a refused scope loses the user their work.
+ */
+async function buildSnapshotSource(
+  serviceCodeId: number,
+  amendmentId: number,
+): Promise<Record<string, unknown> | null> {
+  const code = await prisma.serviceCode.findUnique({
+    where: { id: serviceCodeId },
+    select: {
+      id: true,
+      amendmentId: true,
+      code: true,
+      description: true,
+      category: true,
+      materialMarkupPct: true,
+      calculatedUnitRate: true,
+      labourItems: {
+        select: {
+          crewQuantity: true,
+          hoursPerUnit: true,
+          lineSubtotal: true,
+          serviceMasterRate: {
+            select: {
+              id: true,
+              serviceMasterCode: true,
+              labourType: true,
+              shiftType: true,
+              fullLoadedRate: true,
+            },
+          },
+        },
+        orderBy: { id: 'asc' },
+      },
+      materialItems: {
+        select: {
+          itemCode: true,
+          description: true,
+          supplierName: true,
+          unitCost: true,
+          quantity: true,
+          uom: true,
+          subtotalCost: true,
+        },
+        orderBy: { id: 'asc' },
+      },
+    },
+  });
+
+  if (!code) return null;
+
+  const parameters = await prisma.contractCostParameter.findMany({
+    where: { amendmentId },
+    orderBy: [{ category: 'asc' }, { parameterName: 'asc' }],
+    select: { category: true, parameterName: true, numericValue: true, uom: true },
+  });
+
+  const payload: Record<string, unknown> = {
+    capturedAt: new Date().toISOString(),
+    backfilled: false,
+    serviceCodeId: code.id,
+    amendmentId: code.amendmentId,
+    code: code.code,
+    description: code.description,
+    category: code.category,
+    materialMarkupPct: code.materialMarkupPct.toString(),
+    calculatedUnitRate: code.calculatedUnitRate.toString(),
+    labour: code.labourItems.map((line) => ({
+      serviceMasterRateId: line.serviceMasterRate.id,
+      serviceMasterCode: line.serviceMasterRate.serviceMasterCode,
+      labourType: line.serviceMasterRate.labourType,
+      shiftType: line.serviceMasterRate.shiftType,
+      fullLoadedRate: line.serviceMasterRate.fullLoadedRate.toString(),
+      crewQuantity: line.crewQuantity.toString(),
+      hoursPerUnit: line.hoursPerUnit.toString(),
+      lineSubtotal: line.lineSubtotal.toString(),
+    })),
+    material: code.materialItems.map((line) => ({
+      itemCode: line.itemCode,
+      description: line.description,
+      supplierName: line.supplierName,
+      unitCost: line.unitCost.toString(),
+      quantity: line.quantity.toString(),
+      uom: line.uom,
+      subtotalCost: line.subtotalCost.toString(),
+    })),
+    costParameters: parameters.map((p) => ({
+      category: p.category,
+      parameterName: p.parameterName,
+      numericValue: p.numericValue.toString(),
+      uom: p.uom,
+    })),
+  };
+
+  // The digest covers the inputs only, not `capturedAt`, or it would change on
+  // every read.
+  const { digest, ...comparable } = payload;
+  void digest;
+  payload.digest = createHash('sha256')
+    .update(JSON.stringify(comparable, Object.keys(comparable).sort()))
+    .digest('hex');
+
+  return payload;
+}

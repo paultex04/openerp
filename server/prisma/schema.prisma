@@ -117,16 +117,21 @@ enum InvoiceStatus {
 // ---------------------------------------------------------------------------
 
 model Broker {
-  id        Int        @id @default(autoincrement())
-  name      String     @db.VarChar(150)
+  id     Int     @id @default(autoincrement())
+  name   String  @db.VarChar(150)
+  /// Phase 8 item 3: archived, not deleted. See ADR-008.
+  isArchived Boolean @default(false) @map("is_archived")
+
   employees Employee[]
 
   @@map("broker")
 }
 
 model EmployeeContractType {
-  id        Int        @id @default(autoincrement())
-  name      String     @unique @db.VarChar(100)
+  id     Int     @id @default(autoincrement())
+  name   String  @unique @db.VarChar(100)
+  isArchived Boolean @default(false) @map("is_archived")
+
   employees Employee[]
 
   @@map("employee_contract_type")
@@ -170,6 +175,8 @@ model Client {
   isVatRegistered Boolean    @default(true) @map("is_vat_registered")
   /// SARS VAT number, 10 digits. Printed on tax invoices.
   vatNumber       String?    @map("vat_number") @db.VarChar(50)
+  /// Phase 8 item 3: archived, not deleted. See ADR-008.
+  isArchived      Boolean    @default(false) @map("is_archived")
   contacts        Contact[]
   contracts       Contract[]
 
@@ -177,11 +184,14 @@ model Client {
 }
 
 model Contact {
-  id       Int     @id @default(autoincrement())
-  clientId Int     @map("client_id")
-  name     String  @db.VarChar(150)
+  id     Int     @id @default(autoincrement())
+  clientId Int   @map("client_id")
+  name     String @db.VarChar(150)
   mobile   String? @db.VarChar(50)
   email    String? @db.VarChar(255)
+  /// Phase 8 item 4: e.g. "Accounts receivable", "Site contact", "Signatory".
+  role        String? @db.VarChar(100)
+  isArchived  Boolean @default(false) @map("is_archived")
 
   client Client @relation(fields: [clientId], references: [id])
   jobs   Job[]
@@ -200,6 +210,8 @@ model Contract {
   number      String  @unique @db.VarChar(100)
   description String
   type        String? @db.VarChar(100)
+  /// Phase 8 item 3: archived, not deleted. See ADR-008.
+  isArchived  Boolean @default(false) @map("is_archived")
 
   client     Client              @relation(fields: [clientId], references: [id])
   amendments ContractAmendment[]
@@ -222,6 +234,7 @@ model ContractAmendment {
   /// Default VAT fraction for invoices under this amendment (0.1500 = 15%).
   /// Snapshotted onto each invoice at generation time.
   vatRate         Decimal                 @default(0.15) @map("vat_rate") @db.Decimal(5, 4)
+  isArchived      Boolean                 @default(false) @map("is_archived")
   createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
 
   contract           Contract                @relation(fields: [contractId], references: [id])
@@ -418,6 +431,12 @@ model JobServiceCode {
   appliedRate     Decimal @map("applied_rate") @db.Decimal(12, 4)
   plannedSubtotal Decimal @map("planned_subtotal") @db.Decimal(12, 2)
   actualSubtotal  Decimal @default(0) @map("actual_subtotal") @db.Decimal(12, 2)
+  /// Phase 8 item 6: the inputs that produced `appliedRate`, captured at scoping
+  /// time - service code, markup, every labour and material line, and the
+  /// amendment's cost parameters. `appliedRate` makes the number reproducible;
+  /// this makes it defensible. Null only on rows backfilled before the column
+  /// existed, and on backfilled rows it carries `"backfilled": true`.
+  snapshotSource  Json?   @map("snapshot_source") @db.JsonB
 
   job         Job         @relation(fields: [jobId], references: [id])
   serviceCode ServiceCode @relation(fields: [serviceCodeId], references: [id])
@@ -440,6 +459,10 @@ model JobAssignment {
 
   @@index([jobId])
   @@index([employeeId])
+  /// Phase 8 item 1: one crew slot per person per job, enforced by the database.
+  /// Every sibling join table already had this; `job_assignment` did not, and the
+  /// Phase 7 crew screen made a duplicate one click away.
+  @@unique([jobId, employeeId], map: "job_assignment_job_employee_key")
   @@map("job_assignment")
 }
 

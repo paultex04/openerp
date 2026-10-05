@@ -175,6 +175,16 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   P('contact.read', 'organisation', 'View client contacts.'),
   P('contact.write', 'organisation', 'Create and edit client contacts.'),
   P('contact.delete', 'organisation', 'Delete client contacts that are not on a job.'),
+  // --- Archiving (Phase 8 item 3) -----------------------------------------
+  // Separate from the delete permissions on purpose. Archiving is reversible and
+  // is the action you take when a record cannot be deleted because something
+  // references it; conflating the two is what made "cannot delete" a dead end.
+  P('client.archive', 'organisation', 'Archive and restore clients.'),
+  P('contract.archive', 'organisation', 'Archive and restore contracts.'),
+  P('amendment.archive', 'organisation', 'Archive and restore contract amendments.'),
+  P('broker.archive', 'organisation', 'Archive and restore labour brokers.'),
+  P('contracttype.archive', 'organisation', 'Archive and restore employee contract types.'),
+  P('contact.archive', 'organisation', 'Archive and restore client contacts.'),
 
   // --- Administration ------------------------------------------------------
   P('admin.user.read', 'admin', 'View application users.'),

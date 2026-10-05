@@ -28,7 +28,8 @@
     "smoke:phase4": "node scripts/smoke-phase4.mjs",
     "smoke:phase5": "node scripts/smoke-phase5.mjs",
     "smoke:phase6": "node scripts/smoke-phase6.mjs",
-    "smoke:phase7": "node scripts/smoke-phase7.mjs"
+    "smoke:phase7": "node scripts/smoke-phase7.mjs",
+    "db:migrate": "node server/scripts/apply-migrations.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

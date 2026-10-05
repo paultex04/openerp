@@ -25,19 +25,74 @@ const idParam = z.object({ id: z.coerce.number().int().positive() });
 
 export async function registerAmendmentRoutes(app: FastifyInstance): Promise<void> {
   // --- Amendments --------------------------------------------------------
+  app.post(
+    '/api/amendments/:id/archive',
+    { preHandler: [app.authenticate, app.requirePermission('amendment.archive')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const existing = await prisma.contractAmendment.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          isArchived: true,
+          amendmentNumber: true,
+          _count: {
+            select: { projects: true, jobs: true, serviceCodes: true, serviceMasterRates: true },
+          },
+        },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Amendment ${id} does not exist.`);
+      if (existing.isArchived) return reply.code(200).send({ archived: { id, isArchived: true } });
+
+      // Same rule as the contract: an amendment with live work on it is the legal
+      // basis for that work, so it stays put until the work is finished.
+      if (existing._count.jobs > 0) {
+        throw new HttpError(
+          409,
+          'CONFLICT',
+          `Amendment ${existing.amendmentNumber} still prices ${existing._count.jobs} job(s). ` +
+            `Supersede it with a new amendment and finish those jobs first.`,
+        );
+      }
+
+      await prisma.contractAmendment.update({ where: { id }, data: { isArchived: true } });
+      return reply.code(200).send({ archived: { id, isArchived: true } });
+    },
+  );
+
+  app.delete(
+    '/api/amendments/:id/archive',
+    { preHandler: [app.authenticate, app.requirePermission('amendment.archive')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const existing = await prisma.contractAmendment.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Amendment ${id} does not exist.`);
+      await prisma.contractAmendment.update({ where: { id }, data: { isArchived: false } });
+      return reply.code(200).send({ archived: { id, isArchived: false } });
+    },
+  );
+
   app.get(
     '/api/amendments',
     { preHandler: [app.authenticate, app.requirePermission('amendment.read')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      const { contractId, status } = z
+      const { contractId, status, includeArchived } = z
         .object({
           contractId: z.coerce.number().int().positive().optional(),
           status: z.string().trim().min(1).optional(),
+          includeArchived: z
+            .enum(['true', 'false'])
+            .optional()
+            .transform((v) => v === 'true'),
         })
         .parse(request.query ?? {});
 
       const amendments = await prisma.contractAmendment.findMany({
         where: {
+          ...(includeArchived ? {} : { isArchived: false }),
           ...(contractId !== undefined && { contractId }),
           ...(status !== undefined && {
             status: CONTRACT_AMENDMENT_STATUS.toKey(status) as PrismaContractAmendmentStatus,

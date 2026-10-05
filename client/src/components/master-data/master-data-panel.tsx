@@ -27,7 +27,7 @@
  */
 import type { ColumnDef } from '@tanstack/react-table';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import {
   AlertDialog,
@@ -39,6 +39,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -137,13 +138,24 @@ export function MasterDataPanel<T extends object>({
   const [editing, setEditing] = useState<T | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState<T | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => ({
     ...(initialFilters ?? {}),
   }));
+  // Archived rows are hidden by the server by default. This is a deliberate opt-in
+  // rather than a client-side filter, because the server is also what makes the
+  // *pickers* exclude them - a picker that filtered client-side would still offer a
+  // dead contract to someone who had not ticked the box.
+  const [showArchived, setShowArchived] = useState(false);
 
   const list = useQuery({
-    queryKey: resource.queryKey,
-    queryFn: () => api.get<unknown>(`/api/${resource.path}`),
+    queryKey: [...resource.queryKey, { archived: showArchived }],
+    queryFn: () =>
+      api.get<unknown>(
+        resource.supportsArchive && showArchived
+          ? `/api/${resource.path}?includeArchived=true`
+          : `/api/${resource.path}`,
+      ),
   });
 
   const rows = useMemo(() => extractRows<T>(list.data, resource), [list.data, resource]);
@@ -178,6 +190,41 @@ export function MasterDataPanel<T extends object>({
   const canDelete = resource.deletePermission
     ? permissions.includes(resource.deletePermission)
     : false;
+  const canArchive = resource.archivePermission
+    ? permissions.includes(resource.archivePermission)
+    : false;
+
+  /**
+   * Archive or restore one row.
+   *
+   * `POST` archives and `DELETE` restores on the same path. That reads oddly, and
+   * it is deliberate: `DELETE /archive` removes the row *from the archived set*,
+   * which is what the user is asking for.
+   */
+  const setArchived = useMutation({
+    mutationFn: (input: { id: number | string; archived: boolean }) =>
+      input.archived
+        ? api.post(`/api/${resource.archivePath}/${input.id}/archive`)
+        : api.delete(`/api/${resource.archivePath}/${input.id}/archive`),
+    onSuccess: (_result, variables) => {
+      toast.add({
+        title: variables.archived
+          ? `${resource.singular} archived`
+          : `${resource.singular} restored`,
+        description: variables.archived
+          ? 'It is hidden from pickers and can be restored at any time.'
+          : 'It is selectable again.',
+        type: 'success',
+      });
+      refresh();
+    },
+    onError: (error: Error) =>
+      toast.add({
+        title: 'Could not change archive state',
+        description: error instanceof ApiError ? error.message : error.message,
+        type: 'error',
+      }),
+  });
 
   // Static select options: descriptor-declared, overridden by the `options` prop,
   // which is how a resource points a field at a live list (brokers, contract
@@ -191,7 +238,27 @@ export function MasterDataPanel<T extends object>({
     );
   }, [resource.fields, options]);
 
-  const tableColumns = useMemo(() => columns(fields, rows), [columns, fields, rows]);
+  const tableColumns = useMemo(() => {
+    const built = columns(fields, rows);
+    // A resource that supports archiving gets a State column without having to ask.
+    // The panel already knows `supportsArchive`, so a new archivable entity gets the
+    // marker for free rather than remembering to add it - and forgetting is exactly
+    // how an archived row ends up looking identical to a live one.
+    if (!resource.supportsArchive) return built;
+    return [
+      ...built,
+      {
+        header: 'State',
+        cell: ({ row }: { row: { original: T } }) =>
+          isArchivedRow(row.original) ? (
+            <ArchivedPill />
+          ) : (
+            <span className="text-muted-foreground">Live</span>
+          ),
+        enableSorting: false,
+      } as unknown as ColumnDef<T, unknown>,
+    ];
+  }, [columns, fields, rows, resource.supportsArchive]);
 
   const tableFilters = useMemo(
     () =>
@@ -228,6 +295,24 @@ export function MasterDataPanel<T extends object>({
         actions={
           <>
             {toolbarExtra}
+            {resource.supportsArchive && (
+              <Button
+                size="sm"
+                variant={showArchived ? 'default' : 'outline'}
+                onClick={() => setShowArchived((v) => !v)}
+                aria-pressed={showArchived}
+                title={
+                  showArchived ? 'Showing archived records too' : 'Archived records are hidden'
+                }
+              >
+                {showArchived ? (
+                  <ArchiveRestore aria-hidden="true" className="size-4" />
+                ) : (
+                  <Archive aria-hidden="true" className="size-4" />
+                )}
+                {showArchived ? 'Hide archived' : 'Show archived'}
+              </Button>
+            )}
             {canWrite && (
               <Button size="sm" onClick={() => setCreating(true)}>
                 <Plus aria-hidden="true" className="size-4" />
@@ -241,6 +326,21 @@ export function MasterDataPanel<T extends object>({
             ? (row) => (
                 <>
                   {renderExtraRowActions?.(row)}
+                  {canArchive && resource.archivePath && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setConfirmArchive(row)}
+                      aria-label={`${isArchivedRow(row) ? 'Restore' : 'Archive'} ${resource.singular.toLowerCase()} ${rowKey(row)}`}
+                    >
+                      {isArchivedRow(row) ? (
+                        <ArchiveRestore aria-hidden="true" className="size-4" />
+                      ) : (
+                        <Archive aria-hidden="true" className="size-4" />
+                      )}
+                      {isArchivedRow(row) ? 'Restore' : 'Archive'}
+                    </Button>
+                  )}
                   {canWrite && (
                     <Button
                       size="sm"
@@ -291,6 +391,50 @@ export function MasterDataPanel<T extends object>({
           refresh();
         }}
       />
+
+      {/*
+        Archiving is reversible and does not touch anything that references the
+        row, so it gets a plain confirmation rather than an `AlertDialog` - the
+        destructive-looking treatment is reserved for the delete above it. The copy
+        is per-resource because the promise differs: archiving a client does not
+        archive its contracts, and a generic string would imply it might.
+      */}
+      {canArchive && resource.archivePath && (
+        <AlertDialog
+          open={confirmArchive !== null}
+          onOpenChange={(open) => !open && setConfirmArchive(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {isArchivedRow(confirmArchive as T)
+                  ? `Restore ${confirmDeleteTitle(resource, confirmArchive).replace(/^Delete\s*/, '')}?`
+                  : `Archive ${confirmDeleteTitle(resource, confirmArchive).replace(/^Delete\s*/, '')}?`}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {isArchivedRow(confirmArchive as T)
+                  ? 'It becomes selectable in every picker again.'
+                  : (resource.archiveWarning ??
+                    'It is hidden from pickers and can be restored at any time.')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  confirmArchive &&
+                  setArchived.mutate({
+                    id: rowKey(confirmArchive),
+                    archived: !isArchivedRow(confirmArchive),
+                  })
+                }
+              >
+                {isArchivedRow(confirmArchive as T) ? 'Restore' : 'Archive'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       {resource.deletePermission && (
         <AlertDialog
@@ -650,4 +794,25 @@ function recordId<T>(record: T | null): number | string {
   const id = (record as Record<string, unknown> | null)?.id;
   if (typeof id === 'number' || typeof id === 'string') return id;
   throw new Error('Master data record has no id.');
+}
+
+/** True when a row is archived. Absent on resources that do not support it. */
+function isArchivedRow<T>(row: T): boolean {
+  return (row as Record<string, unknown>).isArchived === true;
+}
+
+/**
+ * The archived marker.
+ *
+ * Its own component rather than inline JSX, because it appears in two places - the
+ * auto State column and the archive confirmation - and the wording is the safety
+ * mechanism, not decoration: if a contract is missing from a picker, the register
+ * has to say *archived* rather than quietly omit it.
+ */
+function ArchivedPill() {
+  return (
+    <Badge variant="secondary" className="text-[10px]">
+      Archived
+    </Badge>
+  );
 }

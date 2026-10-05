@@ -88,4 +88,28 @@ export interface ResourceDef<T> {
   softDeleteNoun?: string;
   /** Explains why a row cannot be deleted, shown in the confirmation dialog. */
   deleteWarning?: string;
+  /**
+   * The list endpoint accepts `?includeArchived=`, so the panel can offer a
+   * "Show archived" control. Required for archive to be discoverable at all: with
+   * it, an archived row is out of the default list and needs a deliberate action to
+   * see.
+   */
+  supportsArchive?: boolean;
+  /**
+   * Sets `isArchived` on the row via `POST /api/<archivePath>/:id/archive`. Omit
+   * on a resource that cannot be archived.
+   *
+   * Deliberately NOT the same verb as delete. Delete removes a row that nothing
+   * references; archive retires one that something does, reversibly. Giving both
+   * the same button is what made "cannot delete" feel like a dead end.
+   */
+  archivePath?: string;
+  /** Permission required to archive or restore. Separate from write and delete. */
+  archivePermission?: string;
+  /**
+   * What archiving means for this entity, shown in the confirmation. Written per
+   * resource on purpose: "archive this contract" and "archive this broker" are
+   * different promises, and one generic string would promise the same for both.
+   */
+  archiveWarning?: string;
 }

@@ -148,7 +148,7 @@ after its automated tests and verification gates pass:
 | `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                    |
 | `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass     |
 | `phase/06-theming-and-menu-fix`      | `v1.2.0` | Five themes, shared DataTable, full-bleed      |
-| `phase/07-master-data-crud`          | —        | CRUD for every master-data table (in progress) |
+| `phase/07-master-data-crud`          | `v1.3.0` | CRUD for every master-data table (in progress) |
 
 Phase 7 is in progress: see
 [ADR-007](docs/adr-007-master-data-crud.md). The short version is that the API
@@ -158,9 +158,16 @@ Contact) had no routes at all. Phase 7 adds those routes, the `organisation`
 permission category, a generic master-data panel, eight administration tabs, and a
 jobs board that is a table with CRUD rather than a kanban.
 
-Ten scenarios where amending the schema would help the UI and its workflows are
-costed and risk-ranked in
-[phase-07-database-amendments.md](docs/phase-07-database-amendments.md).
+Phase 8 is the schema work drawn up from
+[phase-07-database-amendments.md](docs/phase-07-database-amendments.md): ten
+scenarios costed and risk-ranked, of which items 1, 3, 4, 5 and 6 were implemented
+and shipped in `v1.3.0`. See [ADR-008](docs/adr-008-schema-amendments.md).
+
+**Migrations.** `prisma migrate deploy` cannot be used here — the baseline predates
+Prisma, so it fails P3005 — and `prisma migrate diff --from-url` emits a
+destructive migration. Apply them with `npm run db:migrate` instead: one command, in
+order, once each, one transaction per migration, with a ledger and change
+detection. See ADR-008 D3.
 
 The schema in `server/prisma/schema.prisma` is the source of truth, but the
 migrations are hand-written and additive-only. `prisma migrate deploy` refuses

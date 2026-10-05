@@ -94,6 +94,12 @@ export const contactUpsertSchema = z.object({
     .optional()
     .nullable()
     .or(z.literal('').transform(() => null)),
+  /**
+   * Phase 8 item 4. Free text rather than a lookup table: the set is small, varies
+   * by client, and a fixed enumeration would be wrong more often than right. A
+   * picker fed from the values already in use is added in the UI.
+   */
+  role: z.string().trim().max(100).optional().nullable(),
 });
 export type ContactUpsertInput = z.infer<typeof contactUpsertSchema>;
 

@@ -1,9 +1,9 @@
 /**
  * Organisation: brokers, employee contract types, employees and client contacts.
  *
- * RBAC: `broker.*`, `contracttype.*`, `employee.*`, `contact.*`. Clients
- * deliberately do NOT appear here — they live in `contracts.ts` behind
- * `contract.*`. See ADR-007 Q1.
+ * RBAC: `broker.*`, `contracttype.*`, `employee.*`, `contact.*`, plus the Phase 8
+ * `*.archive` keys. Clients deliberately do NOT appear here — they live in
+ * `contracts.ts` behind `contract.*`. See ADR-007 Q1.
  *
  * Before Phase 7 none of these four tables had a single server route. Employees
  * could only be created as a side-effect of `POST /api/admin/users`, which means
@@ -18,6 +18,23 @@
  *    did, so `DELETE` sets `endDate` instead. See ADR-007 Q4.
  *  - **Contacts and contract types refuse while referenced**, with a 409 that
  *    names the count, matching the contract and client deletes.
+ *
+ * ## Archiving, and who may see an archived row
+ *
+ * Phase 8 item 3. The rule, applied consistently:
+ *
+ *  - **A list endpoint hides archived rows by default** and takes
+ *    `?includeArchived=true` to show them. The default matters more than the flag:
+ *    a register that quietly accumulates retired rows stops being readable.
+ *  - **A picker excludes archived rows, always.** There is no flag. You cannot
+ *    scope new work against an archived contract or attach a retired broker to a
+ *    crew. This is what makes archiving safe, and it is why the column exists at
+ *    all rather than a `status` enum with more states.
+ *  - **Archiving never cascades.** It is one row, explicitly, every time. A cascade
+ *    here would be invisible and could retire a contract four live jobs depend on.
+ *  - **The server is the judge of whether a row may be archived**, not the client:
+ *    `archiveBlockedBy` re-checks the references at write time rather than trusting
+ *    a count the browser rendered earlier.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -37,6 +54,18 @@ const idParam = z.object({ id: z.coerce.number().int().positive() });
 /** Shared `?search=` parsing. Every list here is searchable and bounded. */
 const listQuery = z.object({ search: z.string().trim().min(1).optional() });
 
+/** Lists take this; pickers must not, which is the whole point of the column. */
+const listQueryWithArchive = listQuery.extend({
+  includeArchived: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+});
+
+/** `where` fragment that hides archived rows unless explicitly asked for them. */
+const notArchived = { isArchived: false };
+const includeArchived = {};
+
 export async function registerOrganisationRoutes(app: FastifyInstance): Promise<void> {
   // =======================================================================
   // Brokers
@@ -45,10 +74,15 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
     '/api/brokers',
     { preHandler: [app.authenticate, app.requirePermission('broker.read')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      const { search } = listQuery.parse(request.query ?? {});
+      const { search, includeArchived: showArchived } = listQueryWithArchive.parse(
+        request.query ?? {},
+      );
       const brokers = await prisma.broker.findMany({
-        where: search ? { name: { contains: search, mode: 'insensitive' } } : undefined,
-        orderBy: { name: 'asc' },
+        where: {
+          ...(showArchived ? includeArchived : notArchived),
+          ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
+        },
+        orderBy: [{ isArchived: 'asc' }, { name: 'asc' }],
         include: {
           _count: { select: { employees: { where: { endDate: null } } } },
         },
@@ -57,6 +91,7 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
         brokers: brokers.map((b) => ({
           id: b.id,
           name: b.name,
+          isArchived: b.isArchived,
           activeEmployees: b._count.employees,
         })),
       };
@@ -119,14 +154,24 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
     '/api/employee-contract-types',
     { preHandler: [app.authenticate, app.requirePermission('contracttype.read')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      const { search } = listQuery.parse(request.query ?? {});
+      const { search, includeArchived: showArchived } = listQueryWithArchive.parse(
+        request.query ?? {},
+      );
       const types = await prisma.employeeContractType.findMany({
-        where: search ? { name: { contains: search, mode: 'insensitive' } } : undefined,
-        orderBy: { name: 'asc' },
+        where: {
+          ...(showArchived ? includeArchived : notArchived),
+          ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
+        },
+        orderBy: [{ isArchived: 'asc' }, { name: 'asc' }],
         include: { _count: { select: { employees: true } } },
       });
       return {
-        types: types.map((t) => ({ id: t.id, name: t.name, employees: t._count.employees })),
+        types: types.map((t) => ({
+          id: t.id,
+          name: t.name,
+          isArchived: t.isArchived,
+          employees: t._count.employees,
+        })),
       };
     },
   );
@@ -406,15 +451,24 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
     '/api/contacts',
     { preHandler: [app.authenticate, app.requirePermission('contact.read')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
-      const { search, clientId } = z
+      const {
+        search,
+        clientId,
+        includeArchived: showArchived,
+      } = z
         .object({
           search: z.string().trim().min(1).optional(),
           clientId: z.coerce.number().int().positive().optional(),
+          includeArchived: z
+            .enum(['true', 'false'])
+            .optional()
+            .transform((v) => v === 'true'),
         })
         .parse(request.query ?? {});
 
       const contacts = await prisma.contact.findMany({
         where: {
+          ...(showArchived ? includeArchived : notArchived),
           ...(clientId !== undefined ? { clientId } : {}),
           ...(search
             ? {
@@ -422,12 +476,13 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
                   { name: { contains: search, mode: 'insensitive' as const } },
                   { email: { contains: search, mode: 'insensitive' as const } },
                   { mobile: { contains: search, mode: 'insensitive' as const } },
+                  { role: { contains: search, mode: 'insensitive' as const } },
                   { client: { name: { contains: search, mode: 'insensitive' as const } } },
                 ],
               }
             : {}),
         },
-        orderBy: [{ clientId: 'asc' }, { name: 'asc' }],
+        orderBy: [{ clientId: 'asc' }, { isArchived: 'asc' }, { name: 'asc' }],
         include: {
           client: { select: { id: true, name: true } },
           _count: { select: { jobs: true } },
@@ -457,6 +512,7 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
           name: body.name,
           mobile: body.mobile || null,
           email: body.email || null,
+          role: body.role || null,
         },
         include: { client: { select: { id: true, name: true } } },
       });
@@ -482,6 +538,7 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
           ...(body.name !== undefined && { name: body.name }),
           ...(body.mobile !== undefined && { mobile: body.mobile || null }),
           ...(body.email !== undefined && { email: body.email || null }),
+          ...(body.role !== undefined && { role: body.role || null }),
         },
         include: { client: { select: { id: true, name: true } } },
       });
@@ -515,6 +572,47 @@ export async function registerOrganisationRoutes(app: FastifyInstance): Promise<
       return reply.code(204).send();
     },
   );
+
+  // =======================================================================
+  // Archiving (Phase 8 item 3)
+  // =======================================================================
+
+  archive('/api/brokers/:id/archive', 'broker.archive', 'broker', 'Broker');
+  archive(
+    '/api/employee-contract-types/:id/archive',
+    'contracttype.archive',
+    'employeeContractType',
+    'Contract type',
+  );
+  archive('/api/contacts/:id/archive', 'contact.archive', 'contact', 'Contact');
+
+  /** Registers POST (archive) / DELETE (restore) for one archivable resource. */
+  function archive(
+    path: string,
+    permission: string,
+    model: 'broker' | 'employeeContractType' | 'contact',
+    label: string,
+  ): void {
+    app.post(
+      path,
+      { preHandler: [app.authenticate, app.requirePermission(permission)] },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const { id } = idParam.parse(request.params);
+        const updated = await setArchived(model, id, true, label);
+        return reply.code(200).send({ archived: { id: updated.id, isArchived: true, label } });
+      },
+    );
+
+    app.delete(
+      path,
+      { preHandler: [app.authenticate, app.requirePermission(permission)] },
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        const { id } = idParam.parse(request.params);
+        const updated = await setArchived(model, id, false, label);
+        return reply.code(200).send({ archived: { id: updated.id, isArchived: false, label } });
+      },
+    );
+  }
 }
 
 /**
@@ -560,3 +658,68 @@ async function assertEmployeeReferences(body: {
     }
   }
 }
+
+// =============================================================================
+// Archiving
+//
+// One row at a time, explicitly, never cascaded. The `*.archive` permissions are
+// separate from the `*.delete` ones on purpose: archiving is reversible and is what
+// you reach for when a record cannot be deleted because something references it.
+// Giving both verbs the same permission is what made "cannot delete" feel like a
+// dead end in the first place.
+//
+// The block check lives here, on the server, rather than in the browser. A count
+// the client rendered thirty seconds ago is not a fact about the row, and
+// "archive anyway?" is a question that must be answered at write time.
+// =============================================================================
+
+/** Sets `isArchived` and returns the row, refusing if live references remain. */
+async function setArchived(
+  model: 'broker' | 'employeeContractType' | 'contact',
+  id: number,
+  archived: boolean,
+  label: string,
+): Promise<{ id: number; isArchived: boolean }> {
+  const delegate = prisma[model] as {
+    findUnique(args: unknown): Promise<Record<string, unknown> | null>;
+    update(args: unknown): Promise<{ id: number; isArchived: boolean }>;
+  };
+
+  const existing = (await delegate.findUnique({
+    where: { id },
+    select: { id: true, name: true, _count: { select: referenceCounts[model] } },
+  })) as { id: number; name: string; _count: Record<string, number> } | null;
+
+  if (!existing) throw new HttpError(404, 'NOT_FOUND', `${label} ${id} does not exist.`);
+
+  if (archived) {
+    const blocking = Object.entries(existing._count).filter(([, count]) => count > 0);
+    if (blocking.length > 0) {
+      const detail = blocking
+        .map(
+          ([relation, count]) => `${count} ${relation.replace(/([A-Z])/g, ' $1').toLowerCase()}(s)`,
+        )
+        .join(' and ');
+      throw new HttpError(
+        409,
+        'CONFLICT',
+        `${label} "${existing.name}" is still referenced by ${detail}. ` +
+          `Archiving would hide a record those rows still need.`,
+      );
+    }
+  }
+
+  const updated = await delegate.update({
+    where: { id },
+    data: { isArchived: archived },
+    select: { id: true, isArchived: true },
+  });
+  return updated;
+}
+
+/** What still references each archivable row, for the refusal message. */
+const referenceCounts = {
+  broker: { employees: true },
+  employeeContractType: { employees: true },
+  contact: { jobs: true },
+} as const;

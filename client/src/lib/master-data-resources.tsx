@@ -34,6 +34,7 @@ export interface ClientRow {
   email: string;
   address: string | null;
   isVatRegistered: boolean;
+  isArchived?: boolean;
   vatNumber: string | null;
   _count?: { contracts: number };
 }
@@ -44,6 +45,9 @@ export interface ContactRow {
   name: string;
   mobile: string | null;
   email: string | null;
+  /** Phase 8 item 4: e.g. "Accounts receivable", "Site contact". */
+  role: string | null;
+  isArchived?: boolean;
   client: { id: number; name: string };
   _count?: { jobs: number };
 }
@@ -51,6 +55,7 @@ export interface ContactRow {
 export interface ContractRow {
   id: number;
   clientId?: number;
+  isArchived?: boolean;
   number: string;
   description: string;
   type: string | null;
@@ -77,6 +82,7 @@ export interface AmendmentRow {
   status: string;
   notes: string | null;
   vatRate: number;
+  isArchived?: boolean;
   contract?: { id: number; number: string; client: { name: string } };
   _count?: {
     costParameters: number;
@@ -125,12 +131,14 @@ export interface EmployeeRow {
 export interface BrokerRow {
   id: number;
   name: string;
+  isArchived?: boolean;
   activeEmployees: number;
 }
 
 export interface ContractTypeRow {
   id: number;
   name: string;
+  isArchived?: boolean;
   employees: number;
 }
 
@@ -145,6 +153,11 @@ export const CLIENTS: ResourceDef<ClientRow> = {
   path: 'clients',
   writePermission: 'contract.write',
   deletePermission: 'contract.delete',
+  supportsArchive: true,
+  archivePath: 'clients',
+  archivePermission: 'client.archive',
+  archiveWarning:
+    'The client disappears from every picker - no new contract, project or contact can be created against it - but existing contracts, jobs and invoices are untouched and still show this client. Restorable at any time.',
   searchKeys: ['name', 'email', 'vatNumber'],
   searchPlaceholder: 'Search clients…',
   fields: [
@@ -194,11 +207,24 @@ export const CONTACTS: ResourceDef<ContactRow> = {
   path: 'contacts',
   writePermission: 'contact.write',
   deletePermission: 'contact.delete',
+  supportsArchive: true,
+  archivePath: 'contacts',
+  archivePermission: 'contact.archive',
+  archiveWarning:
+    'The contact disappears from the job contact picker. Jobs already naming this person are unaffected. The server refuses to archive a contact still named on a job.',
   searchKeys: ['name', 'email', 'mobile', 'client.name'],
   searchPlaceholder: 'Search contacts…',
   fields: [
     { name: 'clientId', label: 'Client', kind: 'select', required: true, header: 'Client' },
     { name: 'name', label: 'Contact name', kind: 'text', required: true },
+    {
+      name: 'role',
+      label: 'Role at client',
+      kind: 'text',
+      nullable: true,
+      placeholder: 'e.g. Accounts receivable',
+      hint: 'Free text, so a picker can tell the finance contact from the site contact.',
+    },
     { name: 'mobile', label: 'Mobile', kind: 'tel', nullable: true },
     { name: 'email', label: 'Email', kind: 'email', nullable: true },
   ],
@@ -217,6 +243,11 @@ export const CONTRACTS: ResourceDef<ContractRow> = {
   path: 'contracts',
   writePermission: 'contract.write',
   deletePermission: 'contract.delete',
+  supportsArchive: true,
+  archivePath: 'contracts',
+  archivePermission: 'contract.archive',
+  archiveWarning:
+    'The contract disappears from the project and amendment pickers. Its amendments are NOT archived with it, and existing projects and jobs are untouched. The server refuses while any job is still running.',
   searchKeys: ['number', 'description', 'type', 'client.name'],
   searchPlaceholder: 'Search contracts…',
   fields: [
@@ -240,6 +271,11 @@ export const AMENDMENTS: ResourceDef<AmendmentRow> = {
   path: 'amendments',
   writePermission: 'amendment.write',
   deletePermission: 'amendment.delete',
+  supportsArchive: true,
+  archivePath: 'amendments',
+  archivePermission: 'amendment.archive',
+  archiveWarning:
+    'The amendment disappears from the project and job pickers. Its rate cards, service codes and cost parameters are NOT archived with it. The server refuses while any job is priced against it.',
   searchKeys: [
     'amendmentNumber',
     'amendmentType',
@@ -527,6 +563,11 @@ export const BROKERS: ResourceDef<BrokerRow> = {
   path: 'brokers',
   writePermission: 'broker.write',
   deletePermission: 'broker.delete',
+  supportsArchive: true,
+  archivePath: 'brokers',
+  archivePermission: 'broker.archive',
+  archiveWarning:
+    'The broker disappears from the employee picker. Employees already assigned to it keep the link and still show the name. The server refuses while any employee holds it.',
   searchKeys: ['name'],
   searchPlaceholder: 'Search brokers…',
   fields: [{ name: 'name', label: 'Broker name', kind: 'text', required: true }],
@@ -545,6 +586,11 @@ export const CONTRACT_TYPES: ResourceDef<ContractTypeRow> = {
   path: 'employee-contract-types',
   writePermission: 'contracttype.write',
   deletePermission: 'contracttype.delete',
+  supportsArchive: true,
+  archivePath: 'employee-contract-types',
+  archivePermission: 'contracttype.archive',
+  archiveWarning:
+    'The contract type disappears from the employee form. Employees already on it keep the link. The server refuses while any employee holds it, because contractTypeId is mandatory and there is no unassigned state to move them into.',
   searchKeys: ['name'],
   searchPlaceholder: 'Search contract types…',
   fields: [{ name: 'name', label: 'Type name', kind: 'text', required: true }],
@@ -558,6 +604,23 @@ export const CONTRACT_TYPES: ResourceDef<ContractTypeRow> = {
 
 export function StatusBadge({ status }: { status: string }) {
   return <Badge variant={statusVariant(status)}>{status}</Badge>;
+}
+
+/**
+ * An archived row's marker.
+ *
+ * Rendered rather than the row merely being greyed, because "why is this dim?" is
+ * a question the user should never have to ask: if a contract is absent from a
+ * picker, the register has to say *archived* rather than silently omit it. That is
+ * the whole safety argument for the column - the audit trail of a retirement stays
+ * visible.
+ */
+export function ArchivedBadge() {
+  return (
+    <Badge variant="secondary" className="text-[10px]">
+      Archived
+    </Badge>
+  );
 }
 
 /**

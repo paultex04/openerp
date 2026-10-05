@@ -171,6 +171,7 @@ export function ContactsPanel() {
     () => [
       cell<ContactRow>('Name', (row) => <span className="font-medium">{row.name}</span>),
       cell<ContactRow>('Client', (row) => dash(row.client?.name)),
+      cell<ContactRow>('Role', (row) => dash(row.role)),
       cell<ContactRow>('Mobile', (row) => dash(row.mobile)),
       cell<ContactRow>('Email', (row) => dash(row.email)),
       moneyCell<ContactRow>('Jobs', (row) => row._count?.jobs ?? 0),
