@@ -145,6 +145,9 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         orderBy: { number: 'asc' },
         select: {
           id: true,
+          // Echoed alongside the nested `client` so the edit form can preselect
+          // the current client without inferring it from the sub-object.
+          clientId: true,
           number: true,
           description: true,
           type: true,

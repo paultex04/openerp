@@ -44,8 +44,10 @@ const MODEL_LABELS: Record<string, string> = {
   ServiceCodeMaterialItem: 'service code material line',
   ServiceMasterRate: 'labour rate card',
   Client: 'client',
-  Contact: 'contact',
+  Contact: 'client contact',
   Employee: 'employee',
+  Broker: 'labour broker',
+  EmployeeContractType: 'employee contract type',
   AppUser: 'user account',
   AppRole: 'role',
 };

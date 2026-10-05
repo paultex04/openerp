@@ -20,6 +20,7 @@ import {
 import { toast } from '@/components/ui/toast';
 import { JobKanban, JobStepper } from '@/components/operations/JobStepper';
 import { DeliverableGrid } from '@/components/operations/DeliverableGrid';
+import { CrewPanel } from '@/components/operations/CrewPanel';
 import { ProjectDashboard } from '@/components/operations/ProjectDashboard';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { StatusPill } from '@/components/lifecycle/status-badge';
@@ -287,6 +288,14 @@ function JobDetailView({ jobId, onBack }: { jobId: number; onBack: () => void })
           }
         />
       </section>
+
+      {/* ---- Crew assignments (Phase 7, closes ADR-006 D4) ---- */}
+      <CrewPanel
+        jobId={job.id}
+        assignments={job.assignments}
+        canAssign={permissions.canAssign}
+        onChanged={() => void detail.refetch()}
+      />
 
       {/* ---- Deliverables ---- */}
       <section className="space-y-2">

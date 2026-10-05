@@ -554,6 +554,10 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           canEditActuals: canEditActuals(status),
           actualsLockReason: actualsLockReason(status),
           canAddDeliverable: canEditPlanned(status),
+          // Phase 7: crew assignments were already enforceable server-side but
+          // had no screen. Exposed here so the job card can offer the buttons it
+          // is actually allowed to honour, rather than letting a request 403.
+          canAssign: principal.permissions.has('job.assign'),
           availableTransitions: permitted,
           scopedToAssignedJobs: isScopedToAssignedJobs(principal.roleKeys),
         },

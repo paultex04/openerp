@@ -138,23 +138,24 @@ colourless.
 Production code lives on `main`. Each phase is developed on a `phase/NN-*` branch and merged only
 after its automated tests and verification gates pass:
 
-| Branch                               | Tag      | Contents                                   |
-| ------------------------------------ | -------- | ------------------------------------------ |
-| `main`                               | `v0.0.1` | Repo init and connectivity                 |
-| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC             |
-| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine, VAT |
-| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals           |
-| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing              |
-| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                |
-| `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass |
-| `phase/06-theming-and-menu-fix`      | `v1.2.0` | Five themes, shared DataTable, full-bleed  |
-| `phase/07-master-data-crud`          | —        | CRUD for every master-data table (planned) |
+| Branch                               | Tag      | Contents                                       |
+| ------------------------------------ | -------- | ---------------------------------------------- |
+| `main`                               | `v0.0.1` | Repo init and connectivity                     |
+| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC                 |
+| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine, VAT     |
+| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals               |
+| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing                  |
+| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                    |
+| `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass     |
+| `phase/06-theming-and-menu-fix`      | `v1.2.0` | Five themes, shared DataTable, full-bleed      |
+| `phase/07-master-data-crud`          | —        | CRUD for every master-data table (in progress) |
 
-Phase 7 is recorded but **not started**: see
+Phase 7 is in progress: see
 [ADR-007](docs/adr-007-master-data-crud.md). The short version is that the API
-supports creating contracts, amendments, clients, projects and jobs, but the UI
-exposes none of it, and four tables (Broker, EmployeeContractType, Employee,
-Contact) have no routes at all.
+supported creating contracts, amendments, clients, projects and jobs while the UI
+exposed none of it, and four tables (Broker, EmployeeContractType, Employee,
+Contact) had no routes at all. Phase 7 adds those routes, the `organisation`
+permission category, a generic master-data panel and eight administration tabs.
 
 The schema in `server/prisma/schema.prisma` is the source of truth, but the
 migrations are hand-written and additive-only. `prisma migrate deploy` refuses

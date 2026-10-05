@@ -151,7 +151,15 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     icon: ShieldCheck,
     // Admin screens are permission-gated individually too; this only decides
     // whether the section header appears at all.
-    anyOf: ['admin.user.read', 'admin.role.read', 'admin.audit.read'],
+    anyOf: [
+      'admin.user.read',
+      'admin.role.read',
+      'admin.audit.read',
+      'employee.read',
+      'broker.read',
+      'contracttype.read',
+      'contact.read',
+    ],
     items: [
       {
         href: '/admin?tab=users',
@@ -164,6 +172,32 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Roles & Permissions Matrix',
         icon: ShieldCheck,
         anyOf: ['admin.role.read'],
+      },
+      {
+        // Phase 7. Clients sit under Administration per ADR-007 Q3, even though
+        // they are commercial: they are reference data, not transactions.
+        href: '/admin?tab=clients',
+        label: 'Clients & Contacts',
+        icon: Building2,
+        anyOf: ['contract.read', 'contact.read'],
+      },
+      {
+        href: '/admin?tab=contracts',
+        label: 'Contracts & Amendments',
+        icon: FileText,
+        anyOf: ['contract.read', 'amendment.read'],
+      },
+      {
+        href: '/admin?tab=employees',
+        label: 'Employees, Brokers & Types',
+        icon: HardHat,
+        anyOf: ['employee.read', 'broker.read', 'contracttype.read'],
+      },
+      {
+        href: '/admin?tab=projects',
+        label: 'Projects',
+        icon: FolderKanban,
+        anyOf: ['project.read', 'project.write'],
       },
       {
         href: '/admin?tab=audit',

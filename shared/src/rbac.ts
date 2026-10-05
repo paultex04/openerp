@@ -78,6 +78,7 @@ export const PERMISSION_CATEGORIES = [
   'job',
   'actuals',
   'invoice',
+  'organisation',
   'admin',
 ] as const;
 export type PermissionCategory = (typeof PERMISSION_CATEGORIES)[number];
@@ -154,6 +155,27 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   P('invoice.approve', 'invoice', 'Approve an invoice.'),
   P('invoice.status', 'invoice', 'Change invoice status (paid, disputed, cancelled).'),
 
+  // --- Organisation (Phase 7) ---------------------------------------------
+  // Clients deliberately ride on `contract.*` rather than having their own keys,
+  // so that a client read/write/delete shows under Commercial in the permission
+  // matrix. These four tables have no such natural commercial owner, so they get
+  // an explicit category. See ADR-007 Q1.
+  P('employee.read', 'organisation', 'View the employee directory and org chart.'),
+  P('employee.write', 'organisation', 'Create and edit employee records.'),
+  P('broker.read', 'organisation', 'View labour brokers.'),
+  P('broker.write', 'organisation', 'Create and edit labour brokers.'),
+  P('broker.delete', 'organisation', 'Delete labour brokers with no employees.'),
+  P('contracttype.read', 'organisation', 'View employee contract types.'),
+  P('contracttype.write', 'organisation', 'Create and edit employee contract types.'),
+  P(
+    'contracttype.delete',
+    'organisation',
+    'Delete employee contract types that no employee holds.',
+  ),
+  P('contact.read', 'organisation', 'View client contacts.'),
+  P('contact.write', 'organisation', 'Create and edit client contacts.'),
+  P('contact.delete', 'organisation', 'Delete client contacts that are not on a job.'),
+
   // --- Administration ------------------------------------------------------
   P('admin.user.read', 'admin', 'View application users.'),
   P('admin.user.write', 'admin', 'Create users, link employees and reset credentials.'),
@@ -192,6 +214,10 @@ const PROJECT_MANAGER_GRANTS: string[] = [
   'job.transition.scope',
   'deliverable.read',
   'deliverable.write.planned',
+  // Read-only, and solely so the crew-assignment picker has someone to pick.
+  // The PM may attach employees to jobs (`job.assign`) but must not be able to
+  // rewrite the payroll-adjacent employee record itself.
+  'employee.read',
 ];
 
 /** Field supervisors are restricted to their assigned jobs and to actuals. */

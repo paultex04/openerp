@@ -129,73 +129,135 @@ from under the cursor mid-edit.
 
 ---
 
-## Open decisions, needed before implementation
+## Decisions, now resolved
 
-**Q1 - Permission naming for the organisation tables.** There is no permission
-for Broker, Employee, Contact or EmployeeContractType; the catalogue has no
-`organisation` category. Clients currently ride on `contract.write`, which is
-defensible ("clients are commercial") but makes a client delete a
-`contract.delete` action, which is not obviously right. Options: add a
-`client.*`/`employee.*` set, or add an `organisation` category. **Recommendation:
-add an `organisation` category** with explicit `client.*`, `employee.*`,
-`broker.*`, `contact.*` and `contracttype.*` keys, and keep `contract.*` for
-contracts only. It makes the permissions matrix honest, which is the screen Phase
-6 built for exactly this purpose.
+All four were answered before implementation, and each answer changed the plan.
 
-**Q2 - `amendment.delete`.** Commercial/QS and Administrator hold a permission
-that no route honours. Either build `DELETE /api/amendments/:id` (409 if the
-amendment has rates, service codes, projects or jobs) or drop the key from the
-catalogue and re-seed. **Recommendation: build it.** An amendment with cost
-parameters and rates hanging off it is exactly the "terminate or supersede"
-case, and removing a granted permission to tidy a catalogue is the wrong fix for
-a UI that is merely missing.
+**Q1 - clients stay on `contract.write` / `contract.delete`.** The four genuinely
+unowned tables (Broker, Employee, Contact, EmployeeContractType) get a new
+`organisation` permission category. The accepted consequence: in the permissions
+matrix a client write shows under Commercial rather than Administration, which is
+where a reader would look for it anyway.
 
-**Q3 - Where do master data screens live?** Under `/admin` (consistent with
-"administration is where records are maintained"), or split by domain - clients
-and contacts under Commercial, employees and brokers under a new
-Administration? **Recommendation: split by domain.** A Site Supervisor needs to
-find their own record, and hiding employees under `/admin` behind
-`admin.user.read` makes the org chart unavailable to a PM who legitimately holds
-`job.assign`. This is the one decision that changes the nav tree, and it is
-reversible, but it should be settled before code is written.
+Ten new keys: `employee.read/write`, `broker.read/write/delete`,
+`contracttype.read/write/delete`, `contact.read/write/delete`. All granted to
+Administrator. The single exception is **`employee.read`, also granted to the
+project manager**, because `job.assign` is theirs and the crew picker needs a list
+to pick from - they may attach employees to jobs without being able to rewrite a
+payroll-adjacent record.
 
-**Q4 - Employee delete vs deactivate.** Employees with job history are the
-largest referential web in the schema (supervisor, assignments, managed reports).
-**Recommendation: no hard delete for employees at all** - deactivate via
-`endDate`, matching the user rule in D2. Employee _records_ are payroll-adjacent
-and deleting one voids the history of work someone actually did.
+**Q2 - built.** `DELETE /api/amendments/:id` exists and the permission is no
+longer decorative. See M1.
+
+**Q3 - under `/admin`.** Eight new tabs, grouped into Access / Records / Audit so
+eleven tabs do not become one unreadable strip.
+
+The objection raised before the decision was that hiding employees under `/admin`
+behind `admin.user.read` would put the org chart out of reach of a PM who
+legitimately holds `job.assign`. That is real, and it is handled by gating each
+tab on its own permission rather than on the section header: the PM sees
+**Projects** and **Employees** under Administration and nothing else. A deep-link
+they may not use gets a plain "you do not have permission to open X. It needs
+`contract.read`" rather than a screen of failed requests.
+
+**Q4 - confirmed, no hard delete.** `DELETE /api/employees/:id` sets `endDate` and
+deactivates any linked sign-in account. The row survives, and the UI says "End
+employment" rather than "Delete" because saying otherwise would be a lie.
+
+### Q4 has a consequence that bit the test suite
+
+Because an employee row is never deleted, it holds its `contractTypeId` forever,
+so that contract type can never be deleted either - and while the employee holds a
+broker, that broker cannot be either. A first draft of `smoke:phase7` created all
+three per run and cleaned them up, which **cannot work**: every run would have
+leaked three rows, permanently. They are now fixed fixtures, created-if-missing
+and reused, which is also what makes the run idempotent. This is the same lesson
+Phase 5 records in its own residue note, reached from the other direction.
 
 ---
 
-## Proposed sequence
+## Implementation notes worth keeping
 
-Each step is independently shippable and leaves the gates green.
+### The generic panel wraps its own cells, so accessors must not
 
-| Step | Work                                                                                                                                  | Depends on |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| M1   | `DELETE /api/clients/:id`, `DELETE /api/amendments/:id` (409 where referenced)                                                        | Q2         |
-| M2   | `GET /api/employees`, `GET/POST/PATCH /api/brokers`, `/employee-contract-types`, `/contacts`, `/employees` with `search` + pagination | Q1         |
-| M3   | `MasterDataPanel` + descriptors                                                                                                       | D1         |
-| M4   | Commercial screens: clients, contacts, contracts, amendments                                                                          | M1, M3     |
-| M5   | Operations screens: projects, jobs                                                                                                    | M3         |
-| M6   | Organisation screens: employees, brokers, employee contract types                                                                     | M2, M3, Q3 |
-| M7   | Crew Assignments screen, closing ADR-006 D4 correctly                                                                                 | M2         |
-| M8   | `smoke:phase7.mjs` + RBAC gate that every role is refused every write it lacks                                                        | -          |
+`DataTable` renders a cell by wrapping whatever the accessor returns in a
+`TableCell` - or a `NumericCell` when the column declares `meta.align === 'right'`.
+An accessor returning its own `<TableCell>` therefore emits `<td><td>…</td></td>`,
+which is invalid markup the browser silently repairs by hoisting. Nothing crashes
+and nothing looks wrong; the content simply appears twice in the accessibility
+tree. Money and count columns opt into right-alignment through `meta`, never
+through markup.
 
-M8 is not optional. Every new write endpoint is a chance to ship a permission
-hole, and the existing per-role refusal tests are the reason the admin surface
-is trustworthy today.
+### The edit dialog must seed from the record, not from an empty draft
 
-## Risks
+A `useState({})` initialiser makes the edit form open blank. Because the panel
+keys the dialog on the record id, the correct shape is a `useState` _initialiser_
+that reads the record - a remount then arrives already filled, with no cascading
+render and no frame of empty inputs.
 
-- **Re-seeding changes `RolePermission` rows.** Any new permission key must be
-  added to `PERMISSIONS` _and_ to the relevant role grant list, then re-seeded,
-  or existing accounts silently lack the capability. The permissions matrix
-  reads from the code catalogue, so a half-applied change looks fine on screen
-  and fails in the hand.
-- **Employee is the widest referential surface.** Ordering the columns: brokers
-  and contract types first (they are leaves), then employees, then contacts
-  (which need a client), then the commercial chain.
-- **`JobAssignment` has no unique constraint** on `(jobId, employeeId)`, unlike
-  `JobServiceCode` and `ServiceCodeLabourItem`. An assignment screen will make
-  duplicates easy to create. Add the constraint, or de-duplicate on write.
+### Select fields cannot be deskewed by a predicate on a sibling field
+
+Projects take both a contract and an amendment, but the amendment dropdown needs
+to narrow by the chosen contract. The generic form has no field-to-field logic, so
+the amendment picker is populated with contracts and the server resolves the rest.
+This is a known simplification, not a finished behaviour: the honest version needs
+a dependent-picker concept the descriptor does not have yet.
+
+### The Admin page distinguishes "asked for this tab" from "said nothing"
+
+`useUrlParam` cannot tell those apart, and the difference matters. A PM who opens
+`/admin` should land on a tab they can use; a PM who was linked to
+`?tab=clients` should be told plainly that they may not open it. Reading
+`searchParams.has('tab')` once settles both cases.
+
+---
+
+## What shipped
+
+| Step | Work                                                              | Status |
+| ---- | ----------------------------------------------------------------- | ------ |
+| M1   | `DELETE /api/clients/:id`, `DELETE /api/amendments/:id`           | done   |
+| M2   | Organisation routes: brokers, contract types, employees, contacts | done   |
+| M3   | `MasterDataPanel` + descriptors                                   | done   |
+| M4   | Admin tabs: clients, contacts, contracts, amendments              | done   |
+| M5   | Admin tab: projects                                               | done   |
+| M6   | Admin tabs: employees, brokers, contract types                    | done   |
+| M7   | Crew Assignments screen, closing ADR-006 D4                       | done   |
+| M8   | `smoke:phase7.mjs` (66 checks) incl. per-role refusals            | done   |
+
+`verify` exit 0; smoke phase2 52, phase3 87, phase4 67, phase5 46, phase6 71,
+phase7 66, all 0 failed; client build clean; `db:check` 24 tables / 8 enums.
+
+## Two pre-existing defects found, neither caused by Phase 7
+
+Both were confirmed by stashing the branch and reproducing on the baseline commit.
+
+**1. The Jobs Board hangs in its Suspense boundary.** `/operations?view=board`
+renders the shell, then sits on the `Loading…` fallback indefinitely. The API is
+fine - the dev log shows `GET /api/jobs 200` and, on the board, `GET /api/jobs/2
+200` - so the requests are made and the boundary simply never resolves. Stash the
+branch, reload, and it behaves identically, so this predates Phase 7. Worth noting
+that the Crew panel (M7) lives behind this screen and therefore could not be
+verified through the UI; its endpoint was verified over HTTP instead (PM posts a
+crew assignment, the detail reflects it, DELETE cleans up).
+
+**2. A race in `billing.integration.test.ts:401`.** `reports compliance as clean
+once a VAT number is on file` mutates shared `client id 1`, and both
+`e2e/business-flow` and `commercial.integration` write clients in parallel. It
+failed once in six runs and passed the other five, and passed three consecutive
+runs on both the branch and the baseline. Not a regression; it will flake again.
+
+Neither is fixed here. Both want their own issue.
+
+## Still open
+
+- **Jobs.** `POST /api/projects` and `POST /api/jobs` exist with `project.write` /
+  `job.write` granted to the PM, and the PM can now reach a Projects tab. A job
+  is a much heavier form than a master-data row - supervisor, client contact,
+  amendment, work order, PO, four dates, priority - and it participates in the
+  13-status lifecycle, so it does not belong in `MasterDataPanel`. It wants its
+  own screen and its own conversation.
+- **Audit log has no retention.** Grows unbounded. Unchanged since ADR-006.
+- **Billing gaps**: credit notes, payment allocation, multi-currency, month-end
+  close. Unchanged.
+- **Demo accounts share one `.env` password.** Rotate before shared use.

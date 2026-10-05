@@ -383,6 +383,8 @@ export interface JobDetail {
     canEditActuals: boolean;
     actualsLockReason: string | null;
     canAddDeliverable: boolean;
+    /** Phase 7: whether this viewer may attach crew to the job. */
+    canAssign: boolean;
     availableTransitions: string[];
     scopedToAssignedJobs: boolean;
   };
