@@ -408,7 +408,27 @@ function NavSectionList({
             </SidebarGroup>
 
             <CollapsibleContent>
-              <SidebarMenu>
+              {/*
+                The indent, and why it is here rather than on the button.
+
+                `SidebarMenu` ships `p-2` and `SidebarMenuButton` ships `p-2` with
+                a 16px icon and a `gap-2`. The section header is `px-2` with its own
+                16px icon and the same gap. Both labels therefore began at exactly
+                2rem from the sidebar edge - identical x, no hierarchy at all, which
+                is why the submenu read as more top-level items rather than as
+                children of one.
+
+                Padding the *container* is the right lever: it moves the icon and the
+                label together, which padding the button alone would not (the button's
+                icon would stay put and only the text shift, so the row would look
+                misaligned rather than indented).
+
+                `pl-5` is 1.25rem against the default 0.5rem, a 0.75rem step that
+                reads as a level without wasting width. Reset to `p-2` when the
+                sidebar collapses to the icon rail, or the icons would drift right of
+                centre - the button's own `p-2!` cannot undo a parent's padding.
+              */}
+              <SidebarMenu className="pl-5 group-data-[collapsible=icon]:p-2">
                 {section.items.map((item) => {
                   const [hrefPath] = item.href.split('?');
                   const isActive = pathname === hrefPath && filtersMatch(item.href, search);

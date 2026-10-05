@@ -191,6 +191,34 @@ async function authPluginImpl(app: FastifyInstance, opts: { config: Config }): P
     if (error instanceof HttpError) {
       return reply.code(error.statusCode).send({ error: error.code, message: error.message });
     }
+
+    /*
+     * A unique-constraint violation is a caller mistake, not a server fault.
+     *
+     * Prisma raises P2002 for these, which is neither an HttpError nor a 4xx, so
+     * without this it fell through to the generic 500 below. The user saw "An
+     * unexpected error occurred." for the most ordinary mistake there is -
+     * saving a client whose email is already on file - and the real cause only
+     * existed in the server log. A 409 with the offending column named is the
+     * honest answer, and it is the difference between a user fixing their typo and
+     * a support ticket.
+     *
+     * `target` carries the constraint fields, so the message can name the column
+     * rather than shrugging at "a unique constraint failed".
+     */
+    const prismaCode = (error as { code?: unknown }).code;
+    if (prismaCode === 'P2002') {
+      const target = (error as { meta?: { target?: unknown } }).meta?.target;
+      const field = Array.isArray(target) ? target.join(', ') : undefined;
+      return reply.code(409).send({
+        error: 'UNIQUE_CONSTRAINT_VIOLATION',
+        message: field
+          ? `Another record already uses that ${field.replace(/_/g, ' ')}.`
+          : 'Another record already uses that value.',
+        ...(field ? { field } : {}),
+      });
+    }
+
     if (error instanceof ZodError) {
       return reply.code(400).send({
         error: 'VALIDATION_FAILED',

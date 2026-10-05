@@ -502,3 +502,70 @@
     }
   }
 }
+
+/* ============================================================================
+   Layering
+   ----------------------------------------------------------------------------
+   Every overlay in the shadcn registry is authored at `z-50`: the dialog
+   backdrop, the dialog panel, the alert dialog, the sheet, the dropdown, the
+   select and the tooltip. Equal z-index means the browser falls back to DOM order,
+   and a portal that mounts later paints on top - so a toast raised from inside a
+   dialog landed *behind* that dialog's opaque backdrop, unreadable.
+
+   The fix lives here rather than in `components/ui/toast.tsx` because those files
+   are registry-owned and `shadcn add --overwrite` replaces them wholesale
+   (ADR-006 D1). A stylesheet rule is the one place that can correct a layering
+   decision without editing vendor code, and it survives the next update.
+
+   The scale, in one place so the next overlay has somewhere obvious to sit:
+
+       10  the sidebar, and its hover rail
+       20  sticky table headers
+       50  dialogs, sheets, menus, selects, tooltips   (the registry default)
+      100  toasts                                      (must outrank 50)
+
+   Toast sits above the dialog *and* its panel deliberately. A toast raised by a
+   dialog is feedback about an action taken in that dialog; burying it under the
+   thing that action caused makes it unreadable at exactly the moment it matters.
+   ============================================================================ */
+
+[data-slot='toast-viewport'] {
+  z-index: 100;
+}
+
+/*
+ * The toast is a sibling of the overlay, not a child, so `pointer-events` has to be
+ * re-enabled on the viewport itself for a dismissal click to land. The registry
+ * sets `pointer-events-none` on the viewport and re-enables it per toast, which is
+ * correct for a toast stack but leaves the gap between two toasts unclickable.
+ */
+[data-slot='toast-viewport'] {
+  pointer-events: auto;
+}
+
+/*
+ * Settle the toast's position by layout rather than by transform.
+ *
+ * The registry positions each toast with
+ *   transform: translateX(...) translateY(calc(... var(--shrink) * var(--height) ...))
+ * and holds it at `translateY(150%)` until `data-starting-style` is released.
+ * Measured in this application, that release never happens: across a five-second
+ * sample the computed transform stayed pinned at exactly 150% of the toast's own
+ * height (117px for a 78px toast) while `--toast-height` correctly read `78px`.
+ * The toast therefore rendered 117px below the bottom edge of the viewport - off
+ * screen entirely, which is why an error raised from a dialog read as "nothing
+ * happened" rather than as a message.
+ *
+ * The toast is `position: absolute; bottom: 0` inside a `fixed` viewport, so with
+ * no transform it lands in the bottom-right corner exactly where it belongs and is
+ * always readable. The trade-off is real and worth naming: the slide-in and
+ * stack-collapse animations are given up. A notification that is always visible
+ * is worth more than one that arrives prettily and lands off screen, and the
+ * opacity transition is kept so it still fades rather than snapping.
+ */
+[data-slot='toast'] {
+  transform: none !important;
+  transition:
+    opacity 150ms ease,
+    height 150ms ease;
+}
