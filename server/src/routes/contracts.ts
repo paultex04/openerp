@@ -46,6 +46,35 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     },
   );
 
+  app.delete(
+    '/api/clients/:id',
+    { preHandler: [app.authenticate, app.requirePermission('contract.delete')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+
+      const existing = await prisma.client.findUnique({
+        where: { id },
+        select: { id: true, _count: { select: { contracts: true, contacts: true } } },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
+
+      // Refuse rather than cascade, same rule as contracts: a client with
+      // commercial history is the evidence for every invoice raised against it.
+      if (existing._count.contracts > 0 || existing._count.contacts > 0) {
+        throw new HttpError(
+          409,
+          'CONFLICT',
+          `Client ${id} still has ${existing._count.contracts} contract(s) and ` +
+            `${existing._count.contacts} contact(s). Delete those first, or leave the ` +
+            `client in place as the historical record.`,
+        );
+      }
+
+      await prisma.client.delete({ where: { id } });
+      return reply.code(204).send();
+    },
+  );
+
   app.post(
     '/api/clients',
     { preHandler: [app.authenticate, app.requirePermission('contract.write')] },

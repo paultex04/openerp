@@ -9,12 +9,13 @@
  *
  * ## Residue
  *
- * This script reuses two FIXED fixtures rather than creating a fresh one each
- * run: a smoke account (`smoke-p5@contractor.co.za`) and a smoke client. They are
- * deactivated/hard-deleted where the API allows it, but the admin API
+ * This script reuses FIXED fixtures rather than creating a fresh one each run: a
+ * smoke account (`smoke-p5@contractor.co.za`) and a smoke client. The client is
+ * hard-deleted at the end of the run, since Phase 7 added `DELETE /api/clients/:id`.
+ *
+ * Exactly one row still persists forever: the smoke **account**. The admin API
  * deliberately offers no hard delete (ADR-005 D6 — a hard delete would cascade
- * away the operational record of who was on a job), and there is no client
- * delete endpoint either. So exactly two rows persist, forever.
+ * away the operational record of who was on a job), so it is deactivated instead.
  *
  * Fixed identities are what keep that bounded. An earlier version minted a fresh
  * email per run and left one dead account and one orphan client behind every
@@ -314,6 +315,16 @@ async function main() {
   for (const id of fixture.userIds) {
     const res = await request(`/api/admin/users/${id}`, { method: 'DELETE', cookie: A });
     checkThat(`the smoke user ${id} is deactivated`, res.status === 200, `HTTP ${res.status}`);
+  }
+
+  // Phase 7 added `DELETE /api/clients/:id`, so the smoke client is no longer
+  // permanent residue. It has no contracts or contacts, so the delete is
+  // accepted rather than refused with 409 - which is itself worth asserting,
+  // because it proves the guard refuses only on real references.
+  for (const id of fixture.clientIds) {
+    if (id === undefined || id === null) continue;
+    const res = await request(`/api/clients/${id}`, { method: 'DELETE', cookie: A });
+    checkThat(`the smoke client ${id} is removed`, res.status === 204, `HTTP ${res.status}`);
   }
 
   summarise();

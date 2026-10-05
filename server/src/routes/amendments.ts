@@ -139,6 +139,55 @@ export async function registerAmendmentRoutes(app: FastifyInstance): Promise<voi
     },
   );
 
+  app.delete(
+    '/api/amendments/:id',
+    { preHandler: [app.authenticate, app.requirePermission('amendment.delete')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+
+      const existing = await prisma.contractAmendment.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          amendmentNumber: true,
+          _count: {
+            select: {
+              costParameters: true,
+              serviceMasterRates: true,
+              serviceCodes: true,
+              projects: true,
+              jobs: true,
+            },
+          },
+        },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Amendment ${id} does not exist.`);
+
+      // Every one of these is priced history. An amendment is the version a rate
+      // card was built under, so deleting it strands the rates that reference it.
+      const { _count: c } = existing;
+      if (
+        c.costParameters > 0 ||
+        c.serviceMasterRates > 0 ||
+        c.serviceCodes > 0 ||
+        c.projects > 0 ||
+        c.jobs > 0
+      ) {
+        throw new HttpError(
+          409,
+          'CONFLICT',
+          `Amendment ${existing.amendmentNumber} is still referenced by ` +
+            `${c.costParameters} cost parameter(s), ${c.serviceMasterRates} rate card(s), ` +
+            `${c.serviceCodes} service code(s), ${c.projects} project(s) and ${c.jobs} job(s). ` +
+            `Supersede it with a new amendment instead of deleting it.`,
+        );
+      }
+
+      await prisma.contractAmendment.delete({ where: { id } });
+      return reply.code(204).send();
+    },
+  );
+
   // --- Cost parameters ---------------------------------------------------
   app.get(
     '/api/amendments/:id/cost-parameters',
@@ -210,11 +259,15 @@ export async function registerAmendmentRoutes(app: FastifyInstance): Promise<voi
             create: data,
           });
         }
-        if (desiredNames.length > 0) {
-          await tx.contractCostParameter.deleteMany({
-            where: { amendmentId: id, parameterName: { notIn: desiredNames } },
-          });
-        }
+        // This endpoint replaces the whole set, so an empty array means "remove
+        // them all". The `length > 0` guard that used to sit here made that
+        // impossible: the last remaining cost parameter could never be deleted,
+        // so an amendment that had ever had a parameter set could never be
+        // deleted either, and `DELETE /api/amendments/:id` was permanently
+        // unreachable for it. Found by `smoke:phase7`.
+        await tx.contractCostParameter.deleteMany({
+          where: { amendmentId: id, parameterName: { notIn: desiredNames } },
+        });
       });
 
       const parameters = await prisma.contractCostParameter.findMany({
