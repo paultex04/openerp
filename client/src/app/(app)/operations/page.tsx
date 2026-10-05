@@ -13,12 +13,12 @@ import {
   api,
   ApiError,
   type JobDetail,
-  type JobRow,
   type TransitionOption,
   type VarianceSummary,
 } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
-import { JobKanban, JobStepper } from '@/components/operations/JobStepper';
+import { JobStepper } from '@/components/operations/JobStepper';
+import { JobsPanel } from '@/components/master-data/panels';
 import { DeliverableGrid } from '@/components/operations/DeliverableGrid';
 import { CrewPanel } from '@/components/operations/CrewPanel';
 import { ProjectDashboard } from '@/components/operations/ProjectDashboard';
@@ -104,70 +104,26 @@ export default function OperationsPage() {
 function BoardView({ onSelectJob }: { onSelectJob: (id: number) => void }) {
   // '' means "no filter", which is not one of JOB_STATUSES, so the empty string is
   // admitted as an explicit member of the whitelist rather than special-cased.
-  const [statusFilter, setStatusFilter] = useUrlParam<StatusFilter>(
-    'status',
-    ['', ...JOB_STATUSES],
-    '',
-  );
-
-  const jobs = useQuery({
-    queryKey: ['jobs'],
-    queryFn: () => api.get<{ jobs: JobRow[] }>('/api/jobs'),
-  });
-
-  const all = jobs.data?.jobs ?? [];
-  const filtered = statusFilter ? all.filter((j) => j.status === statusFilter) : all;
-
-  if (jobs.isError) {
-    return (
-      <p className="text-sm text-destructive">
-        {jobs.error instanceof ApiError ? jobs.error.message : 'Could not load jobs.'}
-      </p>
-    );
-  }
+  // Read-only here: the table owns the filter from here on, so this only supplies
+  // the deep link's starting value. See the comment below.
+  const [statusFilter] = useUrlParam<StatusFilter>('status', ['', ...JOB_STATUSES], '');
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <label htmlFor="status" className="text-sm text-muted-foreground">
-          Status
-        </label>
-        {/*
-          A native <select> rather than the shadcn wrapper. `ui/select.tsx` as
-          generated exports SelectGroup/SelectValue/SelectTrigger/SelectContent/
-          SelectItem but no root `Select`, so adopting it would mean importing
-          Base UI's root directly and hand-assembling the parts. That is a larger
-          change than this filter justifies, and a native select is fully
-          keyboard- and screen-reader-accessible on its own.
-          See ADR-006, finding F3.
-        */}
-        <select
-          id="status"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-        >
-          <option value="">All statuses</option>
-          {JOB_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <span className="text-xs text-muted-foreground">
-          {filtered.length} job{filtered.length === 1 ? '' : 's'}
-        </span>
-      </div>
-
-      <JobKanban
-        jobs={filtered.map((j) => ({
-          id: j.id,
-          status: j.status,
-          description: j.description,
-          workOrder: j.workOrder,
-        }))}
-        onSelect={onSelectJob}
-      />
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      {/*
+        The kanban is gone, replaced by `JobsPanel`. Thirteen statuses means a
+        populated board is thirteen narrow columns of horizontal scroll, and a job
+        is findable only by already knowing its status; the table answers the same
+        question through a status filter and a sortable status column.
+        
+        The deep-linked `?status=` is honoured by SEEDING the table's own filter
+        rather than by keeping a second select beside it. Two status filters on one
+        screen is a control that disagrees with itself. The sidebar's "Valuation
+        Packs (Ready for Signature)" entry links straight to
+        `?status=07.%20Pack%20Ready`, and that still works - it just pre-fills the
+        filter the user can then clear.
+      */}
+      <JobsPanel onOpen={onSelectJob} initialStatusFilter={statusFilter} />
     </div>
   );
 }

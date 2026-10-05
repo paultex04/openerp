@@ -54,7 +54,7 @@ import { toast } from '@/components/ui/toast';
 import { DataTable } from '@/components/data-table/data-table';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { api, ApiError } from '@/lib/api';
-import type { FieldDef, ResourceDef } from '@/lib/master-data';
+import type { FieldDef, Option, ResourceDef } from '@/lib/master-data';
 
 export interface MasterDataPanelProps<T> {
   resource: ResourceDef<T>;
@@ -65,7 +65,39 @@ export interface MasterDataPanelProps<T> {
   /** Shapes the request body. Defaults to the form values verbatim. */
   toPayload?: (values: Record<string, unknown>) => Record<string, unknown>;
   /** Optional select-option sources, keyed by field name. */
-  options?: Readonly<Record<string, readonly { value: string; label: string }[]>>;
+  options?: Readonly<Record<string, readonly Option[]>>;
+  /**
+   * Resolves a field's options from the form's current values.
+   *
+   * This exists because several forms have a *dependent* picker: a job's
+   * amendment must come from the chosen project, and a project's amendment from
+   * the chosen contract. A static `options` map cannot express that, so the first
+   * draft shipped an amendment dropdown listing every amendment in the system,
+   * which was wrong rather than merely ugly — the server would reject a
+   * mismatched pair, so the user could pick something and be refused.
+   *
+   * Returning `undefined` falls back to the static map, so a resource only pays
+   * for this where it needs it.
+   */
+  optionsFor?: (
+    fieldName: string,
+    values: Record<string, string | boolean>,
+  ) => Option[] | undefined;
+  /**
+   * Extra buttons in the trailing actions column, rendered before Edit/Delete.
+   * Used where a row has a destination as well as an edit form — a job opens its
+   * detail view, which is not an edit.
+   */
+  renderExtraRowActions?: (row: T) => React.ReactNode;
+  /**
+   * Seeds the categorical filters on first render.
+   *
+   * Used by the Jobs Board, whose `?status=` deep link comes from the sidebar's
+   * "Valuation Packs (Ready for Signature)" entry. Seeding rather than controlling
+   * keeps the table's own filter control authoritative afterwards: the user can
+   * clear a deep-linked filter, which would be impossible if the parent owned it.
+   */
+  initialFilters?: Readonly<Record<string, string>>;
   /** Extra toolbar content beside the New button. */
   toolbarExtra?: React.ReactNode;
   /** Grows the table to fill the viewport. Off for short panels. */
@@ -93,6 +125,9 @@ export function MasterDataPanel<T extends object>({
   columns,
   toPayload,
   options,
+  optionsFor,
+  renderExtraRowActions,
+  initialFilters,
   toolbarExtra,
   fill = false,
 }: MasterDataPanelProps<T>) {
@@ -102,7 +137,9 @@ export function MasterDataPanel<T extends object>({
   const [editing, setEditing] = useState<T | null>(null);
   const [creating, setCreating] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => ({
+    ...(initialFilters ?? {}),
+  }));
 
   const list = useQuery({
     queryKey: resource.queryKey,
@@ -142,8 +179,10 @@ export function MasterDataPanel<T extends object>({
     ? permissions.includes(resource.deletePermission)
     : false;
 
-  // Select options: descriptor-declared, overridden by the `options` prop, which
-  // is how a resource points a field at a live list (brokers, contract types).
+  // Static select options: descriptor-declared, overridden by the `options` prop,
+  // which is how a resource points a field at a live list (brokers, contract
+  // types). Dependent options are resolved inside the dialog, which is the only
+  // place the form's current values exist.
   const fields = useMemo(() => {
     return resource.fields.map((field) =>
       options?.[field.name]
@@ -198,15 +237,16 @@ export function MasterDataPanel<T extends object>({
           </>
         }
         renderRowActions={
-          canWrite || canDelete
+          canWrite || canDelete || renderExtraRowActions
             ? (row) => (
                 <>
+                  {renderExtraRowActions?.(row)}
                   {canWrite && (
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={() => setEditing(row)}
-                      aria-label={`Edit ${rowKey(row)}`}
+                      aria-label={`Edit ${resource.singular.toLowerCase()} ${rowKey(row)}`}
                     >
                       <Pencil aria-hidden="true" className="size-4" />
                       Edit
@@ -244,6 +284,7 @@ export function MasterDataPanel<T extends object>({
         resource={resource}
         record={editing}
         toPayload={toPayload}
+        optionsFor={optionsFor}
         onClose={closeForm}
         onSaved={() => {
           closeForm();
@@ -281,11 +322,29 @@ export function MasterDataPanel<T extends object>({
   );
 }
 
+/**
+ * The delete confirmation's subject line.
+ *
+ * Looks for a `name` first, then the other fields that actually identify a row in
+ * practice. Without this a job's confirmation read literally "Delete?", which
+ * names nothing - a job has no `name` column, only a description, and a client has
+ * a name but a project has a `code`.
+ */
 function confirmDeleteTitle<T>(resource: ResourceDef<T>, row: T | null): string {
   const noun = resource.softDeleteNoun ?? 'Delete';
-  const label = row && (row as Record<string, unknown>).name;
-  const labelText = typeof label === 'string' && label.length > 0 ? ` ${label}` : '';
-  return `${noun}${labelText}`;
+  if (!row) return noun;
+  const record = row as Record<string, unknown>;
+
+  for (const key of ['name', 'fullName', 'number', 'code', 'amendmentNumber', 'description']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      const trimmed = value.trim();
+      // A long description is worse than none in a title bar: truncate it.
+      const shown = trimmed.length > 48 ? `${trimmed.slice(0, 47)}…` : trimmed;
+      return `${noun} ${shown}`;
+    }
+  }
+  return `${noun} #${String(record.id ?? '')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +357,10 @@ interface RecordDialogProps<T> {
   resource: ResourceDef<T>;
   record: T | null;
   toPayload?: (values: Record<string, unknown>) => Record<string, unknown>;
+  optionsFor?: (
+    fieldName: string,
+    values: Record<string, string | boolean>,
+  ) => Option[] | undefined;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -308,6 +371,7 @@ function RecordDialog<T>({
   resource,
   record,
   toPayload,
+  optionsFor,
   onClose,
   onSaved,
 }: RecordDialogProps<T>) {
@@ -446,19 +510,16 @@ function RecordDialog<T>({
                     )}
                   </FieldLabel>
                   {field.kind === 'select' ? (
-                    <select
+                    <DependentSelect
                       id={`${id}-${field.name}`}
+                      name={field.name}
+                      required={field.required}
                       value={String(values[field.name] ?? '')}
-                      onChange={(event) => set(field.name, event.target.value)}
-                      className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                    >
-                      <option value="">{field.required ? 'Choose…' : 'None'}</option>
-                      {(field.options ?? []).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      fallbackOptions={field.options ?? []}
+                      optionsFor={optionsFor}
+                      values={values}
+                      onChange={(next) => set(field.name, next)}
+                    />
                   ) : (
                     <Input
                       id={`${id}-${field.name}`}
@@ -513,6 +574,74 @@ function RecordDialog<T>({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * A `<select>` whose option list can depend on the rest of the form.
+ *
+ * Two behaviours matter here and both were wrong before this existed:
+ *
+ *  - **Options narrow with the form.** Resolved from the current values on every
+ *    render, so choosing a contract immediately narrows the amendment list to
+ *    that contract's amendments.
+ *  - **A value that is no longer valid is cleared, not silently kept.** If the
+ *    user picks a contract *after* an amendment, and that amendment does not
+ *    belong to the new contract, keeping it would submit a pair the server
+ *    rejects. Clearing it leaves an honest empty picker instead.
+ *
+ * Clearing during render is the React-sanctioned way to derive state from props:
+ * React discards the render output and re-runs immediately, so no paint shows
+ * the stale value.
+ */
+function DependentSelect({
+  id,
+  name,
+  required,
+  value,
+  fallbackOptions,
+  optionsFor,
+  values,
+  onChange,
+}: {
+  id: string;
+  name: string;
+  required?: boolean;
+  value: string;
+  fallbackOptions: readonly Option[];
+  optionsFor?: (
+    fieldName: string,
+    values: Record<string, string | boolean>,
+  ) => Option[] | undefined;
+  values: Record<string, string | boolean>;
+  onChange: (next: string) => void;
+}) {
+  const resolved = optionsFor?.(name, values) ?? [...fallbackOptions];
+
+  const stale = value !== '' && !resolved.some((option) => option.value === value);
+  if (stale && optionsFor) onChange('');
+
+  return (
+    <>
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+      >
+        <option value="">{required ? 'Choose…' : 'None'}</option>
+        {resolved.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {stale && (
+        <p className="text-xs text-muted-foreground">
+          Cleared, because it is not valid for the other selection on this form.
+        </p>
+      )}
+    </>
   );
 }
 

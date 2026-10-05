@@ -15,7 +15,12 @@
 import { Badge } from '@/components/ui/badge';
 import { statusVariant } from '@/lib/lifecycle-status';
 import { formatDate, formatZar } from '@/lib/format';
-import { amendmentTypeValues, contractAmendmentStatusValues } from '@openerp/shared';
+import {
+  JOB_STATUSES,
+  amendmentTypeValues,
+  contractAmendmentStatusValues,
+  jobPriorityValues,
+} from '@openerp/shared';
 import type { ResourceDef } from '@/lib/master-data';
 
 // ---------------------------------------------------------------------------
@@ -281,6 +286,146 @@ export const AMENDMENTS: ResourceDef<AmendmentRow> = {
   ],
   deleteWarning:
     'An amendment referenced by cost parameters, rate cards, service codes, projects or jobs cannot be deleted. Supersede it with a new amendment instead.',
+};
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+export interface JobMasterRow {
+  id: number;
+  status: string;
+  priority: string;
+  description: string | null;
+  workOrder: string | null;
+  workOrderReceivedDate: string | null;
+  purchaseOrder: string | null;
+  purchaseOrderReceivedDate: string | null;
+  plannedStartDate: string | null;
+  plannedEndDate: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+  area: string | null;
+  projectId?: number;
+  amendmentId?: number | null;
+  supervisorId?: number | null;
+  clientContactId?: number | null;
+  project: { id: number; code: string; year: number; contract?: { number: string } };
+  supervisor: { id: number; name: string; surname: string } | null;
+  _count?: { serviceCodes: number; assignments: number; invoices: number };
+}
+
+/**
+ * Jobs.
+ *
+ * Included in the generic panel despite not being master data, because the
+ * create/edit form is genuinely just fields. What is deliberately NOT a field:
+ *
+ *  - **`status`.** A job's status is lifecycle state, not an attribute. It moves
+ *    only through `POST /api/jobs/:id/transition`, which enforces the 13-step
+ *    state machine and the permission each step needs. Putting it in a PATCH form
+ *    would offer a control that either does nothing or bypasses the gate, which is
+ *    the exact bug ADR-003 exists to prevent. The status column is read-only and
+ *    the transitions live on the job card.
+ *  - **`actualStartDate` / `actualEndDate`.** Field supervisors enter these at
+ *    the point of work, on the job card, alongside the actuals. They are not a
+ *    planning-office edit.
+ *
+ * So this panel creates and maintains a job's *paperwork*; the job card owns its
+ * lifecycle and its actuals.
+ */
+export const JOBS: ResourceDef<JobMasterRow> = {
+  singular: 'Job',
+  plural: 'Jobs',
+  queryKey: ['jobs'],
+  path: 'jobs',
+  writePermission: 'job.write',
+  deletePermission: 'job.delete',
+  searchKeys: [
+    'description',
+    'workOrder',
+    'purchaseOrder',
+    'area',
+    'project.code',
+    'supervisor.name',
+    'supervisor.surname',
+  ],
+  searchPlaceholder: 'Search jobs…',
+  fields: [
+    { name: 'projectId', label: 'Project', kind: 'select', required: true, header: 'Project' },
+    {
+      name: 'amendmentId',
+      label: 'Amendment',
+      kind: 'select',
+      nullable: true,
+      // Resolved per-form: only the chosen project's amendments.
+      hint: 'Leave blank to inherit the project’s amendment.',
+    },
+    {
+      name: 'supervisorId',
+      label: 'Supervisor',
+      kind: 'select',
+      nullable: true,
+      hint: 'A site supervisor, from the employee directory.',
+    },
+    {
+      name: 'clientContactId',
+      label: 'Client contact',
+      kind: 'select',
+      nullable: true,
+      hint: 'The person at the client who placed the order.',
+    },
+    { name: 'workOrder', label: 'Work order', kind: 'text', nullable: true },
+    { name: 'workOrderReceivedDate', label: 'WO received', kind: 'date', nullable: true },
+    { name: 'purchaseOrder', label: 'Purchase order', kind: 'text', nullable: true },
+    { name: 'purchaseOrderReceivedDate', label: 'PO received', kind: 'date', nullable: true },
+    { name: 'plannedStartDate', label: 'Planned start', kind: 'date', nullable: true },
+    { name: 'plannedEndDate', label: 'Planned end', kind: 'date', nullable: true },
+    { name: 'area', label: 'Area', kind: 'text', nullable: true, placeholder: 'e.g. Substation 6' },
+    {
+      name: 'priority',
+      label: 'Priority',
+      kind: 'select',
+      required: true,
+      options: jobPriorityValues.map((value) => ({ value, label: value })),
+    },
+    { name: 'description', label: 'Description', kind: 'text', nullable: true },
+  ],
+  filters: [
+    {
+      id: 'status',
+      label: 'Status',
+      // Built from the shared state machine, not from whatever statuses happen to
+      // appear in the data. A status that no job currently holds must still be
+      // selectable, or the filter cannot be used to ask "is anything stuck here?".
+      options: [
+        { value: '', label: 'Any' },
+        ...JOB_STATUSES.map((status) => ({ value: status, label: status })),
+      ],
+      predicate: (row, value) => row.status === value,
+    },
+    {
+      id: 'priority',
+      label: 'Priority',
+      options: [
+        { value: '', label: 'Any' },
+        ...jobPriorityValues.map((value) => ({ value, label: value })),
+      ],
+      predicate: (row, value) => row.priority === value,
+    },
+    {
+      id: 'supervised',
+      label: 'Supervisor',
+      options: [
+        { value: '', label: 'Any' },
+        { value: 'yes', label: 'Assigned' },
+        { value: 'no', label: 'Unassigned' },
+      ],
+      predicate: (row, value) => (value === 'yes' ? Boolean(row.supervisor) : !row.supervisor),
+    },
+  ],
+  deleteWarning:
+    'A job is deleted only while it has no deliverables, crew or invoices. Once work has been scoped or measured it belongs to the record — cancel it through the lifecycle instead.',
 };
 
 // ---------------------------------------------------------------------------

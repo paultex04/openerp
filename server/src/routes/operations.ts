@@ -441,6 +441,8 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           workOrder: true,
           purchaseOrder: true,
           area: true,
+          workOrderReceivedDate: true,
+          purchaseOrderReceivedDate: true,
           plannedStartDate: true,
           plannedEndDate: true,
           actualStartDate: true,
@@ -448,7 +450,14 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           project: {
             select: { id: true, code: true, year: true, contract: { select: { number: true } } },
           },
+          // Phase 7: the jobs board is now a `DataTable` with an edit dialog, and
+          // the dialog seeds itself from the row. Every field it shows therefore
+          // has to be in this projection - a missing column opens the form blank
+          // and PATCHes nothing back.
+          projectId: true,
           amendmentId: true,
+          supervisorId: true,
+          clientContactId: true,
           supervisor: { select: { id: true, name: true, surname: true } },
           _count: { select: { serviceCodes: true, assignments: true, invoices: true } },
         },

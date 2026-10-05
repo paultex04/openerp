@@ -155,7 +155,12 @@ Phase 7 is in progress: see
 supported creating contracts, amendments, clients, projects and jobs while the UI
 exposed none of it, and four tables (Broker, EmployeeContractType, Employee,
 Contact) had no routes at all. Phase 7 adds those routes, the `organisation`
-permission category, a generic master-data panel and eight administration tabs.
+permission category, a generic master-data panel, eight administration tabs, and a
+jobs board that is a table with CRUD rather than a kanban.
+
+Ten scenarios where amending the schema would help the UI and its workflows are
+costed and risk-ranked in
+[phase-07-database-amendments.md](docs/phase-07-database-amendments.md).
 
 The schema in `server/prisma/schema.prisma` is the source of truth, but the
 migrations are hand-written and additive-only. `prisma migrate deploy` refuses

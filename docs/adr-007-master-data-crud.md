@@ -228,36 +228,104 @@ a dependent-picker concept the descriptor does not have yet.
 `verify` exit 0; smoke phase2 52, phase3 87, phase4 67, phase5 46, phase6 71,
 phase7 66, all 0 failed; client build clean; `db:check` 24 tables / 8 enums.
 
-## Two pre-existing defects found, neither caused by Phase 7
+## A retraction: the Jobs Board "hang" was not a defect
 
-Both were confirmed by stashing the branch and reproducing on the baseline commit.
+An earlier draft of this ADR reported a pre-existing bug: `/operations?view=board`
+renders the shell and then sits on its `Loading…` Suspense fallback forever. It
+called that "confirmed by stashing the branch and reproducing on the baseline
+commit".
 
-**1. The Jobs Board hangs in its Suspense boundary.** `/operations?view=board`
-renders the shell, then sits on the `Loading…` fallback indefinitely. The API is
-fine - the dev log shows `GET /api/jobs 200` and, on the board, `GET /api/jobs/2
-200` - so the requests are made and the boundary simply never resolves. Stash the
-branch, reload, and it behaves identically, so this predates Phase 7. Worth noting
-that the Crew panel (M7) lives behind this screen and therefore could not be
-verified through the UI; its endpoint was verified over HTTP instead (PM posts a
-crew assignment, the detail reflects it, DELETE cleans up).
+**That confirmation was invalid, and the bug is not established.** What is actually
+known:
 
-**2. A race in `billing.integration.test.ts:401`.** `reports compliance as clean
-once a VAT number is on file` mutates shared `client id 1`, and both
-`e2e/business-flow` and `commercial.integration` write clients in parallel. It
-failed once in six runs and passed the other five, and passed three consecutive
-runs on both the branch and the baseline. Not a regression; it will flake again.
+- It **never reproduced in a production build.** Every route renders on a cold load
+  against `next start`.
+- It **does not reproduce once a route has been compiled** in dev. Forcing a
+  recompile by touching the page file still resolved it instantly, on the first
+  sample.
+- **Every** route showed it at one point, including `/billing`, `/admin` and
+  `/dashboard` - so it is not a property of any one page.
+- The baseline reproduction was worthless because stashing the branch rewrites
+  files, which restarts and recompiles the dev server. That is the same event that
+  precedes the stall, so the test did not isolate anything.
 
-Neither is fixed here. Both want their own issue.
+Client-side navigation has always worked, including during the stalls. The honest
+description is an **intermittent dev-server stall, cause unknown, no production
+impact**, seen only on a cold `next dev` with many browser tabs open.
+
+It is retracted rather than fixed, because there is no defect to fix and inventing
+one - marking a route dynamic on a hunch, say - would add a real cost to every
+request for a symptom nobody can reproduce. If it returns, the useful artefact is
+the browser console captured on the failing load, before anything is changed.
+
+## A real pre-existing defect: a race in the billing test
+
+`billing.integration.test.ts:401` (`reports compliance as clean once a VAT number is
+on file`) mutates shared `client id 1`, and both `e2e/business-flow` and
+`commercial.integration` write clients in parallel. It failed once in six runs and
+passed the rest, and passed three consecutive runs on both the branch and the
+baseline. It is not a regression, and it will flake again.
+
+Not fixed here; it wants its own issue, and the fix is to stop sharing `client 1`
+across parallel test files rather than to add a retry.
+
+---
+
+## The Jobs Board became a table, not a bespoke screen
+
+`BoardView`'s kanban is replaced by `JobsPanel`, built on the shared `DataTable`.
+
+**Why the kanban had to go.** There are thirteen statuses. A populated board is
+thirteen fixed-width columns of horizontal scroll, and a job is findable only by
+already knowing its status - which is the one thing a board is supposed to help you
+discover. A table with a status _filter_ and a sortable status column answers the
+same question ("what is stuck in pack ready?") without the scroll, and it paginates.
+
+**Status is not a field.** `JobMasterRow` deliberately has no `status` field. A
+job's status is lifecycle state: it moves only through
+`POST /api/jobs/:id/transition`, which enforces the 13-step machine and the
+permission each step needs. A `PATCH` form offering status would either silently
+do nothing or bypass the gate - the exact failure ADR-003 exists to prevent. The
+status _column_ is read-only; the transitions stay on the job card.
+
+For the same reason `actualStartDate` / `actualEndDate` are not fields either. Those
+are entered by the field supervisor at the point of work, alongside the actuals.
+So the panel owns a job's **paperwork**, and the job card owns its **lifecycle and
+its actuals**. Splitting it this way is the reason this fit the generic panel at
+all.
+
+`GET /api/jobs` had to grow: `projectId`, `supervisorId`, `clientContactId`,
+`workOrderReceivedDate` and `purchaseOrderReceivedDate` were not in the projection,
+and the edit dialog seeds itself from the row. A missing column there means the form
+opens blank and PATCHes nothing back - the same failure the M1 cost-parameter bug
+had, in a different place.
+
+The deep-linked `?status=` is **seeded** into the table's own filter rather than kept
+as a second select beside it. Two status filters on one screen is a control that
+disagrees with itself. The sidebar's "Valuation Packs (Ready for Signature)" entry
+still works; it just pre-fills a filter the user can then clear.
+
+---
 
 ## Still open
 
-- **Jobs.** `POST /api/projects` and `POST /api/jobs` exist with `project.write` /
-  `job.write` granted to the PM, and the PM can now reach a Projects tab. A job
-  is a much heavier form than a master-data row - supervisor, client contact,
-  amendment, work order, PO, four dates, priority - and it participates in the
-  13-status lifecycle, so it does not belong in `MasterDataPanel`. It wants its
-  own screen and its own conversation.
-- **Audit log has no retention.** Grows unbounded. Unchanged since ADR-006.
-- **Billing gaps**: credit notes, payment allocation, multi-currency, month-end
-  close. Unchanged.
-- **Demo accounts share one `.env` password.** Rotate before shared use.
+- **Database amendments.** Ten scenarios where the schema, not the interface, is
+  what makes a workflow awkward: a missing unique constraint on crew assignments,
+  no soft-delete on master data, job dates with no ordering constraint, and seven
+  more. Each is costed, risk-ranked, and split into "do it now" versus "needs a
+  business decision" in
+  [phase-07-database-amendments.md](phase-07-database-amendments.md). The three cheap
+  ones - a unique index on `job_assignment`, two `CHECK` constraints on job date
+  ranges, and a `Contact.role` column - are the obvious next migration: no
+  retroactive data problem and no way to lose history.
+- **The dependent-picker fix is general but narrow.** `optionsFor` resolves any
+  select's options from the form's current values, and clears a value that the
+  sibling selection has invalidated. That covers project -> amendment and
+  job -> project -> amendment. It does not yet cover a _multi-level_ chain where the
+  third level depends on the second, which the descriptor shape cannot express
+  without a small extension.
+- **Live/employed filter on job pickers.** The job form's supervisor list is already
+  filtered to active employees. The same is not true of a _job_ picker used to create
+  a deliverable or an invoice: a cancelled or completed job is still selectable.
+  That is correct for invoicing a completed job and wrong for scoping a new one, so
+  it needs the lifecycle to say which — see item 7 in the amendments document.

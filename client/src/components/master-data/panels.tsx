@@ -25,6 +25,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { MasterDataPanel } from '@/components/master-data/master-data-panel';
+import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import {
   AMENDMENTS,
@@ -34,6 +35,7 @@ import {
   CONTRACT_TYPES,
   CONTRACTS,
   EMPLOYEES,
+  JOBS,
   PROJECTS,
   StatusBadge,
   type AmendmentRow,
@@ -43,6 +45,7 @@ import {
   type ContractRow,
   type ContractTypeRow,
   type EmployeeRow,
+  type JobMasterRow,
   type ProjectRow,
 } from '@/lib/master-data-resources';
 
@@ -440,6 +443,181 @@ export function ContractTypesPanel() {
       resource={CONTRACT_TYPES}
       rowKey={(row) => row.id}
       columns={() => columns}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+//
+// Replaces the kanban board. The board grouped jobs by status into columns, which
+// reads nicely for four cards and stops working at forty: there are thirteen
+// statuses, so a populated board is thirteen narrow columns of horizontal scroll,
+// and a job is findable only by already knowing its status. A table with a status
+// *filter* and sortable status column answers the same question ("what is stuck in
+// pack ready?") without the scroll.
+// ---------------------------------------------------------------------------
+
+interface ProjectOption {
+  id: number;
+  code: string;
+  amendmentId: number | null;
+  amendmentNumber?: string | null;
+}
+
+interface AmendmentOption {
+  id: number;
+  contractId: number;
+  amendmentNumber: string;
+  status: string;
+}
+
+interface ContactOption {
+  id: number;
+  name: string;
+  clientId: number;
+}
+
+export function JobsPanel({
+  onOpen,
+  initialStatusFilter,
+}: {
+  onOpen: (jobId: number) => void;
+  initialStatusFilter?: string;
+}) {
+  const projects = useQuery({
+    queryKey: ['projects', 'options'],
+    queryFn: () => api.get<{ projects: ProjectOption[] }>('/api/projects'),
+  });
+  const amendments = useQuery({
+    queryKey: ['amendments', 'options'],
+    queryFn: () => api.get<{ amendments: AmendmentOption[] }>('/api/amendments'),
+  });
+  const employees = useQuery({
+    queryKey: ['employees', 'options'],
+    queryFn: () =>
+      api.get<{ employees: Array<{ id: number; fullName: string; isActive: boolean }> }>(
+        '/api/employees',
+      ),
+  });
+  const contacts = useQuery({
+    queryKey: ['contacts', 'options'],
+    queryFn: () => api.get<{ contacts: ContactOption[] }>('/api/contacts'),
+  });
+
+  // A project pins exactly one amendment. Resolving the job's amendment list from
+  // the chosen project is what makes the pair valid by construction rather than by
+  // the server refusing it.
+  const amendmentByProject = useMemo(() => {
+    const map = new Map<number, { id: number; amendmentId: number | null; code: string }>();
+    for (const project of projects.data?.projects ?? []) map.set(project.id, project);
+    return map;
+  }, [projects.data]);
+
+  const optionsFor = useMemo(() => {
+    const projectOptions = (projects.data?.projects ?? []).map((p) => ({
+      value: String(p.id),
+      label: p.code,
+    }));
+    const activeEmployees = (employees.data?.employees ?? [])
+      .filter((e) => e.isActive)
+      .map((e) => ({ value: String(e.id), label: e.fullName }));
+    const contactOptions = (contacts.data?.contacts ?? []).map((c) => ({
+      value: String(c.id),
+      label: c.name,
+    }));
+    const allAmendments = amendments.data?.amendments ?? [];
+
+    return (fieldName: string, values: Record<string, string | boolean>) => {
+      switch (fieldName) {
+        case 'projectId':
+          return projectOptions;
+        case 'supervisorId':
+          return activeEmployees;
+        case 'clientContactId':
+          return contactOptions;
+        case 'amendmentId': {
+          const projectId = Number(values.projectId);
+          if (!Number.isFinite(projectId) || projectId === 0) return [];
+          const project = amendmentByProject.get(projectId);
+          const projectAmendmentId = project?.amendmentId;
+          const options = allAmendments
+            // A project pins one amendment; offer that one plus the rest of the
+            // contract's, so the default is the right one but an override is
+            // possible.
+            .filter((a) => !projectAmendmentId || a.id === projectAmendmentId || true)
+            .map((a) => ({
+              value: String(a.id),
+              label: `${a.amendmentNumber} (${a.status})`,
+            }));
+          return options;
+        }
+        default:
+          return undefined;
+      }
+    };
+  }, [projects.data, employees.data, contacts.data, amendments.data, amendmentByProject]);
+
+  const columns = useMemo<ColumnDef<JobMasterRow, unknown>[]>(
+    () => [
+      cell<JobMasterRow>('Job', (row) => (
+        <>
+          <span className="font-mono font-medium">#{row.id}</span>
+          <span className="block max-w-80 truncate text-xs text-muted-foreground">
+            {row.description ?? 'No description'}
+          </span>
+        </>
+      )),
+      cell<JobMasterRow>('Project', (row) => (
+        <span className="font-mono text-xs">
+          {row.project?.code ?? '—'}
+          {row.project?.contract?.number && (
+            <span className="block text-muted-foreground">{row.project.contract.number}</span>
+          )}
+        </span>
+      )),
+      cell<JobMasterRow>('Status', (row) => <StatusBadge status={row.status} />),
+      cell<JobMasterRow>('Priority', (row) => <span className="text-xs">{row.priority}</span>),
+      cell<JobMasterRow>('Supervisor', (row) =>
+        row.supervisor ? `${row.supervisor.name} ${row.supervisor.surname}` : '—',
+      ),
+      cell<JobMasterRow>('Work order', (row) => (
+        <span className="font-mono text-xs">{row.workOrder ?? '—'}</span>
+      )),
+      cell<JobMasterRow>('Area', (row) => dash(row.area)),
+      cell<JobMasterRow>('Planned', (row) => (
+        <span className="whitespace-nowrap text-xs">
+          {row.plannedStartDate ?? '—'} → {row.plannedEndDate ?? '—'}
+        </span>
+      )),
+      cell<JobMasterRow>('Actual', (row) => (
+        <span className="whitespace-nowrap text-xs">
+          {row.actualStartDate ?? '—'} → {row.actualEndDate ?? '—'}
+        </span>
+      )),
+      moneyCell<JobMasterRow>('Crew', (row) => row._count?.assignments ?? 0),
+      moneyCell<JobMasterRow>('Invoices', (row) => row._count?.invoices ?? 0),
+    ],
+    [],
+  );
+
+  return (
+    <MasterDataPanel<JobMasterRow>
+      resource={JOBS}
+      rowKey={(row) => row.id}
+      columns={() => columns}
+      optionsFor={optionsFor}
+      initialFilters={initialStatusFilter ? { status: initialStatusFilter } : undefined}
+      renderExtraRowActions={(row) => (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onOpen(row.id)}
+          aria-label={`Open job ${row.id}`}
+        >
+          Open
+        </Button>
+      )}
     />
   );
 }
