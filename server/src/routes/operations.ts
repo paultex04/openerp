@@ -158,6 +158,14 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           description: true,
           startDate: true,
           endDate: true,
+          // Phase 7: the project form's two dependent pickers are "contract" and
+          // "amendment", and the dialog seeds itself from the row. Neither
+          // reference was in this projection, so both dropdowns opened blank on
+          // edit and a save would have looked successful while clearing them.
+          // The nested `contract`/`amendment` objects were no substitute: the form
+          // needs the foreign keys themselves.
+          contractId: true,
+          amendmentId: true,
           contract: {
             select: { id: true, number: true, client: { select: { id: true, name: true } } },
           },
@@ -214,6 +222,11 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           description: true,
           startDate: true,
           endDate: true,
+          // Same reasoning as the list projection: the project's two dependent
+          // pickers are seeded from these keys, and the nested objects below are
+          // not a substitute for them.
+          contractId: true,
+          amendmentId: true,
           contract: {
             select: {
               id: true,
@@ -314,6 +327,29 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           );
         }
         amendmentId = active.id;
+      } else {
+        // The amendment must belong to the chosen contract. Without this the
+        // project can be pinned to another contract's amendment, and since rates
+        // and service codes are amendment-scoped the project is then priced
+        // against terms it is not covered by - with nothing in the data to say so.
+        // The job-scoped equivalent is `AMENDMENT_MISMATCH` in the operations
+        // service; this is the same rule applied one level up, where nothing
+        // checked it at all.
+        const amendment = await prisma.contractAmendment.findUnique({
+          where: { id: amendmentId },
+          select: { id: true, contractId: true },
+        });
+        if (!amendment) {
+          throw new HttpError(400, 'INVALID_REFERENCE', `Amendment ${amendmentId} does not exist.`);
+        }
+        if (amendment.contractId !== body.contractId) {
+          throw new HttpError(
+            422,
+            'AMENDMENT_MISMATCH',
+            `Amendment ${amendmentId} belongs to contract ${amendment.contractId}, but this ` +
+              `project is for contract ${body.contractId}.`,
+          );
+        }
       }
 
       const project = await prisma.project.create({
@@ -339,11 +375,39 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       const { id } = idParam.parse(request.params);
       const body = projectUpsertSchema.partial().parse(request.body);
 
+      // `contractId` is needed even though it is not updatable: the amendment has to
+      // be checked against the contract the project already belongs to.
       const existing = await prisma.project.findUnique({
         where: { id },
-        select: { id: true },
+        select: { id: true, contractId: true },
       });
       if (!existing) throw new HttpError(404, 'PROJECT_NOT_FOUND', `Project ${id} does not exist.`);
+
+      // Same rule as the create path: an amendment from another contract is refused
+      // rather than stored. This endpoint previously took any `amendmentId` at face
+      // value, which made it possible to re-point a live project at a different
+      // contract's commercial terms through the UI.
+      if (body.amendmentId !== undefined) {
+        const amendment = await prisma.contractAmendment.findUnique({
+          where: { id: body.amendmentId },
+          select: { id: true, contractId: true },
+        });
+        if (!amendment) {
+          throw new HttpError(
+            400,
+            'INVALID_REFERENCE',
+            `Amendment ${body.amendmentId} does not exist.`,
+          );
+        }
+        if (amendment.contractId !== existing.contractId) {
+          throw new HttpError(
+            422,
+            'AMENDMENT_MISMATCH',
+            `Amendment ${body.amendmentId} belongs to contract ${amendment.contractId}, but ` +
+              `project ${id} is for contract ${existing.contractId}.`,
+          );
+        }
+      }
 
       const project = await prisma.project.update({
         where: { id },

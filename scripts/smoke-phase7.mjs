@@ -59,6 +59,7 @@ if (!ADMIN_PASSWORD) {
 
 /** Ids to remove on the way out, children before parents. */
 const residue = {
+  projects: [],
   employees: [],
   contacts: [],
   brokers: [],
@@ -268,6 +269,176 @@ async function main() {
   );
 
   // =======================================================================
+  // A project's amendment must belong to the project's contract.
+  //
+  // Found from the UI: the project form's amendment dropdown was handed the
+  // *contract* list, so the two dropdowns showed identical options. Fixing that
+  // exposed the deeper problem - the endpoint accepted any amendment id at all,
+  // on create and on update. Rates and service codes are amendment-scoped, so a
+  // project pinned to another contract's amendment prices itself against terms
+  // it is not covered by, and nothing in the data records that.
+  //
+  // The job-scoped equivalent has always been refused (`AMENDMENT_MISMATCH` in
+  // the operations service). This asserts the same rule one level up, where it
+  // was missing entirely.
+  section('Project amendment / contract pairing');
+
+  const stamp = Date.now();
+  /** A client + contract + active amendment, for pairing tests. */
+  const makeChain = async (tag) => {
+    const client = await request('/api/clients', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        name: `Smoke P7 Project ${tag}`,
+        email: `smoke-p7-proj-${tag}-${stamp}@contractor.co.za`,
+      },
+    });
+    const clientId = client.body?.client?.id;
+    if (!Number.isInteger(clientId)) return null;
+    residue.clients.push(clientId);
+
+    const contract = await request('/api/contracts', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        clientId,
+        number: `SMOKE-P7-PROJ-${tag}-${stamp}`,
+        description: `Smoke Phase 7 project pairing fixture (${tag})`,
+      },
+    });
+    const contractId = contract.body?.contract?.id;
+    if (!Number.isInteger(contractId)) return null;
+    residue.contracts.push(contractId);
+
+    const amendment = await request('/api/amendments', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        contractId,
+        amendmentNumber: '01',
+        amendmentType: 'Annual Escalation',
+        effectiveDate: '2026-01-01',
+        status: 'Active',
+        vatRate: 0.15,
+      },
+    });
+    const amendmentId = amendment.body?.amendment?.id;
+    if (!Number.isInteger(amendmentId)) return null;
+    residue.amendments.push(amendmentId);
+
+    return { clientId, contractId, amendmentId };
+  };
+
+  const own = await makeChain('OWN');
+  const other = await makeChain('OTHER');
+
+  if (checkThat('two independent contract chains exist', Boolean(own && other), '')) {
+    // --- create: a foreign amendment is refused -------------------------------
+    const crossCreate = await request('/api/projects', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        contractId: own.contractId,
+        amendmentId: other.amendmentId,
+        code: `SMOKE-P7-CROSS-${stamp}`,
+        year: 2026,
+      },
+    });
+    check("creating a project on another contract's amendment is refused", crossCreate.status, 422);
+    check('the refusal is an AMENDMENT_MISMATCH', crossCreate.body?.error, 'AMENDMENT_MISMATCH');
+
+    // --- create: the matching amendment is accepted ---------------------------
+    const good = await request('/api/projects', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        contractId: own.contractId,
+        amendmentId: own.amendmentId,
+        code: `SMOKE-P7-OWN-${stamp}`,
+        year: 2026,
+      },
+    });
+    check('creating a project on its own amendment succeeds', good.status, 201);
+    const projectId = good.body?.project?.id;
+    if (Number.isInteger(projectId)) residue.projects.push(projectId);
+
+    if (Number.isInteger(projectId)) {
+      // --- update: still refuses a foreign amendment ---------------------------
+      const crossPatch = await request(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        cookie: A,
+        body: { amendmentId: other.amendmentId },
+      });
+      check(
+        "re-pointing a project at another contract's amendment is refused",
+        crossPatch.status,
+        422,
+      );
+      check('the refusal is an AMENDMENT_MISMATCH', crossPatch.body?.error, 'AMENDMENT_MISMATCH');
+
+      // --- update: the amendment really did not move --------------------------
+      // A refusal that nonetheless persisted the value would pass the two checks
+      // above while leaving the corruption in place, which is the failure mode
+      // worth guarding.
+      const after = await request(`/api/projects/${projectId}`, { cookie: A });
+      check(
+        'the refused amendment was not persisted',
+        after.body?.project?.amendmentId,
+        own.amendmentId,
+      );
+
+      // --- the list projection carries the foreign keys -----------------------
+      // The edit dialog seeds its two pickers from these. They were absent from
+      // the projection entirely, so opening a project and saving it unchanged
+      // cleared both - a silent loss of the pricing basis.
+      check('the project list carries contractId', after.body?.project?.contractId, own.contractId);
+      check(
+        'the project list carries amendmentId',
+        after.body?.project?.amendmentId,
+        own.amendmentId,
+      );
+
+      const listed = await request('/api/projects', { cookie: A });
+      const listedRow = (listed.body?.projects ?? []).find((p) => p.id === projectId);
+      check('GET /api/projects returns contractId', listedRow?.contractId, own.contractId);
+      check('GET /api/projects returns amendmentId', listedRow?.amendmentId, own.amendmentId);
+    }
+
+    // --- create: omitting the amendment uses the contract's active one --------
+    // This is the documented default, and the form's own hint promises it. It only
+    // fires when the key is *absent* - `null` is rejected, because the column is
+    // non-nullable. Both halves are asserted, because the bug was a form that sent
+    // null while claiming the default would apply.
+    const defaulted = await request('/api/projects', {
+      method: 'POST',
+      cookie: A,
+      body: { contractId: own.contractId, code: `SMOKE-P7-DEF-${stamp}`, year: 2026 },
+    });
+    check('omitting the amendment creates the project', defaulted.status, 201);
+    check(
+      'the contract’s active amendment is chosen',
+      defaulted.body?.project?.amendmentId,
+      own.amendmentId,
+    );
+    const defaultedId = defaulted.body?.project?.id;
+    if (Number.isInteger(defaultedId)) residue.projects.push(defaultedId);
+
+    // --- null is refused, not silently coerced --------------------------------
+    const nullAm = await request('/api/projects', {
+      method: 'POST',
+      cookie: A,
+      body: {
+        contractId: own.contractId,
+        amendmentId: null,
+        code: `SMOKE-P7-NULL-${stamp}`,
+        year: 2026,
+      },
+    });
+    check('a null amendment is a validation error, not a silent default', nullAm.status, 400);
+  }
+
+  // =======================================================================
   // The organisation surface. Before Phase 7 none of these four tables had a
   // single route, so every check here is new coverage rather than a regression
   // guard.
@@ -371,7 +542,10 @@ async function main() {
         body: { endDate: null },
       });
       check('an ended employee can be re-activated', reactivate.status, 200);
-      employee = null;
+      // `employee` is deliberately kept. This used to be set to null here, which
+      // fell through to the POST below and tried to create a *second* employee
+      // with the same unique email - a guaranteed 409, leaving a fixture with no
+      // id. Re-activating the row is the whole job; there is nothing to recreate.
     }
   }
 
@@ -393,6 +567,29 @@ async function main() {
   }
   const employeeId = employee?.id;
   checkThat('the employee fixture has an id', Number.isInteger(employeeId));
+
+  if (Number.isInteger(employeeId) && Number.isInteger(brokerId) && Number.isInteger(typeId)) {
+    // Establish the precondition the next two assertions depend on, rather than
+    // assuming it holds.
+    //
+    // The employee, broker and contract type are all *permanent* fixtures, and the
+    // employee carries whatever broker it was created with. Nothing guaranteed that
+    // broker still exists, still has the expected name, or is still the one this
+    // run found. Two consecutive runs failed here for exactly that reason: the
+    // `Smoke P7 Broker` row had been renamed, so `?search` no longer matched, each
+    // run created a *fresh* broker that no employee held, and the delete guard
+    // correctly answered 204 instead of 409. The guard was right; the fixture was
+    // lying about its own state.
+    //
+    // Re-pointing is idempotent and also repairs a dangling reference left by an
+    // earlier run, so this is self-healing rather than merely defensive.
+    const repoint = await request(`/api/employees/${employeeId}`, {
+      method: 'PATCH',
+      cookie: A,
+      body: { brokerId, contractTypeId: typeId },
+    });
+    check('the employee fixture is attached to this run’s broker and type', repoint.status, 200);
+  }
 
   if (Number.isInteger(employeeId) && Number.isInteger(brokerId)) {
     const heldByBroker = await request(`/api/brokers/${brokerId}`, {
@@ -790,6 +987,9 @@ async function main() {
   await drop(residue.employees, (id) => `/api/employees/${id}`);
   await drop(residue.brokers, (id) => `/api/brokers/${id}`);
   await drop(residue.types, (id) => `/api/employee-contract-types/${id}`);
+  // Projects first: they hold both a contract and an amendment reference, so the
+  // contract and amendment delete guards would otherwise refuse.
+  await drop(residue.projects, (id) => `/api/projects/${id}`);
   // Clear cost parameters first. The delete guard refuses while any exist, so an
   // amendment that had one attached would otherwise be unrecoverable by the
   // cleanup and would wedge every future run behind a stuck contract chain.
@@ -819,6 +1019,7 @@ async function main() {
 
   const leftovers = [
     ...residue.contacts,
+    ...residue.projects,
     ...residue.employees,
     ...residue.brokers,
     ...residue.types,
@@ -842,6 +1043,7 @@ main()
     // poison the next one.
     const anyResidue =
       residue.contacts.length ||
+      residue.projects.length ||
       residue.employees.length ||
       residue.brokers.length ||
       residue.types.length ||
@@ -856,6 +1058,8 @@ main()
         if (admin.ok) {
           for (const id of residue.contacts)
             await request(`/api/contacts/${id}`, { method: 'DELETE', cookie: admin.cookie });
+          for (const id of residue.projects)
+            await request(`/api/projects/${id}`, { method: 'DELETE', cookie: admin.cookie });
           for (const id of residue.employees)
             await request(`/api/employees/${id}`, { method: 'DELETE', cookie: admin.cookie });
           for (const id of residue.brokers)

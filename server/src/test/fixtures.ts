@@ -69,6 +69,61 @@ export async function destroyTestUser(user: Pick<CreatedUser, 'id' | 'employeeId
   await prisma.employee.deleteMany({ where: { id: user.employeeId } });
 }
 
+/**
+ * A seeded contract together with an amendment that actually belongs to it.
+ *
+ * ## Why this exists
+ *
+ * Test fixtures used to pick the two independently:
+ *
+ * ```ts
+ * const contract   = await prisma.contract.findFirstOrThrow();
+ * const amendment  = await prisma.contractAmendment.findFirstOrThrow();
+ * ```
+ *
+ * That is only correct while the database happens to hold exactly one contract and
+ * one amendment. It is not a property anyone can rely on: the amendment table grows
+ * with every fixture that creates its own chain, and `findFirst` with no `orderBy`
+ * has no defined ordering. Once a second amendment exists the two lines can return
+ * rows from *different* contracts, and the fixture builds a project whose amendment
+ * does not belong to its contract - corrupt data that then fails much later, in the
+ * pricing code, as `AMENDMENT_MISMATCH` against a service code that was never wrong.
+ *
+ * The production routes refuse that pairing (see `AMENDMENT_MISMATCH` in
+ * `routes/operations.ts` and `operations/service.ts`). These fixtures write through
+ * Prisma, which bypasses those routes, so they were never subject to the check and
+ * had to be made correct at the source.
+ *
+ * The amendment is restricted to ACTIVE and the latest by effective date, matching
+ * the server's own default for a project that does not name one.
+ */
+export async function seededContractWithAmendment(): Promise<{
+  contractId: number;
+  amendmentId: number;
+}> {
+  // `orderBy: { id: 'asc' }` is load-bearing, not decoration.
+  //
+  // Vitest runs these files in parallel, and each one creates and deletes its own
+  // contracts. An unordered `findFirst` returns whichever row the planner reaches
+  // first, which during a parallel run is frequently a *fixture* contract belonging
+  // to another test file - so the "seeded" chain was not seeded at all, and the
+  // seeded service code it then reached for belonged to a different amendment.
+  // Lowest id is the seeded contract and is stable under concurrent churn.
+  const contract = await prisma.contract.findFirstOrThrow({
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+  // Oldest active amendment for that contract. Also ordered explicitly: a bare
+  // `findFirst` here can pick a fixture amendment left by a sibling test file that
+  // happens to share the contract.
+  const amendment = await prisma.contractAmendment.findFirstOrThrow({
+    where: { contractId: contract.id, status: 'ACTIVE' },
+    orderBy: { effectiveDate: 'asc' },
+    select: { id: true },
+  });
+  return { contractId: contract.id, amendmentId: amendment.id };
+}
+
 export interface Session {
   cookie: string;
   email: string;

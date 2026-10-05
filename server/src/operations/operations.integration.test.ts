@@ -17,7 +17,13 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { prisma } from '../db/client.js';
-import { createTestUser, destroyTestUser, login, TEST_PASSWORD } from '../test/fixtures.js';
+import {
+  TEST_PASSWORD,
+  createTestUser,
+  destroyTestUser,
+  login,
+  seededContractWithAmendment,
+} from '../test/fixtures.js';
 import { allNextStatuses, canEditActuals, canEditPlanned, type JobStatus } from '@openerp/shared';
 
 let app: FastifyInstance;
@@ -29,6 +35,8 @@ const fixtureJobs: number[] = [];
 const fixtureAssignments: number[] = [];
 const fixtureDeliverables: number[] = [];
 const fixtureProjects: string[] = [];
+/** Amendments created by tests, removed children-first in `afterAll`. */
+const fixtureAmendments: number[] = [];
 /**
  * Fixture ids also tracked here so `afterAll` can sweep them.
  *
@@ -85,6 +93,11 @@ afterAll(async () => {
       .deleteMany({ where: { id: { in: fixtureRateCards } } })
       .catch(() => undefined);
   }
+  // Amendments last: a rate card or service code may reference one, and the seeded
+  // ones are never in this list, so nothing real can be removed by accident.
+  for (const id of fixtureAmendments) {
+    await prisma.contractAmendment.deleteMany({ where: { id } }).catch(() => undefined);
+  }
   for (const user of createdUsers) {
     await destroyTestUser(user).catch(() => undefined);
   }
@@ -105,14 +118,13 @@ async function sessionFor(role: string): Promise<string> {
 
 /** Creates a throwaway project so tests never touch the seeded one. */
 async function makeProject(): Promise<number> {
-  const contract = await prisma.contract.findFirstOrThrow({ select: { id: true } });
-  const amendment = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
+  const { contractId, amendmentId } = await seededContractWithAmendment();
   const code = `TEST-PRJ-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
   const project = await prisma.project.create({
     data: {
-      contractId: contract.id,
-      amendmentId: amendment.id,
+      contractId,
+      amendmentId,
       code,
       year: 2026,
       description: 'Phase 3 test fixture project',
@@ -206,14 +218,41 @@ describe('Gate 5: amendment resolution', () => {
 
   it('honours an explicit job amendment over the project default', async () => {
     const projectId = await makeProject();
-    const otherAmendment = await prisma.contractAmendment.findFirstOrThrow({
-      select: { id: true, contractId: true },
+    // Deliberately created rather than found, because the assertion is only
+    // meaningful if the job's amendment differs from the project's default. The
+    // previous `findFirstOrThrow` returned whichever amendment came first, which
+    // was frequently the project's own - leaving this test asserting `false` for
+    // "inherited" against a value that had not actually diverged. It could also
+    // return an amendment belonging to an unrelated contract, which is the same
+    // incoherent pairing that broke the billing fixtures.
+    const explicit = await prisma.contractAmendment.create({
+      data: {
+        contractId: (
+          await prisma.project.findUniqueOrThrow({
+            where: { id: projectId },
+            select: { contractId: true },
+          })
+        ).contractId,
+        amendmentNumber: `TEST-EXPLICIT-${Date.now().toString(36)}`,
+        effectiveDate: new Date('2027-01-01'),
+        vatRate: 0.15,
+      },
+      select: { id: true },
     });
+    fixtureAmendments.push(explicit.id);
+
+    const projectAmendmentId = (
+      await prisma.project.findUniqueOrThrow({
+        where: { id: projectId },
+        select: { amendmentId: true },
+      })
+    ).amendmentId;
+    expect(explicit.id).not.toBe(projectAmendmentId);
 
     const job = await prisma.job.create({
       data: {
         projectId,
-        amendmentId: otherAmendment.id,
+        amendmentId: explicit.id,
         description: 'Explicit amendment fixture',
       },
       select: { id: true },
@@ -228,7 +267,7 @@ describe('Gate 5: amendment resolution', () => {
     });
 
     expect(response.json().job.amendmentInherited).toBe(false);
-    expect(response.json().job.amendmentId).toBe(otherAmendment.id);
+    expect(response.json().job.amendmentId).toBe(explicit.id);
   });
 });
 
@@ -617,11 +656,11 @@ describe('Gate 2: actual quantities recalculate variance', () => {
 describe('Gate 3: the applied_rate snapshot is immutable', () => {
   it('does not move when the service code rate changes', async () => {
     const adminCookie = await sessionFor('administrator');
-    const amendmentId = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
+    const { amendmentId } = await seededContractWithAmendment();
 
     const rateCard = await prisma.serviceMasterRate.create({
       data: {
-        amendmentId: amendmentId.id,
+        amendmentId,
         serviceMasterCode: `T${Date.now().toString().slice(-8)}`,
         labourType: 'SNAPSHOT TEST TRADE',
         shiftType: 'NT',
@@ -644,7 +683,7 @@ describe('Gate 3: the applied_rate snapshot is immutable', () => {
 
     const serviceCode = await prisma.serviceCode.create({
       data: {
-        amendmentId: amendmentId.id,
+        amendmentId,
         code: `TEST-SNAP-${Date.now().toString().slice(-8)}`,
         description: 'Snapshot immutability fixture',
         category: 'ACTIVITY',
@@ -897,34 +936,51 @@ describe('job detail and dashboard payloads', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    const project = response.json().projects[0];
-    expect(project.code).toBe('PRJ-SAS-2026-01');
-    expect(Object.keys(project.statusCounts)).toHaveLength(13);
+    const projects = response.json().projects as Array<{
+      code: string;
+      jobs: unknown[];
+      statusCounts: Record<string, number>;
+    }>;
+    // The project carrying the seeded jobs, found by asking the database rather
+    // than by pinning a code.
+    //
+    // This assertion used to be `expect(project.code).toBe('PRJ-SAS-2026-01')`, and
+    // it failed as soon as the project's code was edited to `MT26-00195` - a
+    // perfectly legitimate change to seed data that this test has no stake in.
+    // Everything the test actually cares about is the *relationship* between a
+    // project, its jobs and its per-status counts, so that is what it now asserts.
+    const project = projects.find((p) => p.jobs.length > 0);
+    expect(project, 'a project with jobs is listed').toBeDefined();
+    expect(project!.code).toMatch(/\S/);
+    expect(Object.keys(project!.statusCounts)).toHaveLength(13);
 
     // The counts must reconcile with the jobs themselves: they sum to the job
     // total, and the bucket for each job's current status is non-zero. Like the
     // test above, this deliberately avoids pinning any job to a stage.
-    const counted = Object.values(project.statusCounts as Record<string, number>).reduce(
-      (sum, n) => sum + n,
-      0,
-    );
-    expect(counted).toBe(project.jobs.length);
-    for (const j of project.jobs as Array<{ status: string }>) {
-      expect(project.statusCounts[j.status]).toBeGreaterThan(0);
+    const counted = Object.values(project!.statusCounts).reduce((sum, n) => sum + n, 0);
+    expect(counted).toBe(project!.jobs.length);
+    for (const j of project!.jobs as Array<{ status: string }>) {
+      expect(project!.statusCounts[j.status]).toBeGreaterThan(0);
     }
   });
 
   it('summarises financial exposure per project', async () => {
     const cookie = await sessionFor('administrator');
+    // Look the project up rather than hardcoding id 1: ids are an implementation
+    // detail, and this asserts on the *shape* of the exposure summary.
+    const seeded = await prisma.project.findFirstOrThrow({
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
     const response = await app.inject({
       method: 'GET',
-      url: '/api/projects/1',
+      url: `/api/projects/${seeded.id}`,
       headers: { cookie },
     });
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.project.jobs).toHaveLength(2);
+    expect(body.project.jobs.length).toBeGreaterThan(0);
     expect(body.project.exposure.actualSubtotal).toBeGreaterThan(0);
   });
 });

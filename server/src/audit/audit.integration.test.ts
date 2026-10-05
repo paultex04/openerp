@@ -18,7 +18,13 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { prisma, prismaBase } from '../db/client.js';
-import { createTestUser, destroyTestUser, login, TEST_PASSWORD } from '../test/fixtures.js';
+import {
+  TEST_PASSWORD,
+  createTestUser,
+  destroyTestUser,
+  login,
+  seededContractWithAmendment,
+} from '../test/fixtures.js';
 import { asSystem } from './context.js';
 
 let app: FastifyInstance;
@@ -132,13 +138,12 @@ async function makeClient(name: string): Promise<number> {
 
 /** A disposable project, for the DELETE gate (clients are not deletable). */
 async function makeProject(): Promise<number> {
-  const contract = await prisma.contract.findFirstOrThrow({ select: { id: true } });
-  const amendment = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
+  const { contractId, amendmentId } = await seededContractWithAmendment();
   const code = `AUDIT-PRJ-${Date.now().toString(36)}`;
 
   const project = await asSystem(() =>
     prisma.project.create({
-      data: { contractId: contract.id, amendmentId: amendment.id, code, year: 2026 },
+      data: { contractId, amendmentId, code, year: 2026 },
       select: { id: true },
     }),
   );

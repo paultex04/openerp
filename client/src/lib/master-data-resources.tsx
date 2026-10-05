@@ -102,8 +102,17 @@ export interface ProjectRow {
   endDate: string | null;
   contract?: { id: number; number: string };
   amendment?: { id: number; amendmentNumber: string } | null;
-  contractId?: number;
-  amendmentId?: number;
+  /**
+   * Required, not optional: both are non-nullable columns.
+   *
+   * They were absent from this type *and* from the API projection, so the edit
+   * dialog opened with both pickers blank. The nested `contract`/`amendment`
+   * objects were no substitute - the form needs the foreign keys to seed a
+   * `<select>`. Saving an untouched row would have looked successful while
+   * clearing the project's pricing basis.
+   */
+  contractId: number;
+  amendmentId: number;
   _count?: { jobs: number };
 }
 
@@ -394,7 +403,8 @@ export const JOBS: ResourceDef<JobMasterRow> = {
       label: 'Amendment',
       kind: 'select',
       nullable: true,
-      // Resolved per-form: only the chosen project's amendments.
+      placeholder: 'Choose a project first',
+      // Resolved per-form: only the chosen project's contract's amendments.
       hint: 'Leave blank to inherit the project’s amendment.',
     },
     {
@@ -490,8 +500,13 @@ export const PROJECTS: ResourceDef<ProjectRow> = {
       name: 'amendmentId',
       label: 'Amendment',
       kind: 'select',
-      nullable: true,
-      hint: 'Leave blank to inherit the contract’s active amendment.',
+      // Not `nullable`. `Project.amendmentId` is a non-nullable column - a project
+      // cannot exist without the amendment it prices against. The column is still
+      // optional *in the form*, meaning "leave it to the server", which is why the
+      // blank value is omitted from the payload instead of sent as null.
+      placeholder: 'Choose a contract first',
+      // Resolved per-form: only the chosen contract's amendments.
+      hint: 'Leave blank to use the contract’s current active amendment.',
     },
     { name: 'year', label: 'Year', kind: 'number', required: true, placeholder: '2026' },
     { name: 'startDate', label: 'Start date', kind: 'date', nullable: true },

@@ -296,6 +296,24 @@ export function AmendmentsPanel() {
 
 export function ProjectsPanel() {
   const contractOptions = useContractOptions();
+  const amendments = useQuery({
+    queryKey: ['amendments', 'options'],
+    queryFn: () => api.get<{ amendments: AmendmentOption[] }>('/api/amendments'),
+  });
+
+  // The amendment picker follows the contract. Passing the contract list here was
+  // the bug: both dropdowns showed the same thing, and neither was an amendment.
+  const optionsFor = useMemo(() => {
+    const contracts = contractOptions;
+    const all = amendments.data?.amendments ?? [];
+    return (fieldName: string, values: Record<string, string | boolean>) => {
+      if (fieldName === 'contractId') return contracts;
+      if (fieldName === 'amendmentId')
+        return amendmentOptionsFor(all, selectedId(values.contractId));
+      return undefined;
+    };
+  }, [contractOptions, amendments.data]);
+
   const columns = useMemo<ColumnDef<ProjectRow, unknown>[]>(
     () => [
       cell<ProjectRow>('Code', (row) => (
@@ -322,10 +340,7 @@ export function ProjectsPanel() {
       resource={PROJECTS}
       rowKey={(row) => row.id}
       columns={() => columns}
-      // Projects take an amendment, but the picker is fed contracts: the project
-      // form's amendment dropdown narrows client-side once a contract is chosen,
-      // and offering every amendment in the system would be unusable.
-      options={{ contractId: contractOptions, amendmentId: contractOptions }}
+      optionsFor={optionsFor}
     />
   );
 }
@@ -459,11 +474,19 @@ export function ContractTypesPanel() {
 // pack ready?") without the scroll.
 // ---------------------------------------------------------------------------
 
+/**
+ * The project shape `/api/projects` returns, narrowed to what the job form needs.
+ *
+ * `amendmentId` is deliberately absent. An earlier version carried it and resolved
+ * the job's amendment list from it, but that produced a filter ending in `|| true` -
+ * a no-op. The correct question is not "which amendment does the project pin" but
+ * "which contract is the job under contract for", so the lookup goes through
+ * `contract.id` to the contract's amendments.
+ */
 interface ProjectOption {
   id: number;
   code: string;
-  amendmentId: number | null;
-  amendmentNumber?: string | null;
+  contract?: { id: number; number: string } | null;
 }
 
 interface AmendmentOption {
@@ -477,6 +500,41 @@ interface ContactOption {
   id: number;
   name: string;
   clientId: number;
+}
+
+// ---------------------------------------------------------------------------
+// Dependent amendment options
+// ---------------------------------------------------------------------------
+
+/**
+ * The amendments belonging to one contract, as picker options.
+ *
+ * This is the fix for a real defect. The project form's amendment dropdown used to
+ * be handed the *contract* list, so the two dropdowns showed identical options and
+ * neither was an amendment. The job form then "fixed" it by listing every
+ * amendment in the system, which is also wrong - it offers amendments from
+ * contracts the job is not covered by, and the server rejects the pairing with a
+ * 422 the user has to decode.
+ *
+ * Returns an empty list when no contract is chosen, which is honest: a project
+ * cannot pick an amendment before it has a contract to pick it from. The field's
+ * placeholder says so, rather than leaving an empty box that looks broken.
+ */
+function amendmentOptionsFor(
+  amendments: readonly AmendmentOption[],
+  contractId: number | null,
+): Array<{ value: string; label: string }> {
+  if (contractId === null || !Number.isFinite(contractId)) return [];
+  return amendments
+    .filter((a) => a.contractId === contractId)
+    .map((a) => ({ value: String(a.id), label: `${a.amendmentNumber} (${a.status})` }));
+}
+
+/** Reads a select value as a foreign key, or null when nothing is chosen. */
+function selectedId(value: string | boolean | undefined): number | null {
+  if (value === undefined || value === '' || value === true || value === false) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function JobsPanel({
@@ -506,11 +564,12 @@ export function JobsPanel({
     queryFn: () => api.get<{ contacts: ContactOption[] }>('/api/contacts'),
   });
 
-  // A project pins exactly one amendment. Resolving the job's amendment list from
-  // the chosen project is what makes the pair valid by construction rather than by
-  // the server refusing it.
-  const amendmentByProject = useMemo(() => {
-    const map = new Map<number, { id: number; amendmentId: number | null; code: string }>();
+  // A project pins exactly one amendment, and that amendment belongs to the
+  // project's contract. Resolving the job's amendment list through project ->
+  // contract -> amendments is what makes the pair valid by construction rather
+  // than by the server refusing it with a 422.
+  const projectById = useMemo(() => {
+    const map = new Map<number, ProjectOption>();
     for (const project of projects.data?.projects ?? []) map.set(project.id, project);
     return map;
   }, [projects.data]);
@@ -538,26 +597,25 @@ export function JobsPanel({
         case 'clientContactId':
           return contactOptions;
         case 'amendmentId': {
-          const projectId = Number(values.projectId);
-          if (!Number.isFinite(projectId) || projectId === 0) return [];
-          const project = amendmentByProject.get(projectId);
-          const projectAmendmentId = project?.amendmentId;
-          const options = allAmendments
-            // A project pins one amendment; offer that one plus the rest of the
-            // contract's, so the default is the right one but an override is
-            // possible.
-            .filter((a) => !projectAmendmentId || a.id === projectAmendmentId || true)
-            .map((a) => ({
-              value: String(a.id),
-              label: `${a.amendmentNumber} (${a.status})`,
-            }));
-          return options;
+          // Resolve through the project to its contract, then offer only that
+          // contract's amendments.
+          //
+          // This previously listed every amendment in the system: the filter ended
+          // in `|| true`, so it was a no-op. That is worse than the project form's
+          // original bug, because it offered amendments from contracts this job is
+          // not covered by - and the server rejects the pairing with a 422 the user
+          // has to decode.
+          const projectId = selectedId(values.projectId);
+          if (projectId === null) return [];
+          const project = projectById.get(projectId);
+          if (!project) return [];
+          return amendmentOptionsFor(allAmendments, project.contract?.id ?? null);
         }
         default:
           return undefined;
       }
     };
-  }, [projects.data, employees.data, contacts.data, amendments.data, amendmentByProject]);
+  }, [projects.data, employees.data, contacts.data, amendments.data, projectById]);
 
   const columns = useMemo<ColumnDef<JobMasterRow, unknown>[]>(
     () => [

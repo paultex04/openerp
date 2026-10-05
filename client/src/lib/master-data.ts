@@ -42,7 +42,15 @@ export interface FieldDef<T> {
   /** Rendered under the input in the dialog. */
   hint?: string;
   required?: boolean;
-  /** `placeholder` for text-ish inputs. */
+  /**
+   * Placeholder.
+   *
+   * On a text-ish input, the obvious thing. On a `select`, it is the label of the
+   * empty option, and that is what dependent pickers need: an amendment list is
+   * legitimately empty until a contract is chosen, so a box reading "None" implies
+   * there are no amendments at all. "Choose a contract first" states the actual
+   * condition instead.
+   */
   placeholder?: string;
   /** Options for `select`. Resolved from a query by the panel. */
   options?: readonly Option[];

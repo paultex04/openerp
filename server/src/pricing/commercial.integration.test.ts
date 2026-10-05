@@ -15,7 +15,13 @@ import { loadConfig } from '../config.js';
 import { prisma } from '../db/client.js';
 import { computeRateCard } from '../pricing/service.js';
 import { applyServiceCodeRate } from '../pricing/service.js';
-import { createTestUser, destroyTestUser, login, TEST_PASSWORD } from '../test/fixtures.js';
+import {
+  TEST_PASSWORD,
+  createTestUser,
+  destroyTestUser,
+  login,
+  seededContractWithAmendment,
+} from '../test/fixtures.js';
 
 let app: FastifyInstance;
 const created: Array<{ id: number; employeeId: number }> = [];
@@ -460,12 +466,12 @@ describe('Recipe integrity guards', () => {
 
     // Create a throwaway amendment plus a rate card on it, then try to attach
     // that rate to an amendment-1 service code.
-    const contractId = await prisma.contract.findFirstOrThrow({ select: { id: true } });
+    const { contractId } = await seededContractWithAmendment();
     const stamp = Date.now();
 
     const amendment = await prisma.contractAmendment.create({
       data: {
-        contractId: contractId.id,
+        contractId,
         amendmentNumber: `TEST-${stamp}`,
         effectiveDate: new Date('2026-01-01'),
         status: 'DRAFT',

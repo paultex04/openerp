@@ -22,7 +22,13 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { prisma } from '../db/client.js';
-import { createTestUser, destroyTestUser, login, TEST_PASSWORD } from '../test/fixtures.js';
+import {
+  TEST_PASSWORD,
+  createTestUser,
+  destroyTestUser,
+  login,
+  seededContractWithAmendment,
+} from '../test/fixtures.js';
 
 let app: FastifyInstance;
 const createdUsers: Array<{ id: number; employeeId: number }> = [];
@@ -163,10 +169,11 @@ async function makeBillableJob(options: { exemptClient?: boolean } = {}): Promis
     contractId = contract.id;
     amendmentId = amendment.id;
   } else {
-    const contract = await prisma.contract.findFirstOrThrow({ select: { id: true } });
-    const amendment = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
-    contractId = contract.id;
-    amendmentId = amendment.id;
+    // Contract and amendment together, so the pair is always coherent. See
+    // `seededContractWithAmendment` for why picking them independently is wrong.
+    const seeded = await seededContractWithAmendment();
+    contractId = seeded.contractId;
+    amendmentId = seeded.amendmentId;
   }
 
   const projectCode = `TEST-BILL-${stamp()}-${Math.floor(Math.random() * 1000)}`;
@@ -600,12 +607,11 @@ async function makeTwoLineJob(options: { measure?: 'all' | 'first' } = {}): Prom
   jobId: number;
 }> {
   const measure = options.measure ?? 'all';
-  const contract = await prisma.contract.findFirstOrThrow({ select: { id: true } });
-  const amendment = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
+  const { contractId, amendmentId } = await seededContractWithAmendment();
   const projectCode = `TEST-BILL2-${Date.now().toString(36)}`;
 
   const project = await prisma.project.create({
-    data: { contractId: contract.id, amendmentId: amendment.id, code: projectCode, year: 2026 },
+    data: { contractId, amendmentId, code: projectCode, year: 2026 },
     select: { id: true },
   });
   fixtureProjects.push(projectCode);
@@ -675,11 +681,10 @@ async function makeTwoLineJob(options: { measure?: 'all' | 'first' } = {}): Prom
 
 describe('Gate 4: lifecycle guards', () => {
   it('refuses generation before billing owns the job', async () => {
-    const contract = await prisma.contract.findFirstOrThrow({ select: { id: true } });
-    const amendment = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
+    const { contractId, amendmentId } = await seededContractWithAmendment();
     const projectCode = `TEST-EARLY-${Date.now().toString(36)}`;
     const project = await prisma.project.create({
-      data: { contractId: contract.id, amendmentId: amendment.id, code: projectCode, year: 2026 },
+      data: { contractId, amendmentId, code: projectCode, year: 2026 },
       select: { id: true },
     });
     fixtureProjects.push(projectCode);
@@ -721,11 +726,10 @@ describe('Gate 4: lifecycle guards', () => {
     // Instead use a fresh job walked to 07 with no actuals at all.
     void jobId;
 
-    const contract = await prisma.contract.findFirstOrThrow({ select: { id: true } });
-    const amendment = await prisma.contractAmendment.findFirstOrThrow({ select: { id: true } });
+    const { contractId, amendmentId } = await seededContractWithAmendment();
     const projectCode = `TEST-NOACT-${Date.now().toString(36)}`;
     const project = await prisma.project.create({
-      data: { contractId: contract.id, amendmentId: amendment.id, code: projectCode, year: 2026 },
+      data: { contractId, amendmentId, code: projectCode, year: 2026 },
       select: { id: true },
     });
     fixtureProjects.push(projectCode);

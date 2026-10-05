@@ -574,6 +574,20 @@ function RecordDialog<T>({
             raw === '' && field.nullable ? null : Number.isFinite(numeric) ? numeric : null;
         } else if (field.nullable) {
           payload[field.name] = raw === '' ? null : raw;
+        } else if (raw === '') {
+          // A blank field that is optional *and* not nullable is omitted rather than
+          // sent as `null` or `''`.
+          //
+          // This matters for the project's amendment. The field's hint promises the
+          // server picks the contract's active amendment when it is left blank, and
+          // the server does exactly that - but only when the key is *absent*. It
+          // distinguishes absent from null on purpose: absent means "decide for me".
+          // Sending `null` said "no amendment", which the column cannot hold, so the
+          // hint described behaviour the form's own serialisation prevented.
+          //
+          // On PATCH, omitting a field is also correct: it means "leave unchanged",
+          // which is what a blank box in an edit dialog should do.
+          continue;
         } else {
           payload[field.name] = raw;
         }
@@ -658,6 +672,7 @@ function RecordDialog<T>({
                       id={`${id}-${field.name}`}
                       name={field.name}
                       required={field.required}
+                      placeholder={field.placeholder}
                       value={String(values[field.name] ?? '')}
                       fallbackOptions={field.options ?? []}
                       optionsFor={optionsFor}
@@ -742,6 +757,7 @@ function DependentSelect({
   id,
   name,
   required,
+  placeholder,
   value,
   fallbackOptions,
   optionsFor,
@@ -751,6 +767,7 @@ function DependentSelect({
   id: string;
   name: string;
   required?: boolean;
+  placeholder?: string;
   value: string;
   fallbackOptions: readonly Option[];
   optionsFor?: (
@@ -765,6 +782,17 @@ function DependentSelect({
   const stale = value !== '' && !resolved.some((option) => option.value === value);
   if (stale && optionsFor) onChange('');
 
+  // A dependent picker with nothing to offer says why, rather than reading as an
+  // empty box. "None" implies the parent has no children, which is usually the
+  // opposite of the truth - the parent simply has not been chosen yet.
+  const emptyLabel =
+    placeholder ??
+    (optionsFor && resolved.length === 0
+      ? 'Choose the parent first'
+      : required
+        ? 'Choose…'
+        : 'None');
+
   return (
     <>
       <select
@@ -773,7 +801,7 @@ function DependentSelect({
         onChange={(event) => onChange(event.target.value)}
         className="h-9 rounded-md border border-input bg-background px-2 text-sm"
       >
-        <option value="">{required ? 'Choose…' : 'None'}</option>
+        <option value="">{emptyLabel}</option>
         {resolved.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
