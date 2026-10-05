@@ -91,6 +91,20 @@ building the endpoint is backend work that Phase 6 explicitly excludes (D-Scope)
 Delivering it properly needs: an assignment endpoint, enforcement of
 `job.assign`, and a screen. Recommended as a Phase 7 item.
 
+> **Correction (recorded in ADR-007, `v1.2.0` review).** The first bullet above is
+> **false**. `job.assign` _is_ enforced, and the assignment endpoints already
+> existed at `v0.3.0`:
+> `POST /api/jobs/:id/assignments` (`operations.ts:886`, guard on line 888),
+> `DELETE /api/job-assignments/:id` (line 925) and `PATCH` (line 955), all added
+> in `61ff735`. The grep behind the claim searched for the permission as a
+> _definition_ and missed its _usage_ inside a route's `preHandler`.
+>
+> The omission decision still stands, for a smaller and correct reason: there is no
+> crew screen, and there is **no `GET /api/employees`** to populate an employee
+> picker. Phase 7 needs the screen and an employee directory, not the endpoints.
+
+Every _other_ nav entry points at a screen that exists.
+
 Every _other_ nav entry points at a screen that exists.
 
 ## D5 - Tab state moved into the URL
