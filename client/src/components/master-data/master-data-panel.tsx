@@ -407,12 +407,12 @@ export function MasterDataPanel<T extends object>({
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {isArchivedRow(confirmArchive as T)
+                {isArchivedRow(confirmArchive)
                   ? `Restore ${confirmDeleteTitle(resource, confirmArchive).replace(/^Delete\s*/, '')}?`
                   : `Archive ${confirmDeleteTitle(resource, confirmArchive).replace(/^Delete\s*/, '')}?`}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {isArchivedRow(confirmArchive as T)
+                {isArchivedRow(confirmArchive)
                   ? 'It becomes selectable in every picker again.'
                   : (resource.archiveWarning ??
                     'It is hidden from pickers and can be restored at any time.')}
@@ -429,7 +429,7 @@ export function MasterDataPanel<T extends object>({
                   })
                 }
               >
-                {isArchivedRow(confirmArchive as T) ? 'Restore' : 'Archive'}
+                {isArchivedRow(confirmArchive) ? 'Restore' : 'Archive'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -796,9 +796,18 @@ function recordId<T>(record: T | null): number | string {
   throw new Error('Master data record has no id.');
 }
 
-/** True when a row is archived. Absent on resources that do not support it. */
-function isArchivedRow<T>(row: T): boolean {
-  return (row as Record<string, unknown>).isArchived === true;
+/**
+ * True when a row is archived.
+ *
+ * Null-tolerant on purpose. The archive confirmation asks this question about
+ * `confirmArchive` while it is still `null`, because the dialog renders its title
+ * and copy before anyone has opened it — so this predicate runs on every render
+ * with no row. Casting the argument to `T` silenced the compiler and left the
+ * runtime dereferencing null, which is how eight administration screens started
+ * throwing on open. A predicate over "maybe a row" has to accept maybe.
+ */
+function isArchivedRow(row: unknown): boolean {
+  return (row as Record<string, unknown> | null)?.isArchived === true;
 }
 
 /**
