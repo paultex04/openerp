@@ -29,6 +29,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
+import { DemoAccounts } from '@/components/login/demo-accounts';
 import { api, ApiError } from '@/lib/api';
 
 export default function LoginForm() {
@@ -216,7 +217,20 @@ export default function LoginForm() {
             </form>
           </CardContent>
 
-          <CardFooter>
+          <CardFooter className="flex-col items-stretch gap-4">
+            {/*
+              Development shortcuts, rendered above the role explanation because
+              when they exist they are the reason someone is on this page. The
+              component returns null unless NEXT_PUBLIC_DEMO_LOGIN=1, so this
+              costs nothing in a normal build.
+            */}
+            <DemoAccounts
+              onFill={(nextEmail, nextPassword) => {
+                setEmail(nextEmail);
+                setPassword(nextPassword ?? '');
+                setError(null);
+              }}
+            />
             <p className="text-xs leading-relaxed text-muted-foreground">
               Access is role-based. If a section is missing after signing in, your roles do not
               grant it — ask an administrator.
