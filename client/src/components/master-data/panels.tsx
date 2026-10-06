@@ -25,7 +25,13 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { MasterDataPanel } from '@/components/master-data/master-data-panel';
-import { Button } from '@/components/ui/button';
+import {
+  amendmentOptionsFor,
+  cell,
+  moneyCell,
+  selectedId,
+  type AmendmentOption,
+} from '@/components/master-data/columns';
 import { api } from '@/lib/api';
 import {
   AMENDMENTS,
@@ -35,7 +41,6 @@ import {
   CONTRACT_TYPES,
   CONTRACTS,
   EMPLOYEES,
-  JOBS,
   PROJECTS,
   StatusBadge,
   type AmendmentRow,
@@ -45,7 +50,6 @@ import {
   type ContractRow,
   type ContractTypeRow,
   type EmployeeRow,
-  type JobMasterRow,
   type ProjectRow,
 } from '@/lib/master-data-resources';
 
@@ -101,22 +105,6 @@ const dash = (value: string | number | null | undefined) =>
   ) : (
     <span>{value}</span>
   );
-
-function cell<T extends object>(header: string, accessor: (row: T) => React.ReactNode) {
-  return {
-    header,
-    cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  } as ColumnDef<T, unknown>;
-}
-
-/** Right-aligned and tabular, via the table's own numeric-cell treatment. */
-function moneyCell<T extends object>(header: string, accessor: (row: T) => number | null) {
-  return {
-    header,
-    meta: { align: 'right' },
-    cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  } as ColumnDef<T, unknown>;
-}
 
 // ---------------------------------------------------------------------------
 // Clients
@@ -459,224 +447,6 @@ export function ContractTypesPanel() {
       resource={CONTRACT_TYPES}
       rowKey={(row) => row.id}
       columns={() => columns}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Jobs
-//
-// Replaces the kanban board. The board grouped jobs by status into columns, which
-// reads nicely for four cards and stops working at forty: there are thirteen
-// statuses, so a populated board is thirteen narrow columns of horizontal scroll,
-// and a job is findable only by already knowing its status. A table with a status
-// *filter* and sortable status column answers the same question ("what is stuck in
-// pack ready?") without the scroll.
-// ---------------------------------------------------------------------------
-
-/**
- * The project shape `/api/projects` returns, narrowed to what the job form needs.
- *
- * `amendmentId` is deliberately absent. An earlier version carried it and resolved
- * the job's amendment list from it, but that produced a filter ending in `|| true` -
- * a no-op. The correct question is not "which amendment does the project pin" but
- * "which contract is the job under contract for", so the lookup goes through
- * `contract.id` to the contract's amendments.
- */
-interface ProjectOption {
-  id: number;
-  code: string;
-  contract?: { id: number; number: string } | null;
-}
-
-interface AmendmentOption {
-  id: number;
-  contractId: number;
-  amendmentNumber: string;
-  status: string;
-}
-
-interface ContactOption {
-  id: number;
-  name: string;
-  clientId: number;
-}
-
-// ---------------------------------------------------------------------------
-// Dependent amendment options
-// ---------------------------------------------------------------------------
-
-/**
- * The amendments belonging to one contract, as picker options.
- *
- * This is the fix for a real defect. The project form's amendment dropdown used to
- * be handed the *contract* list, so the two dropdowns showed identical options and
- * neither was an amendment. The job form then "fixed" it by listing every
- * amendment in the system, which is also wrong - it offers amendments from
- * contracts the job is not covered by, and the server rejects the pairing with a
- * 422 the user has to decode.
- *
- * Returns an empty list when no contract is chosen, which is honest: a project
- * cannot pick an amendment before it has a contract to pick it from. The field's
- * placeholder says so, rather than leaving an empty box that looks broken.
- */
-function amendmentOptionsFor(
-  amendments: readonly AmendmentOption[],
-  contractId: number | null,
-): Array<{ value: string; label: string }> {
-  if (contractId === null || !Number.isFinite(contractId)) return [];
-  return amendments
-    .filter((a) => a.contractId === contractId)
-    .map((a) => ({ value: String(a.id), label: `${a.amendmentNumber} (${a.status})` }));
-}
-
-/** Reads a select value as a foreign key, or null when nothing is chosen. */
-function selectedId(value: string | boolean | undefined): number | null {
-  if (value === undefined || value === '' || value === true || value === false) return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-export function JobsPanel({
-  onOpen,
-  initialStatusFilter,
-}: {
-  onOpen: (jobId: number) => void;
-  initialStatusFilter?: string;
-}) {
-  const projects = useQuery({
-    queryKey: ['projects', 'options'],
-    queryFn: () => api.get<{ projects: ProjectOption[] }>('/api/projects'),
-  });
-  const amendments = useQuery({
-    queryKey: ['amendments', 'options'],
-    queryFn: () => api.get<{ amendments: AmendmentOption[] }>('/api/amendments'),
-  });
-  const employees = useQuery({
-    queryKey: ['employees', 'options'],
-    queryFn: () =>
-      api.get<{ employees: Array<{ id: number; fullName: string; isActive: boolean }> }>(
-        '/api/employees',
-      ),
-  });
-  const contacts = useQuery({
-    queryKey: ['contacts', 'options'],
-    queryFn: () => api.get<{ contacts: ContactOption[] }>('/api/contacts'),
-  });
-
-  // A project pins exactly one amendment, and that amendment belongs to the
-  // project's contract. Resolving the job's amendment list through project ->
-  // contract -> amendments is what makes the pair valid by construction rather
-  // than by the server refusing it with a 422.
-  const projectById = useMemo(() => {
-    const map = new Map<number, ProjectOption>();
-    for (const project of projects.data?.projects ?? []) map.set(project.id, project);
-    return map;
-  }, [projects.data]);
-
-  const optionsFor = useMemo(() => {
-    const projectOptions = (projects.data?.projects ?? []).map((p) => ({
-      value: String(p.id),
-      label: p.code,
-    }));
-    const activeEmployees = (employees.data?.employees ?? [])
-      .filter((e) => e.isActive)
-      .map((e) => ({ value: String(e.id), label: e.fullName }));
-    const contactOptions = (contacts.data?.contacts ?? []).map((c) => ({
-      value: String(c.id),
-      label: c.name,
-    }));
-    const allAmendments = amendments.data?.amendments ?? [];
-
-    return (fieldName: string, values: Record<string, string | boolean>) => {
-      switch (fieldName) {
-        case 'projectId':
-          return projectOptions;
-        case 'supervisorId':
-          return activeEmployees;
-        case 'clientContactId':
-          return contactOptions;
-        case 'amendmentId': {
-          // Resolve through the project to its contract, then offer only that
-          // contract's amendments.
-          //
-          // This previously listed every amendment in the system: the filter ended
-          // in `|| true`, so it was a no-op. That is worse than the project form's
-          // original bug, because it offered amendments from contracts this job is
-          // not covered by - and the server rejects the pairing with a 422 the user
-          // has to decode.
-          const projectId = selectedId(values.projectId);
-          if (projectId === null) return [];
-          const project = projectById.get(projectId);
-          if (!project) return [];
-          return amendmentOptionsFor(allAmendments, project.contract?.id ?? null);
-        }
-        default:
-          return undefined;
-      }
-    };
-  }, [projects.data, employees.data, contacts.data, amendments.data, projectById]);
-
-  const columns = useMemo<ColumnDef<JobMasterRow, unknown>[]>(
-    () => [
-      cell<JobMasterRow>('Job', (row) => (
-        <>
-          <span className="font-mono font-medium">#{row.id}</span>
-          <span className="block max-w-80 truncate text-xs text-muted-foreground">
-            {row.description ?? 'No description'}
-          </span>
-        </>
-      )),
-      cell<JobMasterRow>('Project', (row) => (
-        <span className="font-mono text-xs">
-          {row.project?.code ?? '—'}
-          {row.project?.contract?.number && (
-            <span className="block text-muted-foreground">{row.project.contract.number}</span>
-          )}
-        </span>
-      )),
-      cell<JobMasterRow>('Status', (row) => <StatusBadge status={row.status} />),
-      cell<JobMasterRow>('Priority', (row) => <span className="text-xs">{row.priority}</span>),
-      cell<JobMasterRow>('Supervisor', (row) =>
-        row.supervisor ? `${row.supervisor.name} ${row.supervisor.surname}` : '—',
-      ),
-      cell<JobMasterRow>('Work order', (row) => (
-        <span className="font-mono text-xs">{row.workOrder ?? '—'}</span>
-      )),
-      cell<JobMasterRow>('Area', (row) => dash(row.area)),
-      cell<JobMasterRow>('Planned', (row) => (
-        <span className="whitespace-nowrap text-xs">
-          {row.plannedStartDate ?? '—'} → {row.plannedEndDate ?? '—'}
-        </span>
-      )),
-      cell<JobMasterRow>('Actual', (row) => (
-        <span className="whitespace-nowrap text-xs">
-          {row.actualStartDate ?? '—'} → {row.actualEndDate ?? '—'}
-        </span>
-      )),
-      moneyCell<JobMasterRow>('Crew', (row) => row._count?.assignments ?? 0),
-      moneyCell<JobMasterRow>('Invoices', (row) => row._count?.invoices ?? 0),
-    ],
-    [],
-  );
-
-  return (
-    <MasterDataPanel<JobMasterRow>
-      resource={JOBS}
-      rowKey={(row) => row.id}
-      columns={() => columns}
-      optionsFor={optionsFor}
-      initialFilters={initialStatusFilter ? { status: initialStatusFilter } : undefined}
-      renderExtraRowActions={(row) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onOpen(row.id)}
-          aria-label={`Open job ${row.id}`}
-        >
-          Open
-        </Button>
-      )}
     />
   );
 }

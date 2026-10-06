@@ -101,6 +101,45 @@ export interface DataTableProps<T> {
   fill?: boolean;
   /** Extra classes on the scroll container, for cards of a known height. */
   className?: string;
+
+  /**
+   * Controlled server-side pagination.
+   *
+   * Supply all three, or none. With them the table stops filtering, sorting and
+   * slicing `data` locally: it emits the requested page and renders exactly what
+   * the server returned. Without them the behaviour is unchanged — the original
+   * model, where every list endpoint returns everything and the browser does the
+   * work.
+   *
+   * ## Why the jobs register needs this
+   *
+   * Every other register here fetches the whole set and filters in the browser.
+   * That is the right trade while the result fits in memory, and wrong for jobs:
+   * a jobs table grows with every job the company ever runs, and a search box that
+   * has to download the table before it can answer "find WO-9844210" stops being
+   * usable at exactly the scale it was built for.
+   *
+   * ## Why it is all-or-nothing
+   *
+   * TanStack's row model computes `rowCount` from the rows it holds, so a table in
+   * server mode would report "page 1 of 1" for every page and Next would be
+   * permanently disabled. `manualPagination` tells it to trust `rowCount` instead.
+   * Mixing the two - server paging with client filtering - is the genuinely broken
+   * case, and it is refused here rather than silently producing wrong answers: the
+   * search box would filter one page of a many-page result and report a count that
+   * has nothing to do with the total.
+   */
+  manualPagination?: {
+    pageIndex: number;
+    pageSize: number;
+    rowCount: number;
+    onPageIndexChange: (next: number) => void;
+    onPageSizeChange: (next: number) => void;
+  };
+  /** Called when the free-text box changes. In server mode, replaces local filtering. */
+  onSearchChange?: (term: string) => void;
+  /** Controlled search term. Pair with `onSearchChange` in server mode. */
+  searchTerm?: string;
 }
 
 /** Reads a possibly-dotted path out of an unknown record. */
@@ -147,19 +186,36 @@ export function DataTable<T>({
   isLoading = false,
   fill = false,
   className,
+  manualPagination,
+  onSearchChange,
+  searchTerm,
 }: DataTableProps<T>) {
-  const [term, setTerm] = useState('');
+  // One source of truth for the box's value: controlled when the parent owns the
+  // term (server mode, so the URL or query key can hold it), local otherwise.
+  const [localTerm, setLocalTerm] = useState('');
+  const controlled = searchTerm !== undefined;
+  const term = controlled ? searchTerm : localTerm;
+  const setTerm = (next: string) => {
+    if (!controlled) setLocalTerm(next);
+    onSearchChange?.(next);
+  };
+
   const [sorting, setSorting] = useState<SortingState>(initialSort ?? []);
 
   const filtered = useMemo(() => {
     let rows = data;
-    if (term.trim()) rows = rows.filter((row) => matchesSearch(row, searchKeys, term.trim()));
-    for (const filter of filters) {
-      if (!filter.value) continue;
-      rows = rows.filter((row) => filter.predicate(row, filter.value));
+    // In server mode the rows are already the answer: filtering them again would
+    // hide matches that live on another page, and the count would describe a page
+    // rather than the result.
+    if (!manualPagination) {
+      if (term.trim()) rows = rows.filter((row) => matchesSearch(row, searchKeys, term.trim()));
+      for (const filter of filters) {
+        if (!filter.value) continue;
+        rows = rows.filter((row) => filter.predicate(row, filter.value));
+      }
     }
     return rows;
-  }, [data, term, searchKeys, filters]);
+  }, [data, term, searchKeys, filters, manualPagination]);
 
   const allColumns = useMemo(
     () =>
@@ -181,19 +237,41 @@ export function DataTable<T>({
 
   const table = useReactTable({
     data: filtered as T[],
-    columns: allColumns,
-    state: { sorting },
+    columns: manualPagination
+      ? // Sorting one page locally would produce an order that contradicts every
+        // other page, so the headers stop offering it rather than doing something
+        // subtly wrong. The server's ordering (status, then id) is the meaningful
+        // one for a jobs register anyway.
+        allColumns.map((column) => ({ ...column, enableSorting: false }))
+      : allColumns,
+    state: {
+      sorting,
+      ...(manualPagination && {
+        pagination: { pageIndex: manualPagination.pageIndex, pageSize: manualPagination.pageSize },
+      }),
+    },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
+    // Sorting and slicing are the server's job in manual mode. `getPaginationRowModel`
+    // must be absent, or it would slice the page again and show 25 of 25.
+    ...(!manualPagination && {
+      getSortedRowModel: getSortedRowModel(),
+      getPaginationRowModel: getPaginationRowModel(),
+    }),
+    ...(manualPagination && { manualPagination: true }),
     initialState: { pagination: { pageSize } },
   });
 
   const activeFilterCount = filters.filter((filter) => filter.value).length;
   const isFiltered = Boolean(term.trim()) || activeFilterCount > 0;
   const pageRows = table.getRowModel().rows;
-  const total = filtered.length;
+  // In server mode the total is the whole result set, not the length of this page.
+  const total = manualPagination ? manualPagination.rowCount : filtered.length;
+  const pageIndex = manualPagination
+    ? manualPagination.pageIndex
+    : table.getState().pagination.pageIndex;
+  const rowsPerPage = manualPagination ? manualPagination.pageSize : pageSize;
+  const pageCount = Math.max(1, Math.ceil(total / rowsPerPage));
 
   const clearAll = () => {
     setTerm('');
@@ -267,7 +345,13 @@ export function DataTable<T>({
           that silently alters a row count is disorienting without it.
         */}
         <span aria-live="polite" className="ml-auto text-xs text-muted-foreground">
-          {isLoading ? 'Loading…' : `${total} of ${data.length} ${total === 1 ? 'row' : 'rows'}`}
+          {isLoading
+            ? 'Loading…'
+            : manualPagination
+              ? // `data.length` is the page, not the result, so "N of M" would be
+                // nonsense here. The count alone is the honest figure.
+                `${total} ${total === 1 ? 'row' : 'rows'}`
+              : `${total} of ${data.length} ${total === 1 ? 'row' : 'rows'}`}
         </span>
 
         {actions}
@@ -398,14 +482,23 @@ export function DataTable<T>({
         <span className="text-muted-foreground">
           {pageRows.length === 0
             ? 'No rows'
-            : `Showing ${table.getState().pagination.pageIndex * pageSize + 1}–${table.getState().pagination.pageIndex * pageSize + pageRows.length} of ${total}`}
+            : `Showing ${pageIndex * rowsPerPage + 1}–${pageIndex * rowsPerPage + pageRows.length} of ${total}`}
         </span>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-1.5 text-muted-foreground">
             Rows
             <select
-              value={String(pageSize)}
-              onChange={(event) => table.setPageSize(Number(event.target.value))}
+              value={String(rowsPerPage)}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                if (manualPagination) {
+                  // Reset to the first page: staying on page 4 of a 250-row-per-page
+                  // view after switching from 10 shows nothing at all.
+                  manualPagination.onPageSizeChange(next);
+                } else {
+                  table.setPageSize(next);
+                }
+              }}
               aria-label="Rows per page"
               className="h-7 rounded-md border border-input bg-background px-1.5"
             >
@@ -419,20 +512,25 @@ export function DataTable<T>({
           <Button
             variant="outline"
             size="sm"
-            disabled={!table.getCanPreviousPage()}
-            onClick={() => table.previousPage()}
+            disabled={pageIndex === 0}
+            onClick={() => {
+              if (manualPagination) manualPagination.onPageIndexChange(pageIndex - 1);
+              else table.previousPage();
+            }}
           >
             Previous
           </Button>
           <span className="min-w-16 text-center tabular-nums text-muted-foreground">
-            Page {table.getPageCount() === 0 ? 0 : table.getState().pagination.pageIndex + 1} of{' '}
-            {table.getPageCount()}
+            Page {total === 0 ? 0 : pageIndex + 1} of {pageCount}
           </span>
           <Button
             variant="outline"
             size="sm"
-            disabled={!table.getCanNextPage()}
-            onClick={() => table.nextPage()}
+            disabled={pageIndex + 1 >= pageCount}
+            onClick={() => {
+              if (manualPagination) manualPagination.onPageIndexChange(pageIndex + 1);
+              else table.nextPage();
+            }}
           >
             Next
           </Button>

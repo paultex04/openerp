@@ -145,6 +145,111 @@ async function main() {
   const job = (jobs.body?.jobs ?? [])[0];
   checkThat('at least one job is listed', Boolean(job));
 
+  // ---------------------------------------------------------------------------
+  // Server-side search and pagination on the jobs register.
+  //
+  // The jobs register is the one list in the application that searches on the
+  // server: every other register fetches everything and filters in the browser,
+  // which is the right trade until the result stops fitting in memory. A jobs table
+  // does not stay small, so the Job Management page asks for `?search=` and
+  // `?page=`.
+  //
+  // The critical property is that an UNPAGINATED call still returns everything.
+  // /field, the dashboard and these smoke tests all depend on it, and silently
+  // truncating their result to a default page size would be data loss rather than
+  // an error - so it is asserted explicitly rather than assumed.
+  // ---------------------------------------------------------------------------
+
+  const paginated = await request('/api/jobs?page=1&pageSize=1', { cookie: admin.cookie });
+  check('GET /api/jobs paginates', paginated.status, 200);
+  check('a page of 1 returns 1 row', paginated.body?.jobs?.length, 1);
+  checkThat(
+    'the total counts the whole result, not the page',
+    typeof paginated.body?.total === 'number' && paginated.body.total >= jobs.body.jobs.length,
+    `total=${paginated.body?.total} all=${jobs.body.jobs.length}`,
+  );
+  check('the echoed page is 1', paginated.body?.page, 1);
+  check('the echoed page size is 1', paginated.body?.pageSize, 1);
+
+  const unpaginated = await request('/api/jobs', { cookie: admin.cookie });
+  check(
+    'an unpaginated call still returns every job',
+    unpaginated.body?.jobs?.length,
+    jobs.body.jobs.length,
+  );
+  checkThat(
+    'an unpaginated call reports no total',
+    unpaginated.body?.total === undefined,
+    `got ${JSON.stringify(unpaginated.body?.total)}`,
+  );
+
+  // Page 2 must be a *different* job, or `skip` is being ignored and the table
+  // would show the same first row forever.
+  if ((paginated.body?.total ?? 0) > 1) {
+    const page2 = await request('/api/jobs?page=2&pageSize=1', { cookie: admin.cookie });
+    checkThat(
+      'page 2 is a different job',
+      page2.body?.jobs?.[0]?.id !== paginated.body?.jobs?.[0]?.id,
+      `p1=${paginated.body?.jobs?.[0]?.id} p2=${page2.body?.jobs?.[0]?.id}`,
+    );
+  }
+
+  // Search must actually narrow, and must not be satisfiable by matching nothing.
+  const target = jobs.body.jobs[0];
+  const searchProbe = target.workOrder ?? target.purchaseOrder ?? null;
+  if (searchProbe) {
+    const found = await request(`/api/jobs?search=${encodeURIComponent(searchProbe)}`, {
+      cookie: admin.cookie,
+    });
+    check('a search by work order returns 200', found.status, 200);
+    checkThat(
+      'the searched job is in its own search results',
+      (found.body?.jobs ?? []).some((j) => j.id === target.id),
+      `searched "${searchProbe}", got ${JSON.stringify((found.body?.jobs ?? []).map((j) => j.id))}`,
+    );
+  }
+
+  const nonsense = await request('/api/jobs?search=zzzznotajobzzzz', { cookie: admin.cookie });
+  checkThat(
+    'a search matching nothing returns an empty list, not everything',
+    nonsense.status === 200 && (nonsense.body?.jobs ?? []).length === 0,
+    `status=${nonsense.status} rows=${(nonsense.body?.jobs ?? []).length}`,
+  );
+
+  // Every term must match, mirroring the shared DataTable's `matchesSearch`. A
+  // server search that ORs its terms is worse than useless: it looks like narrowing
+  // and instead widens the result.
+  const projectCode = target.project?.code;
+  if (projectCode && target.description) {
+    const both = await request(
+      `/api/jobs?search=${encodeURIComponent(`${projectCode} ${target.description.slice(0, 12)}`)}`,
+      { cookie: admin.cookie },
+    );
+    const impossible = await request(
+      `/api/jobs?search=${encodeURIComponent(`${projectCode} zzzznotajobzzzz`)}`,
+      { cookie: admin.cookie },
+    );
+    checkThat(
+      'search terms are ANDed, not ORed',
+      impossible.status === 200 && (impossible.body?.jobs ?? []).length === 0,
+      `impossible returned ${(impossible.body?.jobs ?? []).length} rows`,
+    );
+    checkThat(
+      'a matching pair of terms still finds the job',
+      (both.body?.jobs ?? []).some((j) => j.id === target.id),
+    );
+  }
+
+  // Filters compose with search rather than replacing it.
+  const filtered = await request(`/api/jobs?status=${encodeURIComponent(target.status)}`, {
+    cookie: admin.cookie,
+  });
+  checkThat(
+    'the status filter narrows to that status',
+    filtered.status === 200 && (filtered.body?.jobs ?? []).every((j) => j.status === target.status),
+    `status=${target.status}`,
+  );
+
   const jobDetail = await request(`/api/jobs/${job.id}`, { cookie: admin.cookie });
   check('GET /api/jobs/:id', jobDetail.status, 200);
 

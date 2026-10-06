@@ -347,7 +347,7 @@ export default function DashboardPage() {
                     : `${allJobs.length - activeJobs.length} cancelled excluded`
                 }
                 icon={Gauge}
-                href="/operations?view=board"
+                href="/operations"
               />
             )}
 
@@ -384,7 +384,7 @@ export default function DashboardPage() {
                   )
                 }
                 icon={variance.difference > 0 ? TrendingUp : TrendingDown}
-                href="/operations?view=dashboard"
+                href="/operations"
                 // Positive variance is bad news here, so it is flagged, not celebrated.
                 tone={
                   variance.difference > 0

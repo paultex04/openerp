@@ -124,8 +124,8 @@ function humanise(roles: readonly string[]): string {
 /**
  * True when every query filter named by `href` is present and equal in `search`.
  *
- * This is what stops "Valuation Packs" and "Jobs Board" - the same path, the
- * same `view` - from both lighting up as active.
+ * This is what stops "Contracts & Amendments" and "Cost Parameters" - the same
+ * path, a different `tab` - from both lighting up as active.
  */
 function filtersMatch(href: string, search: string): boolean {
   const [, query] = href.split('?');

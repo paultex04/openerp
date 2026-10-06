@@ -93,10 +93,15 @@ export interface MasterDataPanelProps<T> {
   /**
    * Seeds the categorical filters on first render.
    *
-   * Used by the Jobs Board, whose `?status=` deep link comes from the sidebar's
-   * "Valuation Packs (Ready for Signature)" entry. Seeding rather than controlling
-   * keeps the table's own filter control authoritative afterwards: the user can
-   * clear a deep-linked filter, which would be impossible if the parent owned it.
+   * No caller left. It existed for the Jobs Board's `?status=` deep link, which came
+   * from the sidebar's "Valuation Packs" entry. Both are gone now: Job Management
+   * owns its own status filter, and a deep link would have to drive that component
+   * rather than this one.
+   *
+   * Kept rather than deleted because it is the one way to pre-fill a register from
+   * the URL without the parent owning the filter value - which the user cannot then
+   * clear. If a deep link is ever needed again, that trade has to be made
+   * deliberately.
    */
   initialFilters?: Readonly<Record<string, string>>;
   /** Extra toolbar content beside the New button. */

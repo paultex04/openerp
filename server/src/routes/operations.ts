@@ -470,11 +470,23 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
         throw new HttpError(403, 'FORBIDDEN', 'Missing required permission(s): job.read.');
       }
 
-      const { projectId, status, assignedToMe } = z
+      const { projectId, status, assignedToMe, search, page, pageSize } = z
         .object({
           projectId: z.coerce.number().int().positive().optional(),
           status: z.string().trim().min(1).optional(),
           assignedToMe: z.coerce.boolean().optional(),
+          /**
+           * Free text over work order, purchase order, description, area, project
+           * code and supervisor name.
+           *
+           * Searched server-side because the jobs register is the one list in the
+           * application that is expected to grow without bound. Every other
+           * register fetches everything and filters in the browser, which is fine
+           * while the result fits in memory; a jobs table does not stay small.
+           */
+          search: z.string().trim().min(1).max(120).optional(),
+          page: z.coerce.number().int().positive().optional(),
+          pageSize: z.coerce.number().int().min(1).max(200).optional(),
         })
         .parse(request.query ?? {});
 
@@ -483,49 +495,98 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       const scoped = !principal.permissions.has('job.read');
       const mineOnly = scoped || assignedToMe === true;
 
-      const jobs = await prisma.job.findMany({
-        where: {
-          ...(projectId !== undefined && { projectId }),
-          ...(status !== undefined && { status: jobStatusToKey(status) as never }),
-          ...(mineOnly
-            ? {
-                OR: [
-                  { supervisorId: principal.employeeId },
-                  { assignments: { some: { employeeId: principal.employeeId } } },
-                ],
-              }
-            : {}),
-        },
-        orderBy: [{ status: 'asc' }, { id: 'asc' }],
-        select: {
-          id: true,
-          status: true,
-          priority: true,
-          description: true,
-          workOrder: true,
-          purchaseOrder: true,
-          area: true,
-          workOrderReceivedDate: true,
-          purchaseOrderReceivedDate: true,
-          plannedStartDate: true,
-          plannedEndDate: true,
-          actualStartDate: true,
-          actualEndDate: true,
-          project: {
-            select: { id: true, code: true, year: true, contract: { select: { number: true } } },
+      // Every term must match somewhere, mirroring the shared DataTable's
+      // `matchesSearch`. "pack sasol" narrows rather than widening to everything
+      // containing either word, which is what makes a multi-word search feel
+      // precise instead of useless.
+      const terms = (search ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+
+      const textFilter = terms.length
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { workOrder: { contains: term, mode: 'insensitive' as const } },
+                { purchaseOrder: { contains: term, mode: 'insensitive' as const } },
+                { description: { contains: term, mode: 'insensitive' as const } },
+                { area: { contains: term, mode: 'insensitive' as const } },
+                { project: { code: { contains: term, mode: 'insensitive' as const } } },
+                {
+                  supervisor: { is: { surname: { contains: term, mode: 'insensitive' as const } } },
+                },
+                { supervisor: { is: { name: { contains: term, mode: 'insensitive' as const } } } },
+              ],
+            })),
+          }
+        : {};
+
+      const where = {
+        ...(projectId !== undefined && { projectId }),
+        ...(status !== undefined && { status: jobStatusToKey(status) as never }),
+        ...textFilter,
+        ...(mineOnly
+          ? {
+              OR: [
+                { supervisorId: principal.employeeId },
+                { assignments: { some: { employeeId: principal.employeeId } } },
+              ],
+            }
+          : {}),
+      };
+
+      // Only count and skip when the caller actually paginates. Existing callers
+      // (the /field view, smoke tests, the admin panel) expect the whole list, and
+      // silently truncating their result to a default page size would be a quiet
+      // data loss rather than an error.
+      const take = pageSize;
+      const skip = page !== undefined && take !== undefined ? (page - 1) * take : undefined;
+
+      const [jobs, total] = await Promise.all([
+        prisma.job.findMany({
+          where,
+          orderBy: [{ status: 'asc' }, { id: 'asc' }],
+          ...(take !== undefined && { take }),
+          ...(skip !== undefined && { skip }),
+          select: {
+            id: true,
+            status: true,
+            priority: true,
+            description: true,
+            workOrder: true,
+            purchaseOrder: true,
+            area: true,
+            workOrderReceivedDate: true,
+            purchaseOrderReceivedDate: true,
+            plannedStartDate: true,
+            plannedEndDate: true,
+            actualStartDate: true,
+            actualEndDate: true,
+            project: {
+              select: {
+                id: true,
+                code: true,
+                year: true,
+                contract: {
+                  select: {
+                    id: true,
+                    number: true,
+                    client: { select: { name: true } },
+                  },
+                },
+              },
+            },
+            // The jobs register's edit dialog seeds itself from the row, so every
+            // field it shows has to be in this projection - a missing column opens
+            // the form blank and PATCHes nothing back.
+            projectId: true,
+            amendmentId: true,
+            supervisorId: true,
+            clientContactId: true,
+            supervisor: { select: { id: true, name: true, surname: true } },
+            _count: { select: { serviceCodes: true, assignments: true, invoices: true } },
           },
-          // Phase 7: the jobs board is now a `DataTable` with an edit dialog, and
-          // the dialog seeds itself from the row. Every field it shows therefore
-          // has to be in this projection - a missing column opens the form blank
-          // and PATCHes nothing back.
-          projectId: true,
-          amendmentId: true,
-          supervisorId: true,
-          clientContactId: true,
-          supervisor: { select: { id: true, name: true, surname: true } },
-          _count: { select: { serviceCodes: true, assignments: true, invoices: true } },
-        },
-      });
+        }),
+        prisma.job.count({ where }),
+      ]);
 
       return {
         jobs: jobs.map((j) => ({
@@ -533,6 +594,9 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           status: jobStatusFromKey(j.status),
           priority: jobPriorityFromKey(j.priority),
         })),
+        // Present only when the caller paginated, so an unpaginated caller is never
+        // tempted to render "1-N" from a total it did not ask for.
+        ...(take !== undefined && { total, page: page ?? 1, pageSize: take }),
       };
     },
   );

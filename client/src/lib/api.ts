@@ -296,13 +296,39 @@ export interface JobRow {
   workOrder: string | null;
   purchaseOrder: string | null;
   area: string | null;
+  workOrderReceivedDate?: string | null;
+  purchaseOrderReceivedDate?: string | null;
   plannedStartDate: string | null;
   plannedEndDate: string | null;
   actualStartDate: string | null;
   actualEndDate: string | null;
-  project: { id: number; code: string; year: number; contract: { number: string } };
+  project: {
+    id: number;
+    code: string;
+    year: number;
+    contract: { id?: number; number: string; client?: { name: string } };
+  };
   supervisor: { id: number; name: string; surname: string } | null;
+  /** Present on the paginated jobs register; the detail endpoint carries more. */
+  projectId?: number;
+  amendmentId?: number | null;
+  supervisorId?: number | null;
+  clientContactId?: number | null;
   _count?: { serviceCodes: number; assignments: number; invoices: number };
+}
+
+/**
+ * `GET /api/jobs` with pagination.
+ *
+ * `total` / `page` / `pageSize` are present only when the request supplied both
+ * `page` and `pageSize`. An unpaginated call still returns every job, which is
+ * what the /field view and the admin panel rely on.
+ */
+export interface JobListResponse {
+  jobs: JobRow[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface DeliverableRow {

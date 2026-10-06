@@ -21,13 +21,11 @@
 import {
   Boxes,
   Building2,
-  Columns3,
   FileSpreadsheet,
   FileText,
   FolderKanban,
   HardHat,
-  LayoutDashboard,
-  PackageCheck,
+  ListChecks,
   Receipt,
   Ruler,
   ScrollText,
@@ -105,23 +103,15 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     anyOf: ['project.read', 'job.read', 'deliverable.read', 'job.read.assigned'],
     items: [
       {
-        href: '/operations?view=dashboard',
-        label: 'Projects Register',
-        icon: LayoutDashboard,
-        anyOf: ['project.read', 'job.read'],
-      },
-      {
-        href: '/operations?view=board',
-        label: 'Jobs Board',
-        icon: Columns3,
-        anyOf: ['job.read'],
-      },
-      {
-        href: '/operations?view=board&status=07.%20Pack%20Ready',
-        label: 'Valuation Packs (Ready for Signature)',
-        icon: PackageCheck,
-        // Reading a pack is a job read; moving one out is a pack transition.
-        anyOf: ['job.transition.pack'],
+        // One entry for all of Operations. The Projects Register, Jobs Board and
+        // Valuation Packs deep link were three ways into the same data, and each
+        // answered a slightly different question. They are now the register's
+        // project and status filters — "Valuation Packs" in particular was a saved
+        // filter on `status`, and the filter is still there.
+        href: '/operations',
+        label: 'Job Management',
+        icon: ListChecks,
+        anyOf: ['job.read', 'job.read.assigned'],
       },
       {
         href: '/field',
@@ -233,8 +223,8 @@ export function visibleSections(permissions: readonly string[]): NavSection[] {
  * Resolves a pathname to its breadcrumb trail.
  *
  * Matching ignores the query string and any trailing detail segment, so
- * `/operations?view=board&status=07.%20Pack%20Ready` still resolves to
- * "Jobs Board" rather than to a label nobody can match.
+ * `/commercial?tab=rates` still resolves to "Labour Rate Masters (Tier 1)" rather
+ * than to a label nobody can match.
  */
 export function breadcrumbFor(
   pathname: string,
