@@ -343,6 +343,72 @@ check('client start is next start', clientPkg.scripts.start === 'next start');
 check('server build.mjs exists', existsSync(resolve(root, 'server/build.mjs')));
 
 // ---------------------------------------------------------------------------
+section('lockfile is in sync with the manifests');
+// ---------------------------------------------------------------------------
+//
+// The most common Docker build failure in a workspace monorepo, and it is silent
+// locally: `npm install` in the working tree reconciles the lock by itself, so
+// nothing fails until a clean `npm ci` runs — which is exactly what both
+// Dockerfiles do, on a machine that has installed nothing.
+//
+// This was a real deployment failure. `esbuild` was added to `server/package.json`
+// without regenerating `package-lock.json`, and the build died in the `deps` stage
+// of *both* images while the error named a later step.
+
+const lock = JSON.parse(readFileSync(resolve(root, 'package-lock.json'), 'utf8'));
+
+for (const ws of ['shared', 'server', 'client']) {
+  const manifest = JSON.parse(readFileSync(resolve(root, ws, 'package.json'), 'utf8'));
+  const locked = lock.packages?.[ws];
+  check(`${ws} has a lockfile entry`, Boolean(locked));
+  if (!locked) continue;
+
+  for (const group of ['dependencies', 'devDependencies']) {
+    const fromManifest = manifest[group] ?? {};
+    const fromLock = locked[group] ?? {};
+
+    const problems = [
+      ...Object.keys(fromManifest)
+        .filter((name) => fromLock[name] === undefined)
+        .map((name) => `${name} (manifest only)`),
+      ...Object.keys(fromLock)
+        .filter((name) => fromManifest[name] === undefined)
+        .map((name) => `${name} (lock only)`),
+      ...Object.keys(fromManifest)
+        .filter((name) => fromLock[name] !== undefined && fromLock[name] !== fromManifest[name])
+        .map((name) => `${name} ${fromManifest[name]} vs ${fromLock[name]}`),
+    ];
+
+    check(
+      `${ws} ${group} match the lock`,
+      problems.length === 0,
+      problems.join(', ') + ' — run `npm install` and commit the lockfile',
+    );
+  }
+}
+
+// npm ci installs from the lockfile's package tree, so every root dependency must
+// have a resolvable entry behind it, not merely a version range in a manifest.
+const rootManifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
+for (const group of ['dependencies', 'devDependencies']) {
+  for (const name of Object.keys(rootManifest[group] ?? {})) {
+    check(
+      `root ${group} "${name}" has a resolved entry`,
+      Boolean(lock.packages?.[`node_modules/${name}`]),
+    );
+  }
+}
+
+// The API bundle step invokes the esbuild binary, so esbuild must be resolvable as
+// a real package. Checked separately from the sync test because a lockfile can be
+// internally consistent while still missing the tarball.
+check(
+  'esbuild is resolved as a real package',
+  Boolean(lock.packages?.['node_modules/esbuild']?.resolved),
+  'the API bundle step invokes the esbuild binary',
+);
+
+// ---------------------------------------------------------------------------
 console.log(`\n${checks - failures}/${checks} checks passed`);
 if (failures > 0) {
   console.log('\nSome deployment-file checks failed.');
