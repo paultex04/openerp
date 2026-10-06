@@ -23,6 +23,32 @@ sharing one hoisted `node_modules`, with a build step that has to run `prisma
 generate` before the bundle, and a migration runner that is not Prisma's. Dockerfiles
 state all of that explicitly.
 
+## Do not deploy from `docker-compose.yml`
+
+**Create two separate Applications using the Dockerfiles.** Do not point Coolify at
+the Compose file.
+
+Coolify offers "Docker Compose" and "Dockerfile" as separate base image types. Choosing
+Compose makes Coolify build and manage all four services as one unit, which is not
+what this document describes and does not match the runtime-variable table below:
+Coolify injects build-time variables during `docker compose build` and expects runtime
+variables per service, so `AUTH_JWT_SECRET` and `POSTGRES_PASSWORD` set only at build
+time leave the containers without them and the API crash-loops on
+`Invalid environment configuration`.
+
+`docker-compose.yml` exists for **local parity only** — running the same two images
+against a real Postgres on a laptop, so a deployment problem can be reproduced before
+it reaches production.
+
+### Choosing the right Coolify setup
+
+| Coolify field           | Value                                                           |
+| ----------------------- | --------------------------------------------------------------- |
+| Base image / Build Pack | **Dockerfile** (not "Docker Compose")                           |
+| Dockerfile              | `/Dockerfile.api` for the API, `/Dockerfile.web` for the web    |
+| Docker context          | `.` — the repo root, since the build needs the other workspaces |
+| Docker Compose file     | leave empty                                                     |
+
 ---
 
 ## Before you start
@@ -196,6 +222,28 @@ Two paths, deliberately different:
   health check here.
 
 ## Troubleshooting
+
+### Build failures
+
+**`npm ci can only install packages when your package.json and package-lock.json are in sync`.**
+The lockfile is stale. Run `npm install` and commit `package-lock.json`. Nothing fails
+locally in this case, because `npm install` in a working tree reconciles the lock by
+itself — only a clean `npm ci`, which is what the Dockerfiles do, notices. This
+happened once: `esbuild` was added to `server/package.json` without regenerating the
+lock, and it broke both images.
+
+**`error TS5083: Cannot read file '/app/tsconfig.base.json'`.**
+`tsconfig.base.json` is at the repository root and every workspace `tsconfig.json`
+extends it. Both Dockerfiles now `COPY` it into their build stage; this error means
+either that line is missing or the Docker context is not the repo root. Same
+local-invisibility as above: the file is present on a checkout.
+
+**A build fails in Docker but passes locally, with no useful message.**
+Usually the lockfile or a missing `COPY`. Run `npm run check:docker` — it validates
+the lockfile against every workspace manifest and asserts that each build stage copies
+the files the build reads. It found both of the above.
+
+### Runtime
 
 **Every API request returns 502 `API_UNREACHABLE`.**
 `API_ORIGIN` is wrong. `localhost` inside the web container is the web container.

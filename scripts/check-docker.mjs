@@ -26,7 +26,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -198,6 +198,94 @@ for (const file of DOCKERFILES) {
     lines.some((l) => l.startsWith('USER ')),
   );
 }
+
+// ---------------------------------------------------------------------------
+section('build inputs are complete');
+// ---------------------------------------------------------------------------
+//
+// Every workspace tsconfig extends `../tsconfig.base.json`, which lives at the
+// repository root. A Dockerfile that copies `shared/` and `client/` but not that
+// file produces an image where TypeScript cannot resolve its own config, and
+// `next build` fails with:
+//
+//   [Error: error TS5083: Cannot read file '/app/tsconfig.base.json'.
+//
+// This was the second real deployment failure, and the one whose error message was
+// actually reported. It is invisible locally - the file is present on a checkout -
+// and invisible to a syntax check, because the Dockerfile is perfectly
+// well-formed. Only "does the build have everything it reads?" catches it.
+
+/** Root-level files a build must COPY because a workspace config extends them. */
+const requiredByBuild = new Set();
+
+for (const cfg of ['shared/tsconfig.json', 'server/tsconfig.json', 'client/tsconfig.json']) {
+  const text = readFileSync(resolve(root, cfg), 'utf8');
+  const m = text.match(/"extends"\s*:\s*"([^"]+)"/);
+  if (!m) continue;
+  const extended = resolve(root, dirname(cfg), m[1]);
+  check(`${cfg} extends an existing file`, existsSync(extended), m[1]);
+  // Only a file at the repo root needs an explicit COPY; one inside the same
+  // workspace arrives with that workspace's directory copy.
+  if (dirname(extended) === root) requiredByBuild.add(basename(extended));
+}
+
+check(
+  'a root-level tsconfig is extended by a workspace',
+  requiredByBuild.size > 0,
+  'if this stops being true these checks go vacuous - re-check them by hand',
+);
+
+for (const [file, workspaces] of [
+  ['Dockerfile.api', ['shared', 'server']],
+  ['Dockerfile.web', ['shared', 'client']],
+]) {
+  const text = readFileSync(resolve(root, file), 'utf8');
+  const buildStage = text.slice(text.indexOf('AS build'));
+
+  for (const needed of requiredByBuild) {
+    check(
+      `${file}: build stage copies ${needed}`,
+      buildStage.includes(`COPY ${needed} ./`),
+      `a workspace tsconfig extends ../${needed}; without it the build fails with TS5083`,
+    );
+  }
+
+  for (const ws of workspaces) {
+    check(`${file}: build stage copies ${ws}/`, buildStage.includes(`COPY ${ws} ./${ws}`));
+  }
+}
+
+const apiDockerfileText = readFileSync(resolve(root, 'Dockerfile.api'), 'utf8');
+const webDockerfileText = readFileSync(resolve(root, 'Dockerfile.web'), 'utf8');
+const webBuildStage = webDockerfileText.slice(webDockerfileText.indexOf('AS build'));
+check(
+  'Dockerfile.web: build stage does not copy server/',
+  !/COPY\s+server\s+\.\/server/.test(webBuildStage),
+  'the client must never be able to import server code',
+);
+
+// What the runtime stage actually executes must have been copied there.
+check(
+  'Dockerfile.api: runtime copies the bundle',
+  /COPY --from=build .*server\/dist/.test(apiDockerfileText),
+);
+check(
+  'Dockerfile.api: runtime copies the migration runner',
+  apiDockerfileText.includes('COPY server/scripts'),
+);
+check(
+  'Dockerfile.web: runtime copies the build output',
+  /COPY --from=build .*client\/\.next/.test(webDockerfileText),
+);
+
+// `prisma generate` runs in the API runtime stage, but the `prisma` CLI is a
+// *dev* dependency and that stage installs with --omit=dev, so npx resolves it at
+// build time. That works, but it means the CLI version is not the locked one.
+// Asserted so the coupling is visible if either side changes.
+check(
+  'Dockerfile.api: runtime generates the Prisma client after --omit=dev',
+  /npm ci --omit=dev[\s\S]*?prisma generate/.test(apiDockerfileText),
+);
 
 // ---------------------------------------------------------------------------
 section('Secrets cannot reach an image layer');

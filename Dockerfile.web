@@ -59,6 +59,14 @@ WORKDIR /app
 #
 # `server` is NOT copied. The client must not be able to import server code, and
 # copying it would make an accidental import compile rather than fail loudly.
+#
+# `tsconfig.base.json` lives at the repository root and is extended by
+# `client/tsconfig.json` (`"extends": "../tsconfig.base.json"`). Without it here,
+# `next build` fails with TS5083 "Cannot read file" during its typecheck pass — which
+# is the exact error this file was first deployed with. Two lines, but it carries
+# `strict`, `noUncheckedIndexedAccess` and the module resolution settings the whole
+# repo depends on.
+COPY tsconfig.base.json ./
 COPY shared ./shared
 COPY client ./client
 
@@ -131,13 +139,14 @@ COPY server/package.json ./server/
 COPY client/package.json ./client/
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-# The built application. `.next` is what `next start` serves; `public` is copied
-# only if present, since this repo has none yet and a missing COPY is a hard error.
+# The built application. `.next` is what `next start` serves. `public` is not copied
+# because this repo has none, and a missing COPY source is a hard error.
 COPY --from=build /app/client/.next ./client/.next
 COPY --from=build /app/client/next.config.mjs ./client/next.config.mjs
 COPY client/package.json ./client/package.json
-# `shared` is needed at runtime only because the workspace graph must resolve.
-# Its source is not imported: the bundle is self-contained.
+# `shared` is needed at runtime only because the workspace graph must resolve, so
+# npm can find `@openerp/client`. Its source is not imported: the bundle is
+# self-contained.
 COPY shared ./shared
 
 # Next writes its cache into `.next`; owned by `node` so a non-root runtime can

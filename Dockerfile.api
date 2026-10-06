@@ -56,6 +56,13 @@ FROM deps AS build
 
 WORKDIR /app
 
+# `tsconfig.base.json` lives at the repository root and is extended by
+# `server/tsconfig.json` (`"extends": "../tsconfig.base.json"`). Without it here,
+# TypeScript fails with TS5083 "Cannot read file" and `tsc` exits non-zero — which
+# is the build failure this stage exists to catch. It is a two-line file but it
+# holds `strict`, `noUncheckedIndexedAccess` and the module resolution settings the
+# whole repo depends on, so it is not optional.
+COPY tsconfig.base.json ./
 COPY shared ./shared
 COPY server ./server
 
