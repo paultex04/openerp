@@ -254,9 +254,25 @@ It must be the API resource's service name: `http://openerp-api:4000`.
 cookie. Terminate TLS at Coolify and serve the site over HTTPS.
 
 **The API crash-loops at boot with `Invalid environment configuration`.**
-A required variable is missing. `AUTH_JWT_SECRET` needs 32+ characters;
-`NODE_ENV=production` additionally requires `AUTH_COOKIE_SECURE=true`. Read the
-container logs — the message names the offending field.
+A runtime variable is not reaching the container. `loadConfig()` throws and the
+process exits deliberately rather than starting with a weak or missing secret, so
+this is a refusal, not a crash. Read the logs: the message names the field, e.g.
+`- AUTH_JWT_SECRET: Required`.
+
+The usual cause is a variable set as a **build variable** rather than a runtime one.
+Coolify passes build variables to `docker build` and never injects them into the
+running container, so the image builds fine and then starts with nothing. Every
+variable in this document belongs under Runtime Variables; there are no build
+variables to set.
+
+`AUTH_JWT_SECRET` needs 32+ characters, and `NODE_ENV=production` additionally
+requires `AUTH_COOKIE_SECURE=true`. Both are enforced at boot.
+
+**Coolify warns "the healthcheck needs a curl or wget command".**
+Both images install `curl` and `wget`, so this should not appear. If it does, the
+deploy is using a cached build from before that change — redeploy, or check the
+Dockerfile on the branch being built. Coolify runs a healthcheck of its own inside
+the container in addition to the image's own `HEALTHCHECK`.
 
 **`PrismaClientInitializationError` / "did not initialize engine".**
 `prisma generate` did not run, or ran on a different base image. All stages in

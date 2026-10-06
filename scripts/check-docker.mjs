@@ -291,6 +291,18 @@ check(
 section('Secrets cannot reach an image layer');
 // ---------------------------------------------------------------------------
 
+// Coolify runs a healthcheck of its own inside the container and warns when neither
+// curl nor wget is present, even though the image's own HEALTHCHECK uses curl. Both
+// are installed so that warning does not appear.
+for (const file of DOCKERFILES) {
+  const text = readFileSync(resolve(root, file), 'utf8');
+  const runtime = text.slice(text.lastIndexOf('FROM'));
+  check(
+    `${file}: runtime image has curl and wget for Coolify's healthcheck`,
+    /apt-get install[^\n]*curl/.test(runtime) && /apt-get install[^\n]*wget/.test(runtime),
+  );
+}
+
 for (const file of DOCKERFILES) {
   // Comments are stripped first: the header documents the *shape* of the URL a
   // user should set, and flagging an example in a comment would be noise rather

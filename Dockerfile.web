@@ -103,8 +103,11 @@ RUN test -f client/.next/BUILD_ID
 # -----------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
 
+# Both `curl` and `wget`, for the reason given in Dockerfile.api: this image's own
+# HEALTHCHECK uses curl, and Coolify's separate in-container healthcheck may use
+# either. Having only one produces a warning on deploy.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl \
+  && apt-get install -y --no-install-recommends curl wget \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -93,8 +93,12 @@ FROM node:22-bookworm-slim AS runtime
 # debugging a live container. `openssl` is not needed on Debian: Prisma's default
 # engine for this base links against the system OpenSSL, which bookworm-slim
 # already carries.
+# `curl` backs this image's own HEALTHCHECK. `wget` is here because Coolify runs a
+# *separate* healthcheck of its own inside the container and may call either; with
+# only curl present it warned that the healthcheck needed a curl or wget command.
+# Both are cheap (busybox-adjacent, no dependency tree) and remove the guesswork.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl \
+  && apt-get install -y --no-install-recommends curl wget \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
