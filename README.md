@@ -52,6 +52,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | `npm run smoke:phase4` | As above, for billing and invoicing                                 |
 | `npm run smoke:phase5` | As above, for admin and the audit log                               |
 | `npm run smoke:phase6` | As above, for routing, nav and RBAC (needs **both** API and web up) |
+| `npm run smoke:phase7` | As above, for master-data CRUD and archiving                        |
+| `npm run check:docker` | Validate the Dockerfiles and Compose stack (no daemon required)     |
 
 ## Running the stack
 
@@ -138,36 +140,44 @@ colourless.
 Production code lives on `main`. Each phase is developed on a `phase/NN-*` branch and merged only
 after its automated tests and verification gates pass:
 
-| Branch                               | Tag      | Contents                                       |
-| ------------------------------------ | -------- | ---------------------------------------------- |
-| `main`                               | `v0.0.1` | Repo init and connectivity                     |
-| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC                 |
-| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine, VAT     |
-| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals               |
-| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing                  |
-| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                    |
-| `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass     |
-| `phase/06-theming-and-menu-fix`      | `v1.2.0` | Five themes, shared DataTable, full-bleed      |
-| `phase/07-master-data-crud`          | `v1.3.0` | CRUD for every master-data table (in progress) |
+| Branch                               | Tag      | Contents                                                            |
+| ------------------------------------ | -------- | ------------------------------------------------------------------- |
+| `main`                               | `v0.0.1` | Repo init and connectivity                                          |
+| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC                                      |
+| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine, VAT                          |
+| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals                                    |
+| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing                                       |
+| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                                         |
+| `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass                          |
+| `phase/06-theming-and-menu-fix`      | `v1.2.0` | Five themes, shared DataTable, full-bleed                           |
+| `phase/07-master-data-crud`          | `v1.3.0` | CRUD for every master-data table, schema amendments, Job Management |
+| `phase/09-container-deployment`      | `v1.4.0` | Container images, production API build, Coolify runbook             |
 
-Phase 7 is in progress: see
-[ADR-007](docs/adr-007-master-data-crud.md). The short version is that the API
-supported creating contracts, amendments, clients, projects and jobs while the UI
-exposed none of it, and four tables (Broker, EmployeeContractType, Employee,
-Contact) had no routes at all. Phase 7 adds those routes, the `organisation`
-permission category, a generic master-data panel, eight administration tabs, and a
-jobs board that is a table with CRUD rather than a kanban.
-
-Phase 8 is the schema work drawn up from
+Phases 7 and 8 shipped together in `v1.3.0`: Phase 7 is
+[ADR-007](docs/adr-007-master-data-crud.md) — the API supported creating contracts,
+amendments, clients, projects and jobs while the UI exposed none of it, and four
+tables (Broker, EmployeeContractType, Employee, Contact) had no routes at all — plus
+a rebuild of Operations into the single Job Management page. Phase 8 is the schema
+work drawn up from
 [phase-07-database-amendments.md](docs/phase-07-database-amendments.md): ten
-scenarios costed and risk-ranked, of which items 1, 3, 4, 5 and 6 were implemented
-and shipped in `v1.3.0`. See [ADR-008](docs/adr-008-schema-amendments.md).
+scenarios costed and risk-ranked, of which items 1, 3, 4, 5 and 6 were implemented.
+See [ADR-008](docs/adr-008-schema-amendments.md) and
+[ADR-009](docs/adr-009-job-management.md).
+
+Phase 9 is deployment. It started by finding that the API had no production build at
+all: `server/package.json` claimed `node dist/index.js`, but the `build` script ran
+`tsc` against a `noEmit` tsconfig, so `dist/` had never existed and the API had only
+ever run under `tsx`. Phase 9 adds an esbuild bundle, two Dockerfiles, a
+`.dockerignore`, a local-parity Compose stack and
+[docs/coolify-deployment.md](docs/coolify-deployment.md). `npm run check:docker`
+validates the deployment files without needing a Docker daemon.
 
 **Migrations.** `prisma migrate deploy` cannot be used here — the baseline predates
 Prisma, so it fails P3005 — and `prisma migrate diff --from-url` emits a
 destructive migration. Apply them with `npm run db:migrate` instead: one command, in
 order, once each, one transaction per migration, with a ledger and change
-detection. See ADR-008 D3.
+detection. See ADR-008 D3. In a container this must be a deliberate one-off, never a
+boot step — two replicas migrating concurrently leaves a half-applied schema.
 
 The schema in `server/prisma/schema.prisma` is the source of truth, but the
 migrations are hand-written and additive-only. `prisma migrate deploy` refuses
