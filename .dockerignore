@@ -1,0 +1,63 @@
+# =============================================================================
+# Build context exclusions
+# =============================================================================
+# Without this file `COPY . .` pulls the entire working directory into the build
+# context — including the secrets and the 300 MB of build output. It is also
+# uploaded to the Docker daemon on every build, so a large context makes each
+# build noticeably slower even when the Dockerfile copies nothing.
+# =============================================================================
+
+# --- Secrets: never in an image layer ---------------------------------------
+.env
+.env.*
+!.env.example
+client/.env.local
+client/.env.local.example
+# Belt and braces. Coolify injects these at runtime, so no image can contain one.
+*.pem
+*.key
+
+# --- Version control ---------------------------------------------------------
+.git
+.gitignore
+
+# --- Build output (regenerated inside the image) -----------------------------
+node_modules
+**/node_modules
+.next
+**/.next
+dist
+**/dist
+build
+**/build
+out
+**/out
+
+# --- Caches ------------------------------------------------------------------
+.cache
+**/.cache
+.turbo
+**/.turbo
+*.tsbuildinfo
+**/*.tsbuildinfo
+.vscode
+.idea
+
+# --- Logs and local artefacts ------------------------------------------------
+*.log
+npm-debug.log*
+coverage
+**/coverage
+
+# --- Docs and tests ----------------------------------------------------------
+# Not needed to build or run either service. Excluding docs keeps the context
+# small; tests are excluded for the same reason, and the gates still run in CI
+# against the repository rather than the image.
+docs
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+
+# --- OS cruft ----------------------------------------------------------------
+.DS_Store
+Thumbs.db

@@ -1,0 +1,162 @@
+# syntax=docker/dockerfile:1.7
+
+# =============================================================================
+# OpenERP API
+# =============================================================================
+# Coolify: Dockerfile buildpack, port 4000, internal only. No public domain.
+#
+# ## The database address
+#
+# `DATABASE_URL` is declared as an ARG so you can point a build at a different
+# database by editing one line here. It is a **placeholder by design**: it exists
+# so `prisma generate` has something to parse, and it will not connect from
+# inside the image.
+#
+# The URL the API actually uses arrives as a *runtime* environment variable from
+# Coolify, which overrides anything set here. That is deliberate, and the reason
+# is not stylistic:
+#
+#   A value written into a Dockerfile is baked into an image layer and stays
+#   readable in `docker history` forever, to anyone who can pull the image. A
+#   production database password must not be in the repository. So the build-time
+#   value is inert, and the live credential only ever exists in Coolify's
+#   encrypted runtime environment.
+#
+# On the same Coolify instance, set the runtime value to the internal service URL:
+#   postgresql://USER:PASSWORD@openerp-db:5432/openerp?schema=public
+# For a Coolify-managed Postgres, copy the URL from the database resource; it
+# already uses the internal name.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1 — dependencies
+#
+# Copied as a set of manifests rather than the whole tree, so editing a source
+# file does not invalidate the (slow) `npm ci` layer.
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS deps
+
+WORKDIR /app
+
+# npm workspaces hoist everything to the root `node_modules`, and `@openerp/shared`
+# is resolved through that hoist. The three manifests are all `npm ci` needs.
+COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/
+COPY server/package.json ./server/
+COPY client/package.json ./client/
+
+# `--ignore-scripts` because the only install-time script that matters is
+# Prisma's engine download, and it needs a schema that does not exist yet.
+RUN npm ci --ignore-scripts
+
+# -----------------------------------------------------------------------------
+# Stage 2 — build
+# -----------------------------------------------------------------------------
+FROM deps AS build
+
+WORKDIR /app
+
+COPY shared ./shared
+COPY server ./server
+
+# `prisma generate` writes the query engine into node_modules. It is
+# platform-specific, so it must run in the image that will run it — which is why
+# every stage here is `node:22-bookworm-slim` rather than a mix of slim and
+# alpine. Mixing them is the usual cause of Prisma's "did not initialize
+# engine" error at boot.
+RUN npx prisma generate --schema server/prisma/schema.prisma
+
+# `npm run build` is `tsc` (typecheck only — the tsconfig sets noEmit) followed
+# by the esbuild bundle that produces the runnable `dist/index.js`. The tsc pass
+# is kept because it is the gate that catches a type error before the bundle
+# silently ships.
+RUN npm run build --workspace server
+
+# Fail the build rather than the deploy if the artefact is missing. Without this,
+# a typo in the bundle script produces an image that starts and immediately
+# crashes on `node dist/index.js`, which reads as an application bug.
+RUN test -f server/dist/index.js
+
+# -----------------------------------------------------------------------------
+# Stage 3 — runtime
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS runtime
+
+# `curl` is used by the Compose healthcheck below and is convenient for
+# debugging a live container. `openssl` is not needed on Debian: Prisma's default
+# engine for this base links against the system OpenSSL, which bookworm-slim
+# already carries.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    API_HOST=0.0.0.0 \
+    API_PORT=4000 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false
+
+# -----------------------------------------------------------------------------
+# DATABASE_URL — see the header.
+#
+# Placeholder only. The real value is injected at runtime by Coolify.
+#
+# Note the `?schema=public` query parameter: it tells the Prisma client which
+# schema to read and write. This database uses `public`; the string in the default
+# matches that. A connection string without it defaults to `public` too, but being
+# explicit costs nothing and makes a non-public schema a one-line change.
+# -----------------------------------------------------------------------------
+ARG DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public"
+ENV DATABASE_URL="${DATABASE_URL}"
+
+# Runtime dependencies only. The build stage above already ran the full install,
+# so devDependencies are not needed here and would only inflate the image.
+COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/
+COPY server/package.json ./server/
+COPY client/package.json ./client/
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+# Prisma's generated client and its engine. Regenerated here rather than copied
+# from the build stage because `node_modules` was reinstalled above.
+COPY server/prisma ./server/prisma
+RUN npx prisma generate --schema server/prisma/schema.prisma
+
+# The migration runner. It is in the image so migrations can be run as a one-off
+# command against the same runtime environment as the API, rather than from a
+# laptop — see docs/coolify-deployment.md.
+COPY server/scripts ./server/scripts
+
+# The bundle. Application code only; no TypeScript source reaches production.
+COPY --from=build /app/server/dist ./server/dist
+
+# `shared` is bundled in by esbuild, so no runtime copy is needed. The manifests
+# above are required only so npm can resolve the workspace graph.
+
+# -----------------------------------------------------------------------------
+# Non-root
+#
+# The `node` user ships with the base image (uid 1000). Prisma needs to read its
+# own engine and nothing else, so no ownership changes are required — the files
+# are world-readable by default.
+#
+# Skipped rather than half-done: switching to a non-root user while still needing
+# a writable directory would be theatre. If you later add file uploads or local
+# caching, add a `RUN chown -R node:node /app/data` and a `VOLUME` here.
+# -----------------------------------------------------------------------------
+USER node
+
+EXPOSE 4000
+
+# Liveness, not readiness: this must not depend on Postgres, or a brief database
+# outage will have Coolify killing and restarting healthy containers, which turns
+# a recoverable blip into a crash loop. Compose and Coolify should point
+# *deployment* health at `/health/ready`, which does probe the database.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:4000/health || exit 1
+
+# `exec form` so node becomes PID 1 and receives SIGTERM directly. Without the
+# exec form, the shell becomes PID 1, ignores the signal, and the container is
+# SIGKILLed after the grace period — which in turn kills in-flight requests.
+CMD ["node", "server/dist/index.js"]

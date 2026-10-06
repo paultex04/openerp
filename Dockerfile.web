@@ -1,0 +1,157 @@
+# syntax=docker/dockerfile:1.7
+
+# =============================================================================
+# OpenERP web client
+# =============================================================================
+# Coolify: Dockerfile buildpack, port 3000, the only resource with a public
+# domain.
+#
+# ## How this reaches the API
+#
+# The client never calls the API cross-origin. It calls `/api/*` on its own
+# origin, and a Next.js Route Handler at `src/app/api/[...path]/route.ts`
+# forwards each request to `API_ORIGIN`. That keeps the session cookie
+# unambiguously first-party — no CORS, no cross-site cookie rules — and means the
+# API needs no public domain and no TLS certificate of its own.
+#
+# So on one Coolify instance:
+#   API_ORIGIN=http://openerp-api:4000     (runtime variable, NOT public)
+#   CLIENT_ORIGIN=https://erp.example.co.za (on the API, for CORS validation)
+#
+# ## A note on `output: 'standalone'`
+#
+# This image does **not** use it. The standalone tracer follows `node_modules`
+# through the workspace hoist, and this repo has three workspaces sharing one
+# hoisted tree — the traced output nests the whole monorepo and is large and
+# brittle to reason about. Copying `.next` plus production `node_modules` is
+# larger but predictable, and predictable is the right trade for a first deploy.
+# Revisit only if image size becomes a measured problem.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stage 1 — dependencies
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS deps
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/
+COPY server/package.json ./server/
+COPY client/package.json ./client/
+
+# `--ignore-scripts`: Next has no install-time script that needs to run here, and
+# ignoring them keeps the layer cache-friendly.
+RUN npm ci --ignore-scripts
+
+# -----------------------------------------------------------------------------
+# Stage 2 — build
+# -----------------------------------------------------------------------------
+FROM deps AS build
+
+WORKDIR /app
+
+# `shared` is a workspace-internal TypeScript package: its `exports` point at
+# `./src/index.ts`. Next compiles it through `tsconfig` path resolution rather
+# than consuming a build artefact, which is why there is no `build` script for it
+# anywhere in this repo and why the client needs the `extensionAlias` webpack hook
+# in `next.config.mjs` — `shared/src` uses extensionless relative imports.
+#
+# `server` is NOT copied. The client must not be able to import server code, and
+# copying it would make an accidental import compile rather than fail loudly.
+COPY shared ./shared
+COPY client ./client
+
+# -----------------------------------------------------------------------------
+# Build-time public variables
+#
+# `NEXT_PUBLIC_*` values are inlined into the JavaScript bundle at build time.
+# That is why the login page's demo shortcuts are off by default: any value set
+# here is readable in the page source, so enabling them in production would
+# publish the demo password to anyone who views source.
+#
+# Leave these empty. The client needs no public configuration at all — the
+# `/api/*` proxy reads `API_ORIGIN`, which is a *server-side* variable resolved at
+# runtime below.
+# -----------------------------------------------------------------------------
+ARG NEXT_PUBLIC_API_BASE_URL=""
+ARG NEXT_PUBLIC_DEMO_LOGIN=""
+ARG NEXT_PUBLIC_DEMO_PASSWORD=""
+ARG NEXT_PUBLIC_DEMO_ADMIN_PASSWORD=""
+ENV NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL}" \
+    NEXT_PUBLIC_DEMO_LOGIN="${NEXT_PUBLIC_DEMO_LOGIN}" \
+    NEXT_PUBLIC_DEMO_PASSWORD="${NEXT_PUBLIC_DEMO_PASSWORD}" \
+    NEXT_PUBLIC_DEMO_ADMIN_PASSWORD="${NEXT_PUBLIC_DEMO_ADMIN_PASSWORD}" \
+    NEXT_TELEMETRY_DISABLED=1
+
+# `npm run build` in the client is `next build`. A failure here fails the image
+# build rather than the deploy, which is the whole point of building in Docker.
+RUN npm run build --workspace client
+
+RUN test -f client/.next/BUILD_ID
+
+# -----------------------------------------------------------------------------
+# Stage 3 — runtime
+# -----------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS runtime
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false
+
+# -----------------------------------------------------------------------------
+# API_ORIGIN
+#
+# This is the one variable that genuinely matters to this container, and it is a
+# *server-side* runtime variable — read by the Route Handler on each request, not
+# inlined into the bundle. It is therefore settable at deploy time without
+# rebuilding, which is exactly what a private-network hostname should be.
+#
+# `localhost` here would resolve to the web container itself, so every API call
+# would 502 with `API_UNREACHABLE`. On one Coolify instance set it to the API
+# resource's service name, e.g. `http://openerp-api:4000`.
+#
+# ARG is used only so a build can be pointed elsewhere (a staging box, a local
+# Compose stack). The runtime value from Coolify overrides it.
+# -----------------------------------------------------------------------------
+ARG API_ORIGIN="http://openerp-api:4000"
+ENV API_ORIGIN="${API_ORIGIN}"
+
+COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/
+COPY server/package.json ./server/
+COPY client/package.json ./client/
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+# The built application. `.next` is what `next start` serves; `public` is copied
+# only if present, since this repo has none yet and a missing COPY is a hard error.
+COPY --from=build /app/client/.next ./client/.next
+COPY --from=build /app/client/next.config.mjs ./client/next.config.mjs
+COPY client/package.json ./client/package.json
+# `shared` is needed at runtime only because the workspace graph must resolve.
+# Its source is not imported: the bundle is self-contained.
+COPY shared ./shared
+
+# Next writes its cache into `.next`; owned by `node` so a non-root runtime can
+# still write. Without this the container starts and then fails on first request
+# with EACCES on `/app/client/.next/cache`.
+RUN mkdir -p /app/client/.next/cache && chown -R node:node /app/client/.next
+
+USER node
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/login > /dev/null || exit 1
+
+# `next start` rather than a standalone server, for the reason in the header.
+# Exec form so Next receives SIGTERM and drains in-flight requests.
+CMD ["npm", "run", "start", "--workspace", "client", "--", "--hostname", "0.0.0.0", "--port", "3000"]

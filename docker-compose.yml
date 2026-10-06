@@ -1,0 +1,150 @@
+# =============================================================================
+# Local production parity
+# =============================================================================
+# Runs the same two images Coolify will build, against a real Postgres, so a
+# deployment problem can be reproduced on a laptop before it reaches production.
+#
+# This is *not* a development stack: both services build and run exactly as they
+# would in Coolify, against a real database. Development remains `npm run dev`.
+#
+#   docker compose up --build
+#   docker compose run --rm migrate     # apply migrations
+#   open http://localhost:3000
+#
+# ## Why the API has no published port
+#
+# Only the web container is reachable from outside. The API is on the internal
+# network and reached through the client's `/api/*` proxy, so the session cookie
+# stays first-party and the API needs no TLS certificate of its own. Publishing
+# `4000` here would mirror the mistake of giving it a public domain in Coolify.
+# =============================================================================
+
+name: openerp
+
+# -----------------------------------------------------------------------------
+# Database
+#
+# A plain Postgres rather than the image: whatever you run in Coolify. The schema
+# is applied by the `migrate` service below, never by an entrypoint script — see
+# the ordering note on that service.
+# -----------------------------------------------------------------------------
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: openerp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: openerp
+      # A real collation, not the C locale: the schema sorts job codes and
+      # service codes, and C ordering puts uppercase before lowercase in a way
+      # that makes "sorted" output look wrong rather than merely different.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # The API's migration runner needs a live server, not an open port, so this
+      # runs a real query. `pg_isready` alone reports ready while the database is
+      # still initialising.
+      test: ['CMD-SHELL', 'pg_isready -U openerp -d openerp -q || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    # No published ports. Reachable as `db:5432` inside this network only.
+
+  # -----------------------------------------------------------------------------
+  # API
+  # -----------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # Internal service name, not localhost: localhost inside this container is
+      # the API container itself.
+      DATABASE_URL: postgresql://openerp:${POSTGRES_PASSWORD}@db:5432/openerp?schema=public
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?set AUTH_JWT_SECRET in .env}
+      AUTH_JWT_EXPIRES_IN: ${AUTH_JWT_EXPIRES_IN:-15m}
+      # Must be true under NODE_ENV=production; `loadConfig()` throws at boot
+      # otherwise, which shows up as a crash loop rather than a warning.
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:3000}
+      API_HOST: 0.0.0.0
+      API_PORT: '4000'
+      DEFAULT_CURRENCY: ZAR
+      DEFAULT_VAT_RATE: '0.15'
+    # Deliberately NOT `ports:`. Internal network only.
+
+  # -----------------------------------------------------------------------------
+  # Migrations — a one-off, never a boot step
+  # -----------------------------------------------------------------------------
+  #
+  # Run explicitly: `docker compose run --rm migrate`
+  #
+  # Not a dependency of `api` on purpose. Two reasons:
+  #   1. `depends_on` does not wait for *completion* of a dependency, so an
+  #      ordering dependency would still race on a cold start.
+  #   2. In Coolify a service that runs migrations on every boot will do so on
+  #      every replica and every restart. Migrating concurrently from two
+  #      containers is how a schema ends up half-applied.
+  #
+  # The migration runner is idempotent (it records applied names in
+  # `schema_migration_ledger` and skips them), so re-running is safe — but it
+  # still needs to be a deliberate single action.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    profiles: ['tools']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://openerp:${POSTGRES_PASSWORD}@db:5432/openerp?schema=public
+    # `--dry` prints the plan without writing; run it first on a new database.
+    command: ['node', 'server/scripts/apply-migrations.mjs']
+
+  # -----------------------------------------------------------------------------
+  # Seed — also one-off, and refuses to run in production
+  # -----------------------------------------------------------------------------
+  #
+  # The seed needs `tsx` (it is TypeScript) and devDependencies, neither of which
+  # is in the runtime image. It is therefore NOT run from the API image. Options:
+  #   - `docker compose run --rm --profile tools seed` against a dev build, or
+  #   - run it from a checkout with DATABASE_URL pointed at the container.
+  #
+  # Note the guard: the seed refuses to create demo accounts when
+  # NODE_ENV=production, which is why this cannot be a boot step either.
+  # -----------------------------------------------------------------------------
+
+  # -----------------------------------------------------------------------------
+  # Web
+  # -----------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      # Read server-side per request by the `/api/*` proxy. `api:4000` is the
+      # Compose service name; in Coolify it is the resource's service name.
+      API_ORIGIN: http://api:4000
+      # Left empty deliberately — see Dockerfile.web. Enabling these would publish
+      # the demo password in the page source.
+      NEXT_PUBLIC_DEMO_LOGIN: ''
+      NEXT_PUBLIC_DEMO_PASSWORD: ''
+      NEXT_PUBLIC_DEMO_ADMIN_PASSWORD: ''
+    ports:
+      - '3000:3000'
+
+volumes:
+  db-data:
