@@ -30,6 +30,7 @@ import { Loader2, Search } from 'lucide-react';
 import { api, ApiError, type JobDetail } from '@/lib/api';
 import { useDebounced } from '@/hooks/use-debounced';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -167,38 +168,45 @@ export function AddLineItemDialog({
           </div>
 
           {selected && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label htmlFor="line-qty" className="text-sm font-medium">
-                  Planned quantity ({selected.uom})
-                </label>
-                <Input
-                  id="line-qty"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={quantity}
-                  onChange={(event) => setQuantity(event.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label htmlFor="line-rate" className="text-sm font-medium">
-                  Applied rate (ZAR per {selected.uom})
-                </label>
-                <Input
-                  id="line-rate"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={rate}
-                  onChange={(event) => setRate(event.target.value)}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Snapshot on the line when it is added. Later rate changes will not move this
-                  figure.
-                </p>
-              </div>
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Line details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label htmlFor="line-qty" className="text-sm font-medium">
+                      Planned quantity ({selected.uom})
+                    </label>
+                    <Input
+                      id="line-qty"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={quantity}
+                      onChange={(event) => setQuantity(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="line-rate" className="text-sm font-medium">
+                      Applied rate (ZAR per {selected.uom})
+                    </label>
+                    <Input
+                      id="line-rate"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={rate}
+                      onChange={(event) => setRate(event.target.value)}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Snapshot on the line when it is added. Later rate changes will not move
+                      this figure.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
 

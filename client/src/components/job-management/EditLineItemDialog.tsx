@@ -25,6 +25,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Loader2, TriangleAlert } from 'lucide-react';
 import { api, ApiError, type DeliverableRow } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -119,53 +120,67 @@ export function EditLineItemDialog({
             </p>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <QuantityField
-              id="planned-qty"
-              label={`Planned quantity (${row.uom})`}
-              value={planned}
-              onChange={setPlanned}
-              writable={plannedWritable}
-              lockReason={plannedLockReason}
-              unchanged={!plannedChanged}
-            />
-            <QuantityField
-              id="actual-qty"
-              label={`Actual quantity (${row.uom})`}
-              value={actual}
-              onChange={setActual}
-              writable={actualWritable}
-              lockReason={actualsLockReason}
-              unchanged={!actualChanged}
-            />
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Quantities</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <QuantityField
+                  id="planned-qty"
+                  label={`Planned quantity (${row.uom})`}
+                  value={planned}
+                  onChange={setPlanned}
+                  writable={plannedWritable}
+                  lockReason={plannedLockReason}
+                  unchanged={!plannedChanged}
+                />
+                <QuantityField
+                  id="actual-qty"
+                  label={`Actual quantity (${row.uom})`}
+                  value={actual}
+                  onChange={setActual}
+                  writable={actualWritable}
+                  lockReason={actualsLockReason}
+                  unchanged={!actualChanged}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Read-only by design. See the file header. */}
-          <div className="rounded-md border p-3">
-            <p className="text-[11px] text-muted-foreground">
-              Applied rate (snapshot, not editable)
-            </p>
-            <p className="mt-0.5 font-mono text-sm tabular-nums">
-              {formatZarRate(row.appliedRate)} per {row.uom}
-            </p>
-          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Pricing snapshot</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">
+                  Applied rate (snapshot, not editable)
+                </p>
+                <p className="font-mono text-sm tabular-nums">
+                  {formatZarRate(row.appliedRate)} per {row.uom}
+                </p>
+              </div>
 
-          <dl className="grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <dt className="text-[11px] text-muted-foreground">Planned value</dt>
-              <dd className="font-mono tabular-nums">{formatZar(row.plannedSubtotal)}</dd>
-            </div>
-            <div>
-              <dt className="text-[11px] text-muted-foreground">Actual value</dt>
-              <dd className="font-mono tabular-nums">{formatZar(row.actualSubtotal)}</dd>
-            </div>
-            <div>
-              <dt className="text-[11px] text-muted-foreground">Variance</dt>
-              <dd className={`font-mono tabular-nums ${varianceTone(row.valueVariance)}`}>
-                {formatZar(row.valueVariance)}
-              </dd>
-            </div>
-          </dl>
+              <dl className="grid grid-cols-3 gap-4 text-sm">
+                <div className="space-y-1">
+                  <dt className="text-[11px] text-muted-foreground">Planned value</dt>
+                  <dd className="font-mono tabular-nums">{formatZar(row.plannedSubtotal)}</dd>
+                </div>
+                <div className="space-y-1">
+                  <dt className="text-[11px] text-muted-foreground">Actual value</dt>
+                  <dd className="font-mono tabular-nums">{formatZar(row.actualSubtotal)}</dd>
+                </div>
+                <div className="space-y-1">
+                  <dt className="text-[11px] text-muted-foreground">Variance</dt>
+                  <dd className={`font-mono tabular-nums ${varianceTone(row.valueVariance)}`}>
+                    {formatZar(row.valueVariance)}
+                  </dd>
+                </div>
+              </dl>
+            </CardContent>
+          </Card>
         </div>
 
         <DialogFooter>

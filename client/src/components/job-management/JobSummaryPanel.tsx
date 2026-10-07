@@ -36,9 +36,10 @@ import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
-import { formatDate, formatPercent } from '@/lib/format';
+import { formatPercent } from '@/lib/format';
 
 type Job = JobDetail['job'];
 type Permissions = JobDetail['permissions'];
@@ -80,50 +81,70 @@ export function JobSummaryPanel({
 
       <CommercialBasis job={job} />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <EditableText
-          label="Work order"
-          value={job.workOrder}
-          save={save}
-          body={(next) => ({ workOrder: next || null })}
-        />
-        <EditableText
-          label="Purchase order"
-          value={job.purchaseOrder}
-          save={save}
-          body={(next) => ({ purchaseOrder: next || null })}
-        />
-        <EditableText
-          label="Area"
-          value={job.area}
-          save={save}
-          body={(next) => ({ area: next || null })}
-        />
-        <PrioritySelect job={job} />
-        <EditableDate
-          label="Planned start"
-          value={job.plannedStartDate}
-          save={save}
-          body={(next) => ({ plannedStartDate: next || null })}
-        />
-        <EditableDate
-          label="Planned end"
-          value={job.plannedEndDate}
-          save={save}
-          body={(next) => ({ plannedEndDate: next || null })}
-        />
-        <EditableDate
-          label="Actual start"
-          value={job.actualStartDate}
-          save={save}
-          body={(next) => ({ actualStartDate: next || null })}
-        />
-        <EditableDate
-          label="Actual end"
-          value={job.actualEndDate}
-          save={save}
-          body={(next) => ({ actualEndDate: next || null })}
-        />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Job references</CardTitle>
+            <CardDescription>Orders and location — the identifiers on the job.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <EditableText
+                label="Work order"
+                value={job.workOrder}
+                save={save}
+                body={(next) => ({ workOrder: next || null })}
+              />
+              <EditableText
+                label="Purchase order"
+                value={job.purchaseOrder}
+                save={save}
+                body={(next) => ({ purchaseOrder: next || null })}
+              />
+              <EditableText
+                label="Area"
+                value={job.area}
+                save={save}
+                body={(next) => ({ area: next || null })}
+              />
+              <PrioritySelect job={job} />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Schedule</CardTitle>
+            <CardDescription>Planned windows and actual dates from the field.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <EditableDate
+                label="Planned start"
+                value={job.plannedStartDate}
+                save={save}
+                body={(next) => ({ plannedStartDate: next || null })}
+              />
+              <EditableDate
+                label="Planned end"
+                value={job.plannedEndDate}
+                save={save}
+                body={(next) => ({ plannedEndDate: next || null })}
+              />
+              <EditableDate
+                label="Actual start"
+                value={job.actualStartDate}
+                save={save}
+                body={(next) => ({ actualStartDate: next || null })}
+              />
+              <EditableDate
+                label="Actual end"
+                value={job.actualEndDate}
+                save={save}
+                body={(next) => ({ actualEndDate: next || null })}
+              />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <StatusControl
@@ -141,23 +162,25 @@ export function JobSummaryPanel({
 
 function CommercialBasis({ job }: { job: Job }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-md border p-3 text-xs">
-      <span className="text-muted-foreground">Commercial basis</span>
-      <span className="font-medium">
-        {job.amendment?.amendmentNumber ?? '—'} ({job.amendment?.status ?? '—'})
-      </span>
-      <span className="text-muted-foreground">
-        VAT {formatPercent(job.amendment?.vatRate ?? 0)}
-      </span>
-      {job.amendmentInherited && (
-        <Badge
-          variant="outline"
-          title="This job has no amendment of its own and inherits the project's."
-        >
-          inherited from project
-        </Badge>
-      )}
-    </div>
+    <Card>
+      <CardContent className="flex flex-wrap items-center gap-3 py-3 text-xs">
+        <span className="text-muted-foreground">Commercial basis</span>
+        <span className="font-medium">
+          {job.amendment?.amendmentNumber ?? '—'} ({job.amendment?.status ?? '—'})
+        </span>
+        <span className="text-muted-foreground">
+          VAT {formatPercent(job.amendment?.vatRate ?? 0)}
+        </span>
+        {job.amendmentInherited && (
+          <Badge
+            variant="outline"
+            title="This job has no amendment of its own and inherits the project's."
+          >
+            inherited from project
+          </Badge>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -187,7 +210,7 @@ function StatusControl({
   });
 
   const move = useMutation({
-    mutationFn: (to: string) => api.post(`/api/jobs/${job.id}/transition`, { to }),
+    mutationFn: (to: string) => api.post(`/api/jobs/${job.id}/transition`, { status: to }),
     onSuccess: (_result, to) => {
       toast.add({ title: `Moved to ${to}`, type: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['job-transitions', job.id] });
@@ -209,53 +232,59 @@ function StatusControl({
   const ready = options.length > 0 || availableTransitions.length > 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
-      <label htmlFor={`status-${job.id}`} className="text-sm font-medium">
-        Status
-      </label>
-      <select
-        id={`status-${job.id}`}
-        value={job.status}
-        disabled={!ready || move.isPending || availableTransitions.length === 0}
-        onChange={(event) => {
-          const next = event.target.value;
-          if (next !== job.status) move.mutate(next);
-        }}
-        aria-describedby={`status-help-${job.id}`}
-        className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
-      >
-        {JOB_STATUSES.map((status) => {
-          const isCurrent = status === job.status;
-          // The endpoint returns the machine's *legal neighbours* from the current
-          // stage — not all thirteen statuses annotated. So absence is the
-          // meaningful case: a status not in the response is not reachable at all.
-          //
-          // Getting this backwards would mark all twelve unreachable statuses
-          // enabled, which is how the first version of this control rendered: a
-          // dropdown that offered every stage and let the server 409 on nine of
-          // them. Absence must mean disabled.
-          const option = options.find((t) => t.to === status);
-          const allowed = isCurrent || (option ? option.allowed : false);
-          return (
-            <option key={status} value={status} disabled={!allowed} title={option?.reason}>
-              {status}
-              {option && !option.allowed ? ` — ${option.reason}` : ''}
-            </option>
-          );
-        })}
-      </select>
-      <span id={`status-help-${job.id}`} className="text-xs text-muted-foreground">
-        {transitions.isError
-          ? 'Could not load the allowed transitions; the control is disabled.'
-          : availableTransitions.length === 0
-            ? // A terminal stage. Saying so is more useful than a permanently
-              // greyed-out box, which reads as a bug.
-              `${job.status} is a terminal stage — there is nowhere to move it to.`
-            : ready
-              ? 'Only stages the workflow allows from here are selectable.'
-              : 'Loading transitions…'}
-      </span>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Lifecycle</CardTitle>
+        <CardDescription>Move the job through its workflow stages.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-3">
+        <label htmlFor={`status-${job.id}`} className="text-sm font-medium">
+          Status
+        </label>
+        <select
+          id={`status-${job.id}`}
+          value={job.status}
+          disabled={!ready || move.isPending || availableTransitions.length === 0}
+          onChange={(event) => {
+            const next = event.target.value;
+            if (next !== job.status) move.mutate(next);
+          }}
+          aria-describedby={`status-help-${job.id}`}
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
+        >
+          {JOB_STATUSES.map((status) => {
+            const isCurrent = status === job.status;
+            // The endpoint returns the machine's *legal neighbours* from the current
+            // stage — not all thirteen statuses annotated. So absence is the
+            // meaningful case: a status not in the response is not reachable at all.
+            //
+            // Getting this backwards would mark all twelve unreachable statuses
+            // enabled, which is how the first version of this control rendered: a
+            // dropdown that offered every stage and let the server 409 on nine of
+            // them. Absence must mean disabled.
+            const option = options.find((t) => t.to === status);
+            const allowed = isCurrent || (option ? option.allowed : false);
+            return (
+              <option key={status} value={status} disabled={!allowed} title={option?.reason}>
+                {status}
+                {option && !option.allowed ? ` — ${option.reason}` : ''}
+              </option>
+            );
+          })}
+        </select>
+        <span id={`status-help-${job.id}`} className="text-xs text-muted-foreground">
+          {transitions.isError
+            ? 'Could not load the allowed transitions; the control is disabled.'
+            : availableTransitions.length === 0
+              ? // A terminal stage. Saying so is more useful than a permanently
+                // greyed-out box, which reads as a bug.
+                `${job.status} is a terminal stage — there is nowhere to move it to.`
+              : ready
+                ? 'Only stages the workflow allows from here are selectable.'
+                : 'Loading transitions…'}
+        </span>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -263,43 +292,46 @@ function StatusControl({
 
 function JobFacts({ job }: { job: Job }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Fact
-        label="Supervisor"
-        value={job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'}
-      />
-      <Fact
-        label="Crew"
-        value={
-          job.assignments.length === 0
-            ? 'None assigned'
-            : job.assignments
-                .map(
-                  (a) => `${a.employee.name} ${a.employee.surname}${a.role ? ` (${a.role})` : ''}`,
-                )
-                .join(', ')
-        }
-      />
-      <Fact
-        label="Planned window"
-        value={`${formatDate(job.plannedStartDate)} → ${formatDate(job.plannedEndDate)}`}
-      />
-      <Fact
-        label="Actual window"
-        value={`${formatDate(job.actualStartDate)} → ${formatDate(job.actualEndDate)}`}
-      />
-      <Fact label="Description" value={job.description ?? '—'} />
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Team &amp; scope</CardTitle>
+        <CardDescription>Who is doing the work and what it covers.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Fact
+            label="Supervisor"
+            value={
+              job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'
+            }
+          />
+          <Fact
+            label="Crew"
+            value={
+              job.assignments.length === 0
+                ? 'None assigned'
+                : job.assignments
+                    .map(
+                      (a) =>
+                        `${a.employee.name} ${a.employee.surname}${a.role ? ` (${a.role})` : ''}`,
+                    )
+                    .join(', ')
+            }
+          />
+          <Fact label="Description" value={job.description ?? '—'} />
+        </dl>
+      </CardContent>
+    </Card>
   );
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border p-3">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-sm break-words" title={value}>
+    <div className="space-y-1">
+      <dt className="text-[11px] text-muted-foreground">{label}</dt>
+      <dd className="text-sm break-words" title={value}>
         {value}
-      </p>
+      </dd>
     </div>
   );
 }
@@ -361,8 +393,8 @@ function EditableText({
   const commit = (next: string) => setDraft({ server: next, text: next, dirty: false });
 
   return (
-    <div className="rounded-md border p-3">
-      <label htmlFor={`f-${label}`} className="text-[11px] text-muted-foreground">
+    <div className="space-y-1.5">
+      <label htmlFor={`f-${label}`} className="text-xs font-medium text-muted-foreground">
         {label}
       </label>
       <Input
@@ -384,7 +416,7 @@ function EditableText({
             event.currentTarget.blur();
           }
         }}
-        className="mt-1 h-8 font-mono text-xs"
+        className="h-8 font-mono text-xs"
       />
     </div>
   );
@@ -408,8 +440,8 @@ function EditableDate({
   }
 
   return (
-    <div className="rounded-md border p-3">
-      <label htmlFor={`d-${label}`} className="text-[11px] text-muted-foreground">
+    <div className="space-y-1.5">
+      <label htmlFor={`d-${label}`} className="text-xs font-medium text-muted-foreground">
         {label}
       </label>
       <Input
@@ -423,7 +455,7 @@ function EditableDate({
             setDraft({ server: draft.text, text: draft.text, dirty: false });
           }
         }}
-        className="mt-1 h-8 text-xs"
+        className="h-8 text-xs"
       />
     </div>
   );
@@ -451,8 +483,8 @@ function PrioritySelect({ job }: { job: Job }) {
   const priorities = ['P1 Emergency', 'P2 Urgent', 'P3 Routine Normal', 'P4 Low'];
 
   return (
-    <div className="rounded-md border p-3">
-      <label htmlFor={`prio-${job.id}`} className="text-[11px] text-muted-foreground">
+    <div className="space-y-1.5">
+      <label htmlFor={`prio-${job.id}`} className="text-xs font-medium text-muted-foreground">
         Priority
       </label>
       <select
@@ -463,7 +495,7 @@ function PrioritySelect({ job }: { job: Job }) {
           setPending(true);
           save.mutate(event.target.value);
         }}
-        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+        className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
       >
         {/* Keep a value the server knows about but this list omits, rather than
             silently coercing it to the first option on render. */}

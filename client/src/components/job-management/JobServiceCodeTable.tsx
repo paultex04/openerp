@@ -36,6 +36,7 @@ import {
   type VarianceSummary,
 } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { NumericCell } from '@/components/data-table/NumericCell';
@@ -121,19 +122,27 @@ export function JobServiceCodeTable({
 
       {/* Totals above the table, not in a footer: a footer scrolls out of view, and
           the planned/actual comparison is the reason to read this table at all. */}
-      <dl className="grid gap-3 sm:grid-cols-4">
-        <Total label="Planned value" value={formatZar(summary.plannedSubtotal)} />
-        <Total label="Actual value" value={formatZar(summary.actualSubtotal)} />
-        <Total
-          label="Variance"
-          value={formatZar(summary.valueVariance)}
-          tone={varianceTone(summary.valueVariance)}
-        />
-        <Total
-          label="Lines measured"
-          value={`${summary.linesWithActuals} of ${summary.lineCount}`}
-        />
-      </dl>
+      <Card>
+        <CardHeader>
+          <CardTitle>Totals</CardTitle>
+          <CardDescription>Planned vs actual for this job.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid gap-4 sm:grid-cols-4">
+            <Total label="Planned value" value={formatZar(summary.plannedSubtotal)} />
+            <Total label="Actual value" value={formatZar(summary.actualSubtotal)} />
+            <Total
+              label="Variance"
+              value={formatZar(summary.valueVariance)}
+              tone={varianceTone(summary.valueVariance)}
+            />
+            <Total
+              label="Lines measured"
+              value={`${summary.linesWithActuals} of ${summary.lineCount}`}
+            />
+          </dl>
+        </CardContent>
+      </Card>
 
       <div
         role="search"
@@ -298,9 +307,9 @@ export function JobServiceCodeTable({
 
 function Total({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div className="rounded-md border p-3">
+    <div className="space-y-1">
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className={`mt-0.5 font-mono text-sm tabular-nums ${tone ?? ''}`}>{value}</dd>
+      <dd className={`font-mono text-sm tabular-nums ${tone ?? ''}`}>{value}</dd>
     </div>
   );
 }

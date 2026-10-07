@@ -43,6 +43,7 @@ import { StatusPill } from '@/components/lifecycle/status-badge';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { JobSummaryPanel } from '@/components/job-management/JobSummaryPanel';
 import { JobServiceCodeTable } from '@/components/job-management/JobServiceCodeTable';
+import { JobBillingCard } from '@/components/job-management/JobBillingCard';
 import { useDebounced } from '@/hooks/use-debounced';
 
 /**
@@ -318,6 +319,8 @@ function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => void })
         permissions={permissions}
         onChanged={refreshAll}
       />
+
+      <JobBillingCard job={job} onChanged={refreshAll} />
     </div>
   );
 }

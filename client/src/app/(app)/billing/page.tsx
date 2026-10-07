@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useState } from 'react';
+import { Plus } from 'lucide-react';
 import {
   api,
   ApiError,
@@ -21,6 +22,8 @@ import {
   type InvoiceTransitionOption,
 } from '@/lib/api';
 import { InvoiceTransitions } from '@/components/billing/InvoicePanel';
+import { AddInvoiceDialog } from '@/components/billing/AddInvoiceDialog';
+import { usePermissions } from '@/components/auth/usePermissions';
 import { invoiceVariant } from '@/lib/lifecycle-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -102,8 +105,13 @@ const invoiceColumns: ColumnDef<InvoiceRow, unknown>[] = [
 ];
 
 export default function BillingPage() {
+  const queryClient = useQueryClient();
+  const { can } = usePermissions();
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const canWrite = can('invoice.write');
 
   const register = useQuery({
     // Fetched unfiltered: `DataTable` owns filtering. The previous version sent
@@ -164,6 +172,14 @@ export default function BillingPage() {
             isLoading={register.isLoading}
             initialSort={[{ id: 'issueDate', desc: true }]}
             emptyMessage="No invoices match the current search and filters."
+            actions={
+              canWrite ? (
+                <Button size="sm" onClick={() => setAdding(true)}>
+                  <Plus aria-hidden="true" className="size-4" />
+                  New invoice
+                </Button>
+              ) : undefined
+            }
             filters={[
               {
                 id: 'status',
@@ -200,6 +216,17 @@ export default function BillingPage() {
           )}
         </section>
       </div>
+
+      {adding && (
+        <AddInvoiceDialog
+          onClose={() => setAdding(false)}
+          onCreated={(invoiceId) => {
+            setAdding(false);
+            setSelectedId(invoiceId);
+            void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+          }}
+        />
+      )}
     </div>
   );
 }
