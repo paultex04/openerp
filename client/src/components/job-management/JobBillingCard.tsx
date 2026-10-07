@@ -81,7 +81,18 @@ export function JobBillingCard({
       }),
   });
 
+  // NOTE: this must stay a <section>, not a bare <Card>.
+  //
+  // The selected-job column is a height-capped flex container, and every shadcn
+  // Card carries `overflow-hidden` — which resets its automatic minimum height
+  // to zero, so as a direct flex item it shrinks below its content and then
+  // clips it. That is exactly what happened here: the card rendered 32px tall
+  // (header only) with 154px of content clipped inside it, while the invoice
+  // list and the button sat invisibly in the DOM. A <section> is
+  // overflow-visible, so its minimum is its content and it refuses the shrink.
+  // The sibling panels return sections for the same structural reason.
   return (
+    <section className="space-y-4">
     <Card>
       <CardHeader>
         <CardTitle>Billing</CardTitle>
@@ -129,5 +140,6 @@ export function JobBillingCard({
         )}
       </CardContent>
     </Card>
+    </section>
   );
 }
