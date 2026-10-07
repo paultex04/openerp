@@ -31,6 +31,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { X } from 'lucide-react';
+import { jobPriorityValues } from '@openerp/shared';
 import { api, ApiError, type JobDetail, type TransitionOption } from '@/lib/api';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { StatusPill } from '@/components/lifecycle/status-badge';
@@ -480,7 +481,12 @@ function PrioritySelect({ job }: { job: Job }) {
     onSettled: () => setPending(false),
   });
 
-  const priorities = ['P1 Emergency', 'P2 Urgent', 'P3 Routine Normal', 'P4 Low'];
+  // From the shared schema, not re-typed here: the labels carry the exact
+  // punctuation the API validates against ('P1 - Emergency / Breakdown', not
+  // 'P1 Emergency'). A hand-written list drifted once already and every priority
+  // save failed validation. Widened to `string` because the server may know a
+  // value this build does not — handled by the fallback option below.
+  const priorities: readonly string[] = jobPriorityValues;
 
   return (
     <div className="space-y-1.5">

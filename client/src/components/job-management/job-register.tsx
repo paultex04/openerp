@@ -36,14 +36,18 @@
 import type { ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { api, ApiError, type JobDetail, type JobListResponse, type JobRow } from '@/lib/api';
 import { DataTable, type DataTableFilter } from '@/components/data-table/data-table';
+import { Button } from '@/components/ui/button';
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { JobSummaryPanel } from '@/components/job-management/JobSummaryPanel';
 import { JobServiceCodeTable } from '@/components/job-management/JobServiceCodeTable';
 import { JobBillingCard } from '@/components/job-management/JobBillingCard';
+import { AddJobDialog } from '@/components/job-management/AddJobDialog';
+import { usePermissions } from '@/components/auth/usePermissions';
 import { useDebounced } from '@/hooks/use-debounced';
 
 /**
@@ -79,11 +83,16 @@ const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE = 300;
 
 export function JobRegister() {
+  const queryClient = useQueryClient();
+  const { can } = usePermissions();
   const [searchInput, setSearchInput] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const canWrite = can('job.write');
 
   const search = useDebounced(searchInput, SEARCH_DEBOUNCE);
 
@@ -230,6 +239,14 @@ export function JobRegister() {
         caption="Jobs"
         emptyMessage="No jobs match the current search and filters."
         isLoading={jobs.isLoading}
+        actions={
+          canWrite ? (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" className="size-4" />
+              New job
+            </Button>
+          ) : undefined
+        }
         manualPagination={{
           pageIndex,
           pageSize,
@@ -252,6 +269,17 @@ export function JobRegister() {
           </button>
         )}
       />
+
+      {adding && (
+        <AddJobDialog
+          onClose={() => setAdding(false)}
+          onCreated={(jobId) => {
+            setAdding(false);
+            setSelectedJobId(jobId);
+            void queryClient.invalidateQueries({ queryKey: ['jobs', 'register'] });
+          }}
+        />
+      )}
 
       {selectedJobId === null ? (
         <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
