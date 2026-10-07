@@ -30,13 +30,16 @@
     "smoke:phase6": "node scripts/smoke-phase6.mjs",
     "smoke:phase7": "node scripts/smoke-phase7.mjs",
     "db:migrate": "node server/scripts/apply-migrations.mjs",
-    "check:docker": "node scripts/check-docker.mjs"
+    "check:docker": "node scripts/check-docker.mjs",
+    "import:template": "tsx server/scripts/generate-template.ts",
+    "import:data": "tsx server/scripts/import-data.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "exceljs": "^4.4.0",
     "globals": "^15.14.0",
     "pg": "^8.23.1",
     "prettier": "^3.4.2",
