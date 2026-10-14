@@ -14,34 +14,46 @@ const nextConfig = {
    * TURBOPACK: why this file still carries a `webpack()` config
    * ---------------------------------------------------------------------------
    *
-   * Next 16 builds with Turbopack by default, and `npm run build` here passes
-   * `--webpack` deliberately. The reason is the `extensionAlias` hook below,
-   * which has no working Turbopack equivalent:
+   * Next 16 builds with Turbopack by default, and `npm run build` below passes
+   * `--webpack` deliberately. The reason is the `extensionAlias` hook, which has
+   * no working Turbopack equivalent:
    *
    *   `@openerp/shared` is a workspace-internal TypeScript package using
-   *   `moduleResolution: "bundler"`, so its relative imports are extensionless.
-   *   An earlier version used explicit `.js` extensions (as ESM requires under
-   *   `NodeNext`); TypeScript and Vitest resolve those to the `.ts` source, but a
-   *   bundler does not, and every commercial screen failed at runtime with
-   *   "Module not found: Can't resolve './money.js'" while `tsc --noEmit` passed
-   *   and every test was green.
+   *   `moduleResolution: "bundler"`. An earlier version used explicit `.js`
+   *   extensions on some relative imports; TypeScript and Vitest resolve those to
+   *   the `.ts` source, but a bundler does not, and every commercial screen failed
+   *   at runtime with "Module not found: Can't resolve './money.js'" while
+   *   `tsc --noEmit` passed and every test was green.
    *
    * Turbopack has no `extensionAlias` (a map from one extension to an ordered
    * list of candidates). `turbopack.resolveAlias` is a condition/value map, not a
    * wildcard rewriter, so `'*.js': ['*.ts', '*.tsx', '*.js']` compiles but does
-   * not resolve - it fails at build time with the same "Can't resolve
-   * './schemas/enums.js'" the alias exists to prevent. That was tried and
-   * reverted. Tracked upstream as vercel/next.js#82945.
+   * not resolve. Tracked upstream as vercel/next.js#82945.
    *
-   * So the build is pinned to webpack. `npm run build:turbopack` in
-   * `client/package.json` runs the default builder, and is there to make the
-   * failure reproducible in one command rather than a paragraph. Drop the
-   * `--webpack` flag (and this block) once #82945 lands.
+   * ---------------------------------------------------------------------------
+   * The `turbopack` key below is REQUIRED, not decorative
+   * ---------------------------------------------------------------------------
    *
-   * `next dev` is unaffected: it uses Turbopack, which resolves the
-   * extensionless imports this package uses everywhere. The gap is specific to
-   * an explicit `.js` specifier under a build.
+   * Next 16 treats "a `webpack` config and no `turbopack` config" as a hard error
+   * and refuses to start - `next dev` included, which does not pass `--webpack`
+   * and so cannot be fixed by the flag. An empty `turbopack: {}` is the documented
+   * way to say "keep Turbopack, the webpack config is for the webpack builder
+   * only". Without it, `npm run dev` dies with:
+   *
+   *   ERROR: This build is using Turbopack, with a `webpack` config and no
+   *   `turbopack` config.
+   *
+   * So both keys are live: `turbopack: {}` lets `next dev` run, and `webpack()`
+   * keeps the production build resolvable. Drop the flag (and this whole block)
+   * once #82945 lands.
    */
+
+  /**
+   * Empty on purpose - see the note above. It exists only so Next stops treating
+   * the `webpack()` hook below as an un-migrated config.
+   */
+  turbopack: {},
+
   webpack(config) {
     config.resolve.extensionAlias = {
       ...config.resolve.extensionAlias,

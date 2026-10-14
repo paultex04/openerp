@@ -207,8 +207,15 @@ call site, and cheaper than a half-adopted component.
 
 ### F4 - `react-hooks/incompatible-library` is a false positive for TanStack Table
 
-`useReactTable()` is documented to return a fresh, non-memoisable object each
-render, so the rule's premise does not hold for it. Disabled for the client.
+`useReactTable()` - `useTable()` since the v9 upgrade in Phase 12 - is documented
+to return a fresh, non-memoisable object each render, so the rule's premise does
+not hold for it. Disabled for the client.
+
+**Phase 12 update:** the rule is configured but currently non-functional. The
+TypeScript 7 upgrade removed `typescript-eslint` (no published version supports
+TS 7), which left ESLint with no parser for TypeScript, so `.ts`/`.tsx` are
+excluded from lint entirely - see `eslint.config.js`. The disable entry is kept
+so the setting is not lost when a parser returns.
 
 ### F5 - Radius scale
 
