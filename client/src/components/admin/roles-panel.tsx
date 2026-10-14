@@ -71,7 +71,7 @@ export function RolesPanel() {
 
   type MatrixRow = (typeof data)[number];
 
-  const columns = useMemo<ColumnDef<MatrixRow, unknown>[]>(() => {
+  const columns = useMemo<ColumnDef<any, MatrixRow, unknown>[]>(() => {
     const roleColumn = (role: RoleRow) =>
       ({
         id: `role-${role.key}`,
@@ -85,7 +85,7 @@ export function RolesPanel() {
               —
             </span>
           ),
-      }) as ColumnDef<MatrixRow, unknown>;
+      }) as ColumnDef<any, MatrixRow, unknown>;
 
     return [
       {

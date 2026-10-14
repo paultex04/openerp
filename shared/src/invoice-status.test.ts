@@ -10,8 +10,8 @@ import {
   isRecognisedInvoiceStatus,
   isTerminalInvoiceStatus,
   nextInvoiceStatuses,
-} from './invoice-status.js';
-import type { InvoiceStatus } from './schemas/enums.js';
+} from './invoice-status';
+import type { InvoiceStatus } from './schemas/enums';
 
 const perms = (...keys: string[]) => new Set<string>(keys);
 

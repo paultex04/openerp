@@ -113,7 +113,7 @@ interface ExpiringAmendment {
  * model on these references, and definitions rebuilt each render would re-run
  * sorting on every keystroke in the search box.
  */
-const expiringColumns: ColumnDef<ExpiringAmendment, unknown>[] = [
+const expiringColumns: ColumnDef<any, ExpiringAmendment, unknown>[] = [
   {
     id: 'amendment',
     header: 'Amendment',
@@ -156,7 +156,7 @@ const expiringColumns: ColumnDef<ExpiringAmendment, unknown>[] = [
   },
 ];
 
-const pendingInvoiceColumns: ColumnDef<InvoiceRow, unknown>[] = [
+const pendingInvoiceColumns: ColumnDef<any, InvoiceRow, unknown>[] = [
   {
     id: 'invoiceNumber',
     accessorKey: 'invoiceNumber',

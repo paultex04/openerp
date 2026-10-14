@@ -15,7 +15,8 @@
  *     that disagrees (ADR-001 Q2). It returns the variance so the caller can
  *     decide.
  */
-import type { Prisma, ServiceCodeCategory, ShiftType } from '@prisma/client';
+import type { Prisma } from '../generated/prisma/client.js';
+import type { ServiceCodeCategory, ShiftType } from '../generated/prisma/enums.js';
 import { prisma } from '../db/client.js';
 import {
   compareWithStored,

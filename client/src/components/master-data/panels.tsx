@@ -110,7 +110,7 @@ const dash = (value: string | number | null | undefined) =>
 // Clients
 // ---------------------------------------------------------------------------
 
-function clientColumns(): ColumnDef<ClientRow, unknown>[] {
+function clientColumns(): ColumnDef<any, ClientRow, unknown>[] {
   return [
     cell<ClientRow>('Company', (row) => (
       <>
@@ -155,7 +155,7 @@ export function ClientsPanel() {
 
 export function ContactsPanel() {
   const clientOptions = useClientOptions();
-  const columns = useMemo<ColumnDef<ContactRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, ContactRow, unknown>[]>(
     () => [
       cell<ContactRow>('Name', (row) => <span className="font-medium">{row.name}</span>),
       cell<ContactRow>('Client', (row) => dash(row.client?.name)),
@@ -183,7 +183,7 @@ export function ContactsPanel() {
 
 export function ContractsPanel() {
   const clientOptions = useClientOptions();
-  const columns = useMemo<ColumnDef<ContractRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, ContractRow, unknown>[]>(
     () => [
       cell<ContractRow>('Number', (row) => (
         <>
@@ -227,7 +227,7 @@ export function ContractsPanel() {
 
 export function AmendmentsPanel() {
   const contractOptions = useContractOptions();
-  const columns = useMemo<ColumnDef<AmendmentRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, AmendmentRow, unknown>[]>(
     () => [
       cell<AmendmentRow>('Amendment', (row) => (
         <>
@@ -302,7 +302,7 @@ export function ProjectsPanel() {
     };
   }, [contractOptions, amendments.data]);
 
-  const columns = useMemo<ColumnDef<ProjectRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, ProjectRow, unknown>[]>(
     () => [
       cell<ProjectRow>('Code', (row) => (
         <>
@@ -368,7 +368,7 @@ export function EmployeesPanel() {
     [brokers.data, types.data, managers.data],
   );
 
-  const columns = useMemo<ColumnDef<EmployeeRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, EmployeeRow, unknown>[]>(
     () => [
       cell<EmployeeRow>('Name', (row) => (
         <>
@@ -412,7 +412,7 @@ export function EmployeesPanel() {
 // ---------------------------------------------------------------------------
 
 export function BrokersPanel() {
-  const columns = useMemo<ColumnDef<BrokerRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, BrokerRow, unknown>[]>(
     () => [
       cell<BrokerRow>('Broker', (row) => <span className="font-medium">{row.name}</span>),
       moneyCell<BrokerRow>('Active employees', (row) => row.activeEmployees),
@@ -434,7 +434,7 @@ export function BrokersPanel() {
 // ---------------------------------------------------------------------------
 
 export function ContractTypesPanel() {
-  const columns = useMemo<ColumnDef<ContractTypeRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, ContractTypeRow, unknown>[]>(
     () => [
       cell<ContractTypeRow>('Type', (row) => <span className="font-medium">{row.name}</span>),
       moneyCell<ContractTypeRow>('Employees', (row) => row.employees),

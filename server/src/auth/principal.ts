@@ -7,7 +7,7 @@
  * revoking a role takes effect immediately instead of when the token happens
  * to expire.
  */
-import type { AppRole } from '@prisma/client';
+import type { AppRoleModel as AppRole } from '../generated/prisma/models/AppRole.js';
 import { prisma } from '../db/client.js';
 import { effectivePermissions } from '@openerp/shared';
 import type { TokenClaims } from './tokens.js';

@@ -113,7 +113,7 @@ export function UsersPanel({ myId }: { myId: number | undefined }) {
     [roles.data],
   );
 
-  const columns = useMemo<ColumnDef<AdminUser, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, AdminUser, unknown>[]>(
     () => [
       {
         id: 'email',

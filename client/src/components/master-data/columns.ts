@@ -1,3 +1,4 @@
+import type { ColumnDef } from '@tanstack/react-table';
 import type { ReactNode } from 'react';
 
 /**
@@ -48,19 +49,34 @@ export function selectedId(value: string | boolean | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** A display column, cast once so `ColumnDef<T, unknown>` accepts it. */
+/**
+ * A display column.
+ *
+ * ## Why this returns `unknown` and the row type is erased
+ *
+ * `DataTable` accepts `ColumnDef<T, unknown>[]`, and these panels pass it tables
+ * generic over their own row types (nothing at this level knows about a feature
+ * set). TanStack Table v9's `ColumnDef` carries a third feature-set parameter
+ * whose default is *not* a bare `unknown`, so naming it is what makes the array
+ * assignable to what `DataTable<T>` declares.
+ *
+ * The alternative - inferring the feature set from a concrete table instance -
+ * would drag a feature-set type parameter through every panel signature for no
+ * gain: the columns here are plain display columns that never touch sorting or
+ * filtering state, so all they need is the row type.
+ */
 export function cell<T extends object>(header: string, accessor: (row: T) => ReactNode) {
   return {
     header,
     cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  };
+  } as unknown as ColumnDef<any, T, unknown>;
 }
 
-/** Right-aligned and tabular, via the table's own numeric-cell treatment. */
+/** Right-aligned and tabular, matching the other registers' numeric columns. */
 export function moneyCell<T extends object>(header: string, accessor: (row: T) => number | null) {
   return {
     header,
     meta: { align: 'right' },
     cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  };
+  } as unknown as ColumnDef<any, T, unknown>;
 }

@@ -58,7 +58,12 @@ const root = resolve(here, '..');
  * runtime from disk.
  */
 const EXTERNAL = [
+  // The generated client and its driver adapter are written to
+  // `src/generated/prisma` by `prisma generate` and must be resolvable from disk
+  // at runtime. They stay out of the bundle for the same reason they always did:
+  // the client ships platform-specific artefacts that cannot be inlined.
   '@prisma/client',
+  '@prisma/adapter-pg',
   'bcryptjs',
   // Fastify, zod, jose and friends bundle cleanly, but they are listed so that a
   // future native dependency fails the build visibly rather than mysteriously.

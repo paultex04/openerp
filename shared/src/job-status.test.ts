@@ -11,7 +11,7 @@ import {
   JOB_STATUSES,
   JOB_TRANSITIONS,
   plannedLockReason,
-} from './job-status.js';
+} from './job-status';
 import type { JobStatus } from './schemas/enums';
 
 /** Convenience: build a permission set from role capability lists. */

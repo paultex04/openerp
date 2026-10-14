@@ -54,7 +54,7 @@ const STATUSES = [
  * `DataTable` memoises the row model on this reference; a definition rebuilt on
  * every render would defeat that and re-run sorting on each keystroke.
  */
-const invoiceColumns: ColumnDef<InvoiceRow, unknown>[] = [
+const invoiceColumns: ColumnDef<any, InvoiceRow, unknown>[] = [
   {
     id: 'invoiceNumber',
     accessorKey: 'invoiceNumber',

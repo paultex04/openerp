@@ -27,10 +27,17 @@ name: openerp
 # A plain Postgres rather than the image: whatever you run in Coolify. The schema
 # is applied by the `migrate` service below, never by an entrypoint script — see
 # the ordering note on that service.
+#
+# Pinned to the 18 line because that is what the development database runs
+# (18.6), so "works in Compose" means something. Changing this tag does not
+# upgrade an existing `db-data` volume: Postgres refuses to start on a data
+# directory written by an older major, so moving a live volume needs a dump and
+# restore (`pg_dump` on the old image, `docker compose down -v`, restore on the
+# new one) rather than a tag edit.
 # -----------------------------------------------------------------------------
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: openerp
@@ -41,7 +48,12 @@ services:
       # that makes "sorted" output look wrong rather than merely different.
       POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
     volumes:
-      - db-data:/var/lib/postgresql/data
+      # NOTE: the mount point moved in Postgres 18. `postgres:18` keeps the data
+      # directory at `/var/lib/postgresql` and puts the cluster in a versioned
+      # subdirectory beneath it, rather than mounting the cluster itself at
+      # `/var/lib/postgresql/data` as 16 and earlier did. Mounting the old path
+      # on 18 either fails the initdb or leaves the cluster outside the volume.
+      - db-data:/var/lib/postgresql
     healthcheck:
       # The API's migration runner needs a live server, not an open port, so this
       # runs a real query. `pg_isready` alone reports ready while the database is

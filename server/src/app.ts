@@ -49,7 +49,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     try {
       await prisma.$queryRaw`SELECT 1`;
       return { status: 'ready', database: 'up' };
-    } catch {
+    } catch (error: unknown) {
+      // Logged, because a bare 503 with no line in the log is indistinguishable
+      // from a container that never started. `SELECT 1` should not fail, so when
+      // it does the cause is worth seeing.
+      _req.log.error({ err: error }, 'readiness probe failed');
       return reply.code(503).send({ status: 'degraded', database: 'down' });
     }
   });

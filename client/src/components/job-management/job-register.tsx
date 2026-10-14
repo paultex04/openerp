@@ -48,7 +48,7 @@ import { useDebounced } from '@/hooks/use-debounced';
 /**
  * A display column.
  *
- * `ColumnDef<T, unknown>` is the type `DataTable` takes, and TanStack's
+ * `ColumnDef<any, T, unknown>` is the type `DataTable` takes, and TanStack's
  * `createColumnHelper` produces `ColumnDef<T, TValue>` with `TValue` inferred from
  * the accessor - so a `helper.accessor('id', …)` is `ColumnDef<JobRow, number>` and
  * will not assign. Building the object and casting once here is what the master-data
@@ -59,7 +59,7 @@ function cell<T extends object>(header: string, accessor: (row: T) => ReactNode)
   return {
     header,
     cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  } as ColumnDef<T, unknown>;
+  } as unknown as ColumnDef<any, T, unknown>;
 }
 
 /** Right-aligned and tabular, matching the other registers' numeric columns. */
@@ -68,7 +68,7 @@ function numericCell<T extends object>(header: string, accessor: (row: T) => Rea
     header,
     meta: { align: 'right' },
     cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  } as ColumnDef<T, unknown>;
+  } as unknown as ColumnDef<any, T, unknown>;
 }
 
 /** Rows fetched per request. Kept small: this is a list, not a report. */
@@ -146,7 +146,7 @@ export function JobRegister() {
     [projects.data],
   );
 
-  const columns = useMemo<ColumnDef<JobRow, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, JobRow, unknown>[]>(
     () => [
       cell<JobRow>('Job', (row) => <span className="font-mono font-medium">#{row.id}</span>),
       cell<JobRow>('Status', (row) => <StatusPill status={row.status} />),

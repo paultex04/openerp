@@ -10,6 +10,29 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
+/**
+ * Where `.env` lives.
+ *
+ * Two layouts are in play. From `server/src/lib/env.ts` the repository root is
+ * three levels up, which is correct under `tsx` and under Vitest. The production
+ * bundle is a single file at `server/dist/index.js`, where the same relative
+ * walk lands one level short and `.env` is not found at all — the API then aborts
+ * with "DATABASE_URL: expected string, received undefined" even though the file is
+ * right there. Searching outward covers both without either build having to know
+ * which one it is.
+ */
+function findEnvFile(): string | undefined {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 4; i += 1) {
+    const candidate = resolve(dir, '.env');
+    if (existsSync(candidate)) return candidate;
+    const parent = resolve(dir, '..');
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
 export function parseEnv(src: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const rawLine of src.split(/\r?\n/)) {
@@ -42,9 +65,10 @@ export function parseEnv(src: string): Record<string, string> {
   return out;
 }
 
-export function loadEnvFile(path: string = resolve(repoRoot, '.env')): Record<string, string> {
-  if (!existsSync(path)) return {};
-  const parsed = parseEnv(readFileSync(path, 'utf8'));
+export function loadEnvFile(path?: string): Record<string, string> {
+  const target = path ?? findEnvFile() ?? resolve(repoRoot, '.env');
+  if (!existsSync(target)) return {};
+  const parsed = parseEnv(readFileSync(target, 'utf8'));
   for (const [k, v] of Object.entries(parsed)) {
     if (process.env[k] === undefined) process.env[k] = v;
   }

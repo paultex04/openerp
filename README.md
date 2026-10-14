@@ -6,12 +6,46 @@ labour recipes and material BOMs, planned-vs-actual job tracking, an invoice lif
 
 ## Stack
 
-| Layer    | Technology                                                                    |
-| -------- | ----------------------------------------------------------------------------- |
-| Database | PostgreSQL 18 (`192.168.50.7:5432/openerp-dev`)                               |
-| Backend  | Node.js + TypeScript, Fastify 5, Prisma 6, Zod, Vitest                        |
-| Frontend | Next.js 15 (App Router), React 19, Tailwind v4, shadcn/ui (Base UI), TanStack |
-| Shared   | Zod schemas + pure pricing / state-machine engines                            |
+| Layer    | Technology                                                                       |
+| -------- | -------------------------------------------------------------------------------- |
+| Database | PostgreSQL 18 (`192.168.50.7:5432/openerp-dev`, `postgres:18-alpine` in Compose) |
+| Backend  | Node.js 26 + TypeScript 7, Fastify 5, Prisma 7, Zod 4, Vitest 5                  |
+| Frontend | Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui (Base UI), TanStack    |
+| Shared   | Zod schemas + pure pricing / state-machine engines                               |
+
+Exact versions live in the four `package.json` files; this table names the lines.
+
+### Version notes
+
+Four of these are majors whose migration is not a version bump, and each has a
+note somewhere it can be found again:
+
+- **Prisma 7** is Rust-free and requires a driver adapter. The client is generated
+  to `server/src/generated/prisma` (gitignored) by `generator client { provider =
+"prisma-client" }`, the connection string moved out of `schema.prisma` into
+  `server/prisma.config.ts`, and the runtime uses `@prisma/adapter-pg` over `pg`.
+  There is no `query_engine` binary any more, which is why the Dockerfiles no
+  longer need to regenerate an engine for the runtime platform.
+- **TanStack Table 9** replaced `useReactTable`/`getCoreRowModel` with `useTable`
+  and an explicit feature set built by `tableFeatures({ ... })`. Registering a
+  feature is what makes its options and column properties exist, so a missing
+  feature is a type error rather than a silent no-op. `ColumnDef` also gained a
+  leading feature-set generic, which is why the register column arrays are typed
+  `ColumnDef<any, Row, unknown>` — see the note in
+  `client/src/components/data-table/data-table.tsx`.
+- **Next 16** builds with Turbopack by default, but `npm run build --workspace
+client` passes `--webpack`. Turbopack has no `resolve.extensionAlias`
+  equivalent, and `@openerp/shared` is consumed as TypeScript source with `.js`
+  specifiers on some relative imports; without the alias the build fails with
+  `Can't resolve './money.js'`. Tracked upstream as vercel/next.js#82945. `next
+dev` is unaffected — Turbopack resolves the extensionless imports fine.
+  `npm run build:turbopack --workspace client` reproduces the failure.
+- **TypeScript 7** has no compatible `typescript-eslint`: the current release
+  declares `typescript >=4.8.4 <6.1.0` and throws at import time under TS 7. Lint
+  is therefore ESLint 10 + `@eslint/js` + Prettier and **does not read `.ts` or
+  `.tsx` at all** — both extensions are listed in `eslint.config.js` `ignores` so
+  the gap is visible. `npm run typecheck` is the gate that covers those files.
+  Re-add `typescript-eslint` once it supports TS 7.
 
 ## Repository layout
 
@@ -24,6 +58,9 @@ docs/     architecture and decision records
 ```
 
 ## Getting started
+
+Node **26** is required (`engines` enforces it, and both Dockerfiles build on
+`node:26-bookworm-slim`).
 
 ```bash
 npm install
@@ -39,21 +76,24 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Scripts
 
-| Command                | Purpose                                                             |
-| ---------------------- | ------------------------------------------------------------------- |
-| `npm run db:check`     | Verify TCP + authenticated DB connectivity                          |
-| `npm run verify`       | format + lint + typecheck + test                                    |
-| `npm run test`         | Run all workspace test suites                                       |
-| `npm run db:generate`  | Regenerate the Prisma client                                        |
-| `npm run db:push`      | Apply schema changes to the database                                |
-| `npm run seed`         | Provision default roles + super admin                               |
-| `npm run smoke:phase2` | HTTP smoke test against a running API                               |
-| `npm run smoke:phase3` | As above, for the operations surface                                |
-| `npm run smoke:phase4` | As above, for billing and invoicing                                 |
-| `npm run smoke:phase5` | As above, for admin and the audit log                               |
-| `npm run smoke:phase6` | As above, for routing, nav and RBAC (needs **both** API and web up) |
-| `npm run smoke:phase7` | As above, for master-data CRUD and archiving                        |
-| `npm run check:docker` | Validate the Dockerfiles and Compose stack (no daemon required)     |
+| Command                      | Purpose                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                    |
+| `npm run verify`             | format + lint + typecheck + test                                              |
+| `npm run test`               | Run all workspace test suites                                                 |
+| `npm run db:generate`        | Regenerate the Prisma client                                                  |
+| `npm run db:push`            | Apply schema changes to the database                                          |
+| `npm run db:studio`          | Open Prisma Studio against the configured database                            |
+| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                    |
+| `npm run db:restore-fixture` | Restore the seeded baseline fixture (`INV-2026-03-0042`) to its shipped state |
+| `npm run seed`               | Provision default roles + super admin                                         |
+| `npm run smoke:phase2`       | HTTP smoke test against a running API                                         |
+| `npm run smoke:phase3`       | As above, for the operations surface                                          |
+| `npm run smoke:phase4`       | As above, for billing and invoicing                                           |
+| `npm run smoke:phase5`       | As above, for admin and the audit log                                         |
+| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)           |
+| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                                  |
+| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)               |
 
 ## Running the stack
 
@@ -75,9 +115,9 @@ client calls the API directly. This is safe because `localhost:3000` and `localh
 same _site_ — the port is not part of the site calculation — so a `SameSite=Lax` session cookie is
 still sent, and the API allows the origin via `CLIENT_ORIGIN` with `credentials: true`.
 
-Leave it empty to use same-origin `/api/*` requests via the rewrite proxy in
-`client/next.config.mjs`. Note that the proxy currently does not match, so direct calls are the
-supported path.
+Leave it empty to use same-origin `/api/*` requests, which are served by the Route Handler at
+`client/src/app/api/[...path]/route.ts`. That is the supported path; direct calls to the API's
+absolute origin are also supported (see the paragraph above), but the path is not a rewrite proxy.
 
 With the API running, `npm run smoke:phase2` asserts both published pricing vectors (227.61 ZAR/hr
 and 17.5226 ZAR/m) end-to-end over HTTP, together with the 401 paths and the cookie security
@@ -113,6 +153,8 @@ CSS-first, and the theme lives in `client/src/app/globals.css`, where `@theme in
 - `client/src/components/ui/` is owned by the shadcn registry and is replaced wholesale by
   `shadcn add --overwrite`. It is excluded from lint for that reason. Anything OpenERP adds on
   top of it must live **outside** that directory, or the next component update deletes it.
+  Note that lint reads no TypeScript at all at present (see **Version notes** above), so this
+  exclusion is currently belt-and-braces.
 - shadcn's base here is **Base UI**, so components take a `render` prop rather than Radix's
   `asChild`. The two are not interchangeable, and `asChild` is a type error rather than a soft
   failure.

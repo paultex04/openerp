@@ -43,7 +43,7 @@ const TABS: Array<{ key: Tab; label: string; permission: string }> = [
 ];
 
 /** Module-scope so the identity is stable; see `invoiceColumns`. */
-const contractColumns: ColumnDef<ContractRow, unknown>[] = [
+const contractColumns: ColumnDef<any, ContractRow, unknown>[] = [
   {
     id: 'number',
     accessorKey: 'number',
@@ -110,7 +110,7 @@ const contractColumns: ColumnDef<ContractRow, unknown>[] = [
  * a numeric column lines up is that it was declared that way, not that each call
  * site remembered to add the classes.
  */
-const rateCardColumns: ColumnDef<RateCardRow, unknown>[] = [
+const rateCardColumns: ColumnDef<any, RateCardRow, unknown>[] = [
   {
     id: 'serviceMasterCode',
     accessorKey: 'serviceMasterCode',

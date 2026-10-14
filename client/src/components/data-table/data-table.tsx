@@ -21,14 +21,36 @@
  *
  * This is deliberately NOT in `components/ui/`: that directory is owned by the
  * shadcn registry and is replaced wholesale by `shadcn add --overwrite`.
+ *
+ * TANSTACK TABLE v9
+ *
+ * v9 replaced the v8 "row model factory" options with an explicit feature set and
+ * renamed the hook. Three consequences are visible below:
+ *
+ *  - `useReactTable` is now `useTable`, and the feature set is assembled once at
+ *    module scope by `tableFeatures(...)`. Registering a feature is what makes its
+ *    options and column properties exist, so a `column.enableSorting` or a
+ *    `table.getSortedRowModel()` is a type error without it, not a runtime no-op.
+ *  - The core row model is always present and `getCoreRowModel` is gone, so only
+ *    sorting and pagination are opted into here.
+ *  - State is read from `table.state` (a snapshot on the table) rather than
+ *    `table.getState()`.
+ *
+ * The feature set is deliberately narrow. Every list endpoint returns the whole
+ * set and this component filters in plain JavaScript, so the column-filtering and
+ * global-filtering features would be dead weight in the bundle.
  */
 
 import {
+  columnVisibilityFeature,
+  createPaginatedRowModel,
+  createSortedRowModel,
   flexRender,
-  getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
+  rowPaginationFeature,
+  rowSortingFeature,
+  sortFns,
+  tableFeatures,
+  useTable,
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
@@ -51,6 +73,27 @@ import {
 import { NumericCell } from '@/components/data-table/NumericCell';
 import { cn } from '@/lib/utils';
 
+/**
+ * The features this table uses: sorting and pagination, with the built-in
+ * comparator registry.
+ *
+ * `sortFns` is registered rather than left out because a column opts into a named
+ * strategy (`sortFn: 'alphanumeric'`); an unregistered name is not a valid
+ * `sortFn` value, and `'auto'` would resolve to nothing.
+ *
+ * Declared at module scope so the object identity is stable across renders: it is
+ * part of the table's options, and a new object each render would rebuild the
+ * table.
+ */
+const features = tableFeatures({
+  rowSortingFeature,
+  rowPaginationFeature,
+  columnVisibilityFeature,
+  sortedRowModel: createSortedRowModel(),
+  paginatedRowModel: createPaginatedRowModel(),
+  sortFns,
+});
+
 export interface DataTableFilter<T> {
   /** Stable id; also the filter's state key. */
   id: string;
@@ -66,9 +109,17 @@ export interface DataTableFilter<T> {
   predicate: (row: T, value: string) => boolean;
 }
 
-export interface DataTableProps<T> {
+export interface DataTableProps<T extends object> {
   data: readonly T[];
-  columns: ColumnDef<T, unknown>[];
+  /**
+   * Column definitions for the row type.
+   *
+   * The third argument is the feature set, and it has to be named explicitly:
+   * TData's default is `unknown`, so `ColumnDef<T, unknown>` as written in the
+   * registries would be a `ColumnDef` with no data row and would reject every
+   * accessor. `typeof features` ties the columns to the features declared above.
+   */
+  columns: ColumnDef<typeof features, T, unknown>[];
   /** Unique per row. */
   rowKey: (row: T) => string | number;
   /**
@@ -170,7 +221,7 @@ function matchesSearch(row: unknown, keys: readonly string[], term: string): boo
   return terms.every((needle) => haystack.some((value) => value.includes(needle)));
 }
 
-export function DataTable<T>({
+export function DataTable<T extends object>({
   data,
   columns,
   rowKey,
@@ -229,14 +280,15 @@ export function DataTable<T>({
                 <div className="flex justify-end gap-1">{renderRowActions(row.original)}</div>
               ),
               enableSorting: false,
-            } as unknown as ColumnDef<T, unknown>,
+            } as ColumnDef<typeof features, T, unknown>,
           ]
         : columns,
     [columns, renderRowActions],
   );
 
-  const table = useReactTable({
-    data: filtered as T[],
+  const table = useTable({
+    features,
+    data: filtered,
     columns: manualPagination
       ? // Sorting one page locally would produce an order that contradicts every
         // other page, so the headers stop offering it rather than doing something
@@ -251,15 +303,15 @@ export function DataTable<T>({
       }),
     },
     onSortingChange: setSorting,
-    getCoreRowModel: getCoreRowModel(),
-    // Sorting and slicing are the server's job in manual mode. `getPaginationRowModel`
-    // must be absent, or it would slice the page again and show 25 of 25.
+    // Sorting and slicing are the server's job in manual mode, so the row models
+    // are simply not registered: registering them would slice the page again and
+    // show 25 of 25.
     ...(!manualPagination && {
-      getSortedRowModel: getSortedRowModel(),
-      getPaginationRowModel: getPaginationRowModel(),
+      sortedRowModel: createSortedRowModel(),
+      paginatedRowModel: createPaginatedRowModel(),
     }),
     ...(manualPagination && { manualPagination: true }),
-    initialState: { pagination: { pageSize } },
+    initialState: { pagination: { pageIndex: 0, pageSize } },
   });
 
   const activeFilterCount = filters.filter((filter) => filter.value).length;
@@ -269,7 +321,7 @@ export function DataTable<T>({
   const total = manualPagination ? manualPagination.rowCount : filtered.length;
   const pageIndex = manualPagination
     ? manualPagination.pageIndex
-    : table.getState().pagination.pageIndex;
+    : table.state.pagination.pageIndex;
   const rowsPerPage = manualPagination ? manualPagination.pageSize : pageSize;
   const pageCount = Math.max(1, Math.ceil(total / rowsPerPage));
 

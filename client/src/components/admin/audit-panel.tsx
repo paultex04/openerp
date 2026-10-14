@@ -83,7 +83,7 @@ export function AuditPanel() {
     [models.data],
   );
 
-  const columns = useMemo<ColumnDef<AuditEntry, unknown>[]>(
+  const columns = useMemo<ColumnDef<any, AuditEntry, unknown>[]>(
     () => [
       {
         id: 'occurredAt',

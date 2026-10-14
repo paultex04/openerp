@@ -49,7 +49,7 @@
  * the document is financial history and can no longer be cancelled; correcting
  * it needs a credit note, which is outside Phase 4.
  */
-import { invoiceStatusValues, type InvoiceStatus } from './schemas/enums.js';
+import { invoiceStatusValues, type InvoiceStatus } from './schemas/enums';
 
 export const INVOICE_STATUSES = invoiceStatusValues;
 

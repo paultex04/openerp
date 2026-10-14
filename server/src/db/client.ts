@@ -36,25 +36,68 @@
  * audit insert cannot trigger another audit insert. The explicit model guard is
  * belt and braces against a future refactor reaching for the extended client.
  */
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../generated/prisma/client.js';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { currentAuditActor, SYSTEM_ACTOR, type AuditActor } from '../audit/context.js';
 import { recordWrite, type WriteAuditEntry } from '../audit/service.js';
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
+if (process.env.DATABASE_URL === undefined || process.env.DATABASE_URL === '') {
+  // Fail at import rather than at the first query. `pg` treats a missing
+  // connection string as `postgres://<os-user>@localhost:5432`, so the symptom
+  // would otherwise be a confusing "Can't reach database server at localhost"
+  // from a background probe, with no hint that the real problem is a `.env` that
+  // never loaded.
+  throw new Error('DATABASE_URL is not set; refusing to fall back to the local Postgres defaults');
+}
+
+/**
+ * The connection.
+ *
+ * Prisma 7 is Rust-free: there is no query engine, and the client talks to
+ * Postgres through a driver adapter instead. `PrismaPg` wraps `pg`, which this
+ * repository already depends on for the migration runner.
+ *
+ * The pool settings are pinned to Prisma 6's defaults rather than left to `pg`,
+ * because `pg` waits forever by default where Prisma 6 gave up after five
+ * seconds. Without this, a database that accepts the socket and then never
+ * answers would hang the readiness probe instead of failing it.
+ */
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 5_000,
+});
+
 const base =
   globalForPrisma.prisma ??
   new PrismaClient({
+    adapter,
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = base;
 
+/**
+ * Shape of a query-extension callback's arguments.
+ *
+ * Prisma 7 no longer infers these for a `$allModels` hook: the hook is applied to
+ * every model at once, so `args` is the union of all models' argument types and
+ * TypeScript cannot narrow `model`, `args` or `query` without help. Declaring the
+ * contract here keeps `noImplicitAny` satisfied and, more usefully, names the one
+ * thing this file actually relies on: `query(args)` returns the row.
+ */
+type WriteQueryArgs = {
+  model: string;
+  args: { where?: Record<string, unknown>; data?: unknown };
+  query: (args: unknown) => Promise<unknown>;
+};
+
 export const prisma = base.$extends({
   name: 'audit',
   query: {
     $allModels: {
-      async create({ model, args, query }) {
+      async create({ model, args, query }: WriteQueryArgs) {
         // Captured synchronously, before the query runs. Reading the actor after
         // the await would pick up whichever request happens to be in flight by
         // then — the audit entry would name the wrong user, which is worse than
@@ -64,13 +107,13 @@ export const prisma = base.$extends({
         void write(model, 'CREATE', result, undefined, args, actor);
         return result;
       },
-      async createMany({ model, args, query }) {
+      async createMany({ model, args, query }: WriteQueryArgs) {
         const actor = captureActor();
-        const result = await query(args);
+        const result = (await query(args)) as { count: number };
         void write(model, 'CREATE', { count: result.count }, undefined, args, actor);
         return result;
       },
-      async update({ model, args, query }) {
+      async update({ model, args, query }: WriteQueryArgs) {
         const actor = captureActor();
         const before = await readBefore(model, args);
         const result = await query(args);
@@ -81,21 +124,28 @@ export const prisma = base.$extends({
         void write(model, 'UPDATE', result, before, args, actor);
         return result;
       },
-      async updateMany({ model, args, query }) {
+      async updateMany({ model, args, query }: WriteQueryArgs) {
         const actor = captureActor();
         const before = await readBefore(model, args);
-        const result = await query(args);
-        void write(model, 'UPDATE', { ...args.data, count: result.count }, before, args, actor);
+        const result = (await query(args)) as { count: number };
+        void write(
+          model,
+          'UPDATE',
+          { ...(args.data as Record<string, unknown>), count: result.count },
+          before,
+          args,
+          actor,
+        );
         return result;
       },
-      async delete({ model, args, query }) {
+      async delete({ model, args, query }: WriteQueryArgs) {
         const actor = captureActor();
         const before = await readBefore(model, args);
         const result = await query(args);
         void write(model, 'DELETE', undefined, before, args, actor);
         return result;
       },
-      async deleteMany({ model, args, query }) {
+      async deleteMany({ model, args, query }: WriteQueryArgs) {
         const actor = captureActor();
         const before = await readBefore(model, args);
         const result = await query(args);

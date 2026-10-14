@@ -57,12 +57,17 @@ import { usePermissions } from '@/components/auth/usePermissions';
 import { api, ApiError } from '@/lib/api';
 import type { FieldDef, Option, ResourceDef } from '@/lib/master-data';
 
-export interface MasterDataPanelProps<T> {
+export interface MasterDataPanelProps<T extends object> {
   resource: ResourceDef<T>;
   /** Row identity. */
   rowKey: (row: T) => number | string;
-  /** Builds the table columns from the same descriptors the form uses. */
-  columns: (fields: readonly FieldDef<T>[], rows: readonly T[]) => ColumnDef<T, unknown>[];
+  /**
+   * Builds the table columns from the same descriptors the form uses.
+   *
+   * The feature set is erased to `any`: `DataTable` is generic over the row type
+   * only, so the panels never name a feature set and neither does this signature.
+   */
+  columns: (fields: readonly FieldDef<T>[], rows: readonly T[]) => ColumnDef<any, T, unknown>[];
   /** Shapes the request body. Defaults to the form values verbatim. */
   toPayload?: (values: Record<string, unknown>) => Record<string, unknown>;
   /** Optional select-option sources, keyed by field name. */
@@ -261,7 +266,7 @@ export function MasterDataPanel<T extends object>({
             <span className="text-muted-foreground">Live</span>
           ),
         enableSorting: false,
-      } as unknown as ColumnDef<T, unknown>,
+      } as unknown as ColumnDef<any, T, unknown>,
     ];
   }, [columns, fields, rows, resource.supportsArchive]);
 

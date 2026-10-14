@@ -437,7 +437,21 @@ check(
 );
 
 const clientPkg = JSON.parse(readFileSync(resolve(root, 'client/package.json'), 'utf8'));
-check('client build is next build', clientPkg.scripts.build === 'next build');
+// `--webpack` is asserted, not merely tolerated. Next 16 defaults to Turbopack,
+// which has no `resolve.extensionAlias` equivalent, and `@openerp/shared` is
+// consumed as TypeScript source with `.js` specifiers on some relative imports -
+// so a build without the flag dies in the `build` stage of Dockerfile.web with
+// `Can't resolve './money.js'`. Pinning the assertion here is what makes that
+// failure land at `npm run check:docker` instead of on a deploy.
+check(
+  'client build is next build with the webpack builder',
+  clientPkg.scripts.build === 'next build --webpack',
+  `got: ${clientPkg.scripts.build}`,
+);
+check(
+  'client exposes a turbopack build for reproducing the blocker',
+  clientPkg.scripts['build:turbopack'] === 'next build',
+);
 check('client start is next start', clientPkg.scripts.start === 'next start');
 
 check('server build.mjs exists', existsSync(resolve(root, 'server/build.mjs')));

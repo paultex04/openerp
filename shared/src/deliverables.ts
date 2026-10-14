@@ -22,7 +22,7 @@
  * retroactively mutate applied_rate or historical subtotals" is satisfied
  * structurally: nothing in this module reads a service code's current rate.
  */
-import { roundMoney, roundRate } from './money.js';
+import { roundMoney, roundRate } from './money';
 
 export interface DeliverableLine {
   plannedQuantity: number | string;

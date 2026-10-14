@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateTotals, computeDeliverableTotals } from './deliverables.js';
+import { aggregateTotals, computeDeliverableTotals } from './deliverables';
 
 describe('deliverable subtotals', () => {
   it('computes planned and actual subtotals from the same snapshot rate', () => {

@@ -405,7 +405,13 @@ describe('VAT fields are exposed and enforced', () => {
   });
 
   it('still exposes the legacy total_amount alongside the VAT breakdown', async () => {
+    // The *seeded* invoice, by number. A bare `findFirst` returned whichever row
+    // Postgres happened to hand back first, and once the table held fixture
+    // invoices as well that was no longer the legacy row: the assertion then
+    // compared a VAT-charged fixture's subtotal against its gross total and
+    // failed for a reason that had nothing to do with the schema.
     const invoice = await prisma.invoice.findFirstOrThrow({
+      where: { invoiceNumber: 'INV-2026-03-0042' },
       select: {
         totalAmount: true,
         subtotalAmount: true,
