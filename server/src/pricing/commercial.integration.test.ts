@@ -546,6 +546,98 @@ describe('Recipe integrity guards', () => {
 
 // ---------------------------------------------------------------------------
 
+describe('Amendment edits translate business labels and Prisma enum keys', () => {
+  it('persists label edits and returns labels from amendment and nested contract reads', async () => {
+    const cookie = await adminCookie();
+    const { contractId } = await seededContractWithAmendment();
+    const amendment = await prisma.contractAmendment.create({
+      data: {
+        contractId,
+        amendmentNumber: `LABEL-${Date.now()}`,
+        amendmentType: 'BASE_AGREEMENT',
+        effectiveDate: new Date('2026-02-01'),
+        status: 'DRAFT',
+      },
+      select: { id: true },
+    });
+
+    try {
+      const edited = await app.inject({
+        method: 'PATCH',
+        url: `/api/amendments/${amendment.id}`,
+        headers: { cookie },
+        payload: {
+          amendmentType: 'CPI / Index Adjustment',
+          status: 'Pending Approval',
+        },
+      });
+      expect(edited.statusCode).toBe(200);
+      expect(edited.json().amendment).toMatchObject({
+        amendmentType: 'CPI / Index Adjustment',
+        status: 'Pending Approval',
+      });
+
+      const persisted = await prisma.contractAmendment.findUniqueOrThrow({
+        where: { id: amendment.id },
+        select: { amendmentType: true, status: true },
+      });
+      expect(persisted).toEqual({
+        amendmentType: 'CPI_INDEX_ADJUSTMENT',
+        status: 'PENDING_APPROVAL',
+      });
+
+      const list = await app.inject({
+        method: 'GET',
+        url: `/api/amendments?contractId=${contractId}`,
+        headers: { cookie },
+      });
+      expect(list.statusCode).toBe(200);
+      const listed = list.json().amendments.find((row: { id: number }) => row.id === amendment.id);
+      expect(listed).toMatchObject({
+        amendmentType: 'CPI / Index Adjustment',
+        status: 'Pending Approval',
+      });
+
+      const contractRegister = await app.inject({
+        method: 'GET',
+        url: '/api/contracts?status=Pending%20Approval',
+        headers: { cookie },
+      });
+      expect(contractRegister.statusCode).toBe(200);
+      const registerContract = contractRegister
+        .json()
+        .contracts.find((row: { id: number }) => row.id === contractId);
+      expect(registerContract.amendments).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: amendment.id,
+            amendmentType: 'CPI / Index Adjustment',
+            status: 'Pending Approval',
+          }),
+        ]),
+      );
+
+      const contract = await app.inject({
+        method: 'GET',
+        url: `/api/contracts/${contractId}`,
+        headers: { cookie },
+      });
+      expect(contract.statusCode).toBe(200);
+      const nested = contract
+        .json()
+        .contract.amendments.find((row: { id: number }) => row.id === amendment.id);
+      expect(nested).toMatchObject({
+        amendmentType: 'CPI / Index Adjustment',
+        status: 'Pending Approval',
+      });
+    } finally {
+      await prisma.contractAmendment.delete({ where: { id: amendment.id } });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 let cachedAdminCookie: string | null = null;
 
 /** A logged-in administrator session, created once and reused. */

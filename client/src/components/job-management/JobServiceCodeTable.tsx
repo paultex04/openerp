@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The selected job's service-code lines: the second table on the Job Management page.
+ * The job's service-code lines, reused on the Operations detail route.
  *
  * ## Why a table and not the old grid
  *

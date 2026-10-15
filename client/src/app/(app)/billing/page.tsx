@@ -12,7 +12,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   api,
   ApiError,
@@ -36,6 +36,13 @@ import { NumericCell } from '@/components/data-table/NumericCell';
 import { DataTable } from '@/components/data-table/data-table';
 import { formatDate, formatNumber, formatPercent, formatZar, formatZarRate } from '@/lib/format';
 import { toast } from '@/components/ui/toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 const STATUSES = [
   'Draft',
@@ -54,14 +61,21 @@ const STATUSES = [
  * `DataTable` memoises the row model on this reference; a definition rebuilt on
  * every render would defeat that and re-run sorting on each keystroke.
  */
-const invoiceColumns: ColumnDef<any, InvoiceRow, unknown>[] = [
+const invoiceColumns = (onOpen: (id: number) => void): ColumnDef<any, InvoiceRow, unknown>[] => [
   {
     id: 'invoiceNumber',
     accessorKey: 'invoiceNumber',
     header: 'Invoice',
     cell: ({ row }) => (
       <span className="block max-w-[12rem]">
-        <span className="block font-medium">{row.original.invoiceNumber}</span>
+        <button
+          type="button"
+          className="text-left font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label={`Open invoice ${row.original.invoiceNumber}`}
+          onClick={() => onOpen(row.original.id)}
+        >
+          {row.original.invoiceNumber}
+        </button>
         <span className="block truncate text-[11px] text-muted-foreground">
           {row.original.job.project.contract.client.name}
         </span>
@@ -115,6 +129,7 @@ export default function BillingPage() {
   });
 
   const invoices = register.data?.invoices ?? [];
+  const columns = useMemo(() => invoiceColumns(setSelectedId), []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -127,7 +142,7 @@ export default function BillingPage() {
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="flex min-h-0 flex-1 flex-col">
         {/* ---- Register ---- */}
         <section className="space-y-3">
           {register.isError && (
@@ -153,7 +168,7 @@ export default function BillingPage() {
             caption="Invoice register"
             fill
             data={invoices}
-            columns={invoiceColumns}
+            columns={columns}
             rowKey={(invoice) => invoice.id}
             searchKeys={[
               'invoiceNumber',
@@ -177,28 +192,24 @@ export default function BillingPage() {
                 predicate: (invoice, selected) => invoice.status === selected,
               },
             ]}
-            renderRowActions={(invoice) => (
-              <Button
-                size="sm"
-                variant={invoice.id === selectedId ? 'secondary' : 'ghost'}
-                onClick={() => setSelectedId(invoice.id)}
-              >
-                Open
-              </Button>
-            )}
           />
         </section>
 
-        {/* ---- Document ---- */}
-        <section className="space-y-3">
-          {selectedId === null ? (
-            <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Select an invoice to see its tax layout.
-            </p>
-          ) : (
-            <InvoiceDocument invoiceId={selectedId} onClose={() => setSelectedId(null)} />
-          )}
-        </section>
+        <Dialog open={selectedId !== null} onOpenChange={(open) => !open && setSelectedId(null)}>
+          <DialogContent className="flex max-h-[92dvh] w-[min(96vw,80rem)] max-w-none flex-col overflow-hidden p-0 sm:max-w-none">
+            <DialogHeader className="shrink-0 border-b px-6 py-4">
+              <DialogTitle>Invoice detail</DialogTitle>
+              <DialogDescription>
+                Invoice document, lifecycle actions and billing position.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 overflow-y-auto px-6 py-4">
+              {selectedId !== null && (
+                <InvoiceDocument invoiceId={selectedId} onClose={() => setSelectedId(null)} />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
@@ -206,6 +217,8 @@ export default function BillingPage() {
 
 function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const [draftDueDate, setDraftDueDate] = useState('');
+  const [draftNotes, setDraftNotes] = useState('');
 
   const detail = useQuery({
     queryKey: ['invoice', invoiceId],
@@ -241,6 +254,30 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
         type: 'error',
       }),
   });
+  const draftSave = useMutation({
+    mutationFn: () =>
+      api.patch(`/api/invoices/${invoiceId}`, {
+        dueDate: draftDueDate || null,
+        notes: draftNotes || null,
+      }),
+    onSuccess: () => {
+      toast.add({ title: 'Draft invoice updated', type: 'success' });
+      refresh();
+    },
+    onError: (error: Error) =>
+      toast.add({
+        title: 'Could not update draft invoice',
+        description: error instanceof ApiError ? error.message : error.message,
+        type: 'error',
+      }),
+  });
+
+  useEffect(() => {
+    const invoice = detail.data?.invoice;
+    if (!invoice) return;
+    setDraftDueDate(invoice.dueDate ?? '');
+    setDraftNotes(invoice.notes ?? '');
+  }, [detail.data?.invoice.id, detail.data?.invoice.dueDate, detail.data?.invoice.notes]);
 
   if (detail.isLoading) {
     return <p className="text-sm text-muted-foreground">Loading invoice…</p>;
@@ -269,6 +306,33 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
           <p className="text-xs text-muted-foreground">
             Issued {formatDate(invoice.issueDate)} · Due {formatDate(invoice.dueDate)}
           </p>
+          {permissions.canEdit && (
+            <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-2">
+              <label className="space-y-1 text-xs">
+                <span className="text-muted-foreground">Due date</span>
+                <input
+                  type="date"
+                  value={draftDueDate}
+                  onChange={(event) => setDraftDueDate(event.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-2"
+                />
+              </label>
+              <label className="space-y-1 text-xs sm:col-span-2">
+                <span className="text-muted-foreground">Notes</span>
+                <textarea
+                  value={draftNotes}
+                  onChange={(event) => setDraftNotes(event.target.value)}
+                  rows={2}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1.5"
+                />
+              </label>
+              <div className="sm:col-span-2">
+                <Button size="sm" onClick={() => draftSave.mutate()} disabled={draftSave.isPending}>
+                  {draftSave.isPending ? 'Saving…' : 'Save draft details'}
+                </Button>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-muted-foreground">
             Job #{job.id} · {job.project.code} · {job.project.contract.number}
           </p>

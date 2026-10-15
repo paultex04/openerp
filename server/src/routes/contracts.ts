@@ -5,7 +5,12 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { clientUpsertSchema, contractUpsertSchema } from '@openerp/shared';
+import {
+  AMENDMENT_TYPE,
+  CONTRACT_AMENDMENT_STATUS,
+  clientUpsertSchema,
+  contractUpsertSchema,
+} from '@openerp/shared';
 import { prisma } from '../db/client.js';
 import { HttpError } from '../auth/plugin.js';
 
@@ -273,6 +278,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
             select: {
               id: true,
               amendmentNumber: true,
+              amendmentType: true,
               status: true,
               effectiveDate: true,
               expiryDate: true,
@@ -287,7 +293,9 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
       const filtered =
         status === undefined
           ? contracts
-          : contracts.filter((c) => c.amendments.some((a) => a.status === status));
+          : contracts.filter((c) =>
+              c.amendments.some((a) => CONTRACT_AMENDMENT_STATUS.toLabel(a.status) === status),
+            );
 
       return {
         contracts: filtered.map((c) => ({
@@ -295,6 +303,8 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
           // Serialise the amendment VAT rate from Decimal to number.
           amendments: c.amendments.map((a) => ({
             ...a,
+            amendmentType: AMENDMENT_TYPE.toLabel(a.amendmentType),
+            status: CONTRACT_AMENDMENT_STATUS.toLabel(a.status),
             effectiveDate: a.effectiveDate.toISOString().slice(0, 10),
             expiryDate: a.expiryDate?.toISOString().slice(0, 10) ?? null,
             vatRate: a.vatRate.toNumber(),
@@ -332,6 +342,8 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
           ...contract,
           amendments: contract.amendments.map((a) => ({
             ...a,
+            amendmentType: AMENDMENT_TYPE.toLabel(a.amendmentType),
+            status: CONTRACT_AMENDMENT_STATUS.toLabel(a.status),
             effectiveDate: a.effectiveDate.toISOString().slice(0, 10),
             expiryDate: a.expiryDate?.toISOString().slice(0, 10) ?? null,
             signedDate: a.signedDate?.toISOString().slice(0, 10) ?? null,

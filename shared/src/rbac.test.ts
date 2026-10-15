@@ -114,6 +114,13 @@ describe('multi-role union', () => {
     expect(combined.has('ratemaster.write')).toBe(false); // neither
   });
 
+  it('preserves assigned-job scoping semantics using effective database grants', () => {
+    expect(isScopedToAssignedJobs([ROLE_SITE_SUPERVISOR], new Set(['job.read.assigned']))).toBe(
+      true,
+    );
+    expect(isScopedToAssignedJobs([ROLE_SITE_SUPERVISOR], new Set(['job.read']))).toBe(false);
+  });
+
   it('widens visibility when a supervisor also holds a read-all role', () => {
     // Holding billing as well means the "assigned jobs only" restriction no
     // longer applies, because that role grants the general job.read.

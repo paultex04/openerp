@@ -63,6 +63,18 @@ afterAll(async () => {
   await prisma.client
     .deleteMany({ where: { email: { endsWith: '@example.test' } } })
     .catch(() => undefined);
+  // Test users reference their employees. Remove any leaked test accounts before
+  // the employee sweep so a failed earlier run cannot leave FK-blocking fixtures.
+  await prisma.appUser
+    .deleteMany({
+      where: {
+        OR: [
+          { email: { endsWith: '@example.test' } },
+          { employee: { email: { endsWith: '@example.test' } } },
+        ],
+      },
+    })
+    .catch(() => undefined);
   await prisma.employee
     .deleteMany({ where: { email: { endsWith: '@example.test' } } })
     .catch(() => undefined);
@@ -317,7 +329,18 @@ describe('Gate 3: the actor survives account deletion', () => {
         password: 'Vanishing#Pass2026',
         // commercial_qs can create a client, so the new account has a write to make.
         roleKeys: ['commercial_qs'],
-        employee: { name: 'Vanishing', surname: 'User', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'Vanishing',
+          surname: 'User',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
     expect(created.statusCode).toBe(201);
@@ -420,6 +443,93 @@ describe('Gate 4: the admin suite', () => {
     expect(Array.isArray(billing.granted)).toBe(true);
   });
 
+  it('atomically replaces editable role grants, rejects invalid grants and locks administrator', async () => {
+    const cookie = await sessionFor('administrator');
+    const role = await prisma.appRole.findUniqueOrThrow({ where: { key: 'project_manager' } });
+    const wasCustomized = role.permissionsCustomized;
+    const original = await prisma.rolePermission.findMany({
+      where: { roleId: role.id },
+      select: { permission: { select: { key: true } } },
+    });
+    const originalKeys = original.map((row) => row.permission.key).sort();
+
+    try {
+      const saved = await app.inject({
+        method: 'PUT',
+        url: '/api/admin/roles/project_manager/permissions',
+        headers: { cookie },
+        payload: { permissionKeys: ['project.read', 'job.read'] },
+      });
+      expect(saved.statusCode).toBe(200);
+      expect(saved.json().granted).toEqual(['job.read', 'project.read']);
+      await auditSettled();
+      const grantAudit = await prismaBase.auditLog.findFirst({
+        where: {
+          model: 'RolePermission',
+          method: 'PUT',
+          route: '/api/admin/roles/:key/permissions',
+        },
+        orderBy: { occurredAt: 'desc' },
+      });
+      expect(grantAudit).not.toBeNull();
+      expect(grantAudit?.actorUserId).not.toBeNull();
+      expect(grantAudit?.actorEmail).not.toBe('system');
+
+      const deniedScopePermission = await app.inject({
+        method: 'PUT',
+        url: '/api/admin/roles/project_manager/permissions',
+        headers: { cookie },
+        payload: { permissionKeys: ['not.a.permission'] },
+      });
+      expect(deniedScopePermission.statusCode).toBe(422);
+      expect(await prisma.rolePermission.count({ where: { roleId: role.id } })).toBe(2);
+
+      const protectedAdminGrant = await app.inject({
+        method: 'PUT',
+        url: '/api/admin/roles/project_manager/permissions',
+        headers: { cookie },
+        payload: { permissionKeys: ['project.read', 'admin.role.write'] },
+      });
+      expect(protectedAdminGrant.statusCode).toBe(422);
+      expect(protectedAdminGrant.json().error).toBe('PROTECTED_PERMISSION');
+      expect(await prisma.rolePermission.count({ where: { roleId: role.id } })).toBe(2);
+
+      const locked = await app.inject({
+        method: 'PUT',
+        url: '/api/admin/roles/administrator/permissions',
+        headers: { cookie },
+        payload: { permissionKeys: [] },
+      });
+      expect(locked.statusCode).toBe(409);
+      expect(locked.json().error).toBe('ROLE_LOCKED');
+
+      const updatedRole = await prisma.appRole.findUniqueOrThrow({ where: { id: role.id } });
+      expect(updatedRole.permissionsCustomized).toBe(true);
+    } finally {
+      const permissionRows = await prisma.permission.findMany({
+        where: { key: { in: [...originalKeys, 'admin.role.write'] } },
+        select: { id: true },
+      });
+      await prisma.$transaction([
+        prisma.rolePermission.deleteMany({ where: { roleId: role.id } }),
+        ...(permissionRows.length
+          ? [
+              prisma.rolePermission.createMany({
+                data: permissionRows.map((permission) => ({
+                  roleId: role.id,
+                  permissionId: permission.id,
+                })),
+              }),
+            ]
+          : []),
+        prisma.appRole.update({
+          where: { id: role.id },
+          data: { permissionsCustomized: wasCustomized },
+        }),
+      ]);
+    }
+  });
+
   it('creates a user and refuses a duplicate email or unknown role', async () => {
     const cookie = await sessionFor('administrator');
     const email = `newuser-${Date.now().toString(36)}@example.test`;
@@ -432,7 +542,18 @@ describe('Gate 4: the admin suite', () => {
         email,
         password: 'Fresh#Account2026',
         roleKeys: ['project_manager'],
-        employee: { name: 'New', surname: 'Starter', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'New',
+          surname: 'Starter',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
     expect(created.statusCode).toBe(201);
@@ -446,7 +567,18 @@ describe('Gate 4: the admin suite', () => {
         email,
         password: 'Fresh#Account2026',
         roleKeys: ['project_manager'],
-        employee: { name: 'Dup', surname: 'Licate', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'Dup',
+          surname: 'Licate',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
     expect(duplicate.statusCode).toBe(409);
@@ -459,7 +591,18 @@ describe('Gate 4: the admin suite', () => {
         email: `unknown-${Date.now().toString(36)}@example.test`,
         password: 'Fresh#Account2026',
         roleKeys: ['not_a_role'],
-        employee: { name: 'No', surname: 'Role', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'No',
+          surname: 'Role',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
     expect(unknownRole.statusCode).toBe(422);
@@ -476,6 +619,151 @@ describe('Gate 4: the admin suite', () => {
     await prisma.employee.deleteMany({ where: { id: employeeId } });
   });
 
+  it('links an eligible employee, rejects reused or inactive employees, and lists only eligible choices', async () => {
+    const cookie = await sessionFor('administrator');
+    const contractType = await prisma.employeeContractType.findFirstOrThrow({
+      where: { isArchived: false },
+      select: { id: true },
+    });
+    const employee = await prisma.employee.create({
+      data: {
+        name: 'Existing',
+        surname: `Employee-${randomUUID().slice(0, 8)}`,
+        startDate: new Date('2024-01-01T00:00:00.000Z'),
+        contractTypeId: contractType.id,
+      },
+    });
+    const createdEmails = [
+      `linked-${randomUUID()}@example.test`,
+      `reused-${randomUUID()}@example.test`,
+    ];
+
+    try {
+      const options = await app.inject({
+        method: 'GET',
+        url: '/api/admin/users/create-options',
+        headers: { cookie },
+      });
+      expect(options.statusCode).toBe(200);
+      expect(options.json().employees.some((row: { id: number }) => row.id === employee.id)).toBe(
+        true,
+      );
+      expect(options.json().contractTypes.length).toBeGreaterThan(0);
+
+      const linked = await app.inject({
+        method: 'POST',
+        url: '/api/admin/users',
+        headers: { cookie },
+        payload: {
+          email: createdEmails[0],
+          password: 'Linked#Employee2026',
+          roleKeys: ['project_manager'],
+          employee: { mode: 'existing', employeeId: employee.id },
+        },
+      });
+      expect(linked.statusCode).toBe(201);
+      expect(linked.json().user.employeeId).toBe(employee.id);
+      expect(await prisma.appUser.count({ where: { employeeId: employee.id } })).toBe(1);
+
+      const reused = await app.inject({
+        method: 'POST',
+        url: '/api/admin/users',
+        headers: { cookie },
+        payload: {
+          email: createdEmails[1],
+          password: 'Linked#Employee2026',
+          roleKeys: ['project_manager'],
+          employee: { mode: 'existing', employeeId: employee.id },
+        },
+      });
+      expect(reused.statusCode).toBe(409);
+      expect(reused.json().error).toBe('EMPLOYEE_HAS_USER');
+
+      await prisma.employee.update({ where: { id: employee.id }, data: { endDate: new Date() } });
+      const inactive = await app.inject({
+        method: 'POST',
+        url: '/api/admin/users',
+        headers: { cookie },
+        payload: {
+          email: createdEmails[1],
+          password: 'Linked#Employee2026',
+          roleKeys: ['project_manager'],
+          employee: { mode: 'existing', employeeId: employee.id },
+        },
+      });
+      expect(inactive.statusCode).toBe(422);
+      expect(inactive.json().error).toBe('EMPLOYEE_NOT_ELIGIBLE');
+    } finally {
+      await prisma.appUser.deleteMany({ where: { email: { in: createdEmails } } });
+      await prisma.employee.deleteMany({ where: { id: employee.id } });
+    }
+  });
+
+  it('validates required new-employee details before creating any records', async () => {
+    const cookie = await sessionFor('administrator');
+    const contractType = await prisma.employeeContractType.findFirstOrThrow({
+      where: { isArchived: false },
+      select: { id: true },
+    });
+    const email = `atomic-${randomUUID()}@example.test`;
+    const invalidDate = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { cookie },
+      payload: {
+        email,
+        password: 'Atomic#Employee2026',
+        roleKeys: ['project_manager'],
+        employee: {
+          mode: 'new',
+          name: 'Invalid',
+          surname: 'Date',
+          startDate: '2026-02-31',
+          contractTypeId: contractType.id,
+        },
+      },
+    });
+    expect(invalidDate.statusCode).toBe(400);
+    expect(await prisma.employee.count({ where: { email } })).toBe(0);
+
+    expect(await prisma.employee.count({ where: { email } })).toBe(0);
+
+    const invalidType = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { cookie },
+      payload: {
+        email,
+        password: 'Atomic#Employee2026',
+        roleKeys: ['project_manager'],
+        employee: {
+          mode: 'new',
+          name: 'Atomic',
+          surname: 'Failure',
+          startDate: '2026-01-01',
+          contractTypeId: 2147483647,
+        },
+      },
+    });
+    expect(invalidType.statusCode).toBe(422);
+    expect(invalidType.json().error).toBe('INVALID_CONTRACT_TYPE');
+    expect(await prisma.employee.count({ where: { email } })).toBe(0);
+
+    const malformed = await app.inject({
+      method: 'POST',
+      url: '/api/admin/users',
+      headers: { cookie },
+      payload: {
+        email,
+        password: 'Atomic#Employee2026',
+        roleKeys: ['project_manager'],
+        employee: { mode: 'new', name: 'Missing fields' },
+      },
+    });
+    expect(malformed.statusCode).toBe(400);
+    expect(await prisma.employee.count({ where: { email } })).toBe(0);
+  });
+
   it('rejects a weak password with the policy message', async () => {
     const cookie = await sessionFor('administrator');
     const response = await app.inject({
@@ -486,7 +774,18 @@ describe('Gate 4: the admin suite', () => {
         email: `weak-${Date.now().toString(36)}@example.test`,
         password: 'short',
         roleKeys: ['billing_clerk'],
-        employee: { name: 'Weak', surname: 'Pass', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'Weak',
+          surname: 'Pass',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
     expect(response.statusCode).toBe(422);
@@ -505,9 +804,21 @@ describe('Gate 4: the admin suite', () => {
         email,
         password: 'Deactivate#Pass2026',
         roleKeys: ['billing_clerk'],
-        employee: { name: 'De', surname: 'Activate', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'De',
+          surname: 'Activate',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
+    expect(created.statusCode).toBe(201);
     const userId = created.json().user.id;
     const employeeId = (
       await prisma.appUser.findUniqueOrThrow({
@@ -556,7 +867,18 @@ describe('Gate 4: the admin suite', () => {
         email,
         password: 'Original#Pass2026',
         roleKeys: ['billing_clerk'],
-        employee: { name: 'Re', surname: 'Set', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'Re',
+          surname: 'Set',
+          startDate: '2026-01-01',
+          contractTypeId: (
+            await prisma.employeeContractType.findFirstOrThrow({
+              where: { isArchived: false },
+              select: { id: true },
+            })
+          ).id,
+        },
       },
     });
     const userId = created.json().user.id;
@@ -657,6 +979,16 @@ describe('Gate 5: lockouts are impossible', () => {
       expect(remaining).toBe(1);
 
       // This account is now the last one, so it cannot be removed.
+      const retainingAdminButDeactivating = await app.inject({
+        method: 'PATCH',
+        url: `/api/admin/users/${selfId}`,
+        headers: { cookie: adminCookie },
+        payload: { isActive: false, roleKeys: ['administrator'] },
+      });
+      expect(retainingAdminButDeactivating.statusCode).toBe(409);
+      // Self-deactivation is rejected before the last-admin count is consulted.
+      expect(retainingAdminButDeactivating.json().error).toBe('SELF_LOCKOUT');
+
       const response = await app.inject({
         method: 'PATCH',
         url: `/api/admin/users/${selfId}`,

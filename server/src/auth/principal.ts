@@ -9,7 +9,6 @@
  */
 import type { AppRoleModel as AppRole } from '../generated/prisma/models/AppRole.js';
 import { prisma } from '../db/client.js';
-import { effectivePermissions } from '@openerp/shared';
 import type { TokenClaims } from './tokens.js';
 
 export interface Principal {
@@ -52,7 +51,15 @@ export async function resolvePrincipal(claims: TokenClaims): Promise<Principal> 
         select: { id: true, name: true, surname: true, email: true },
       },
       roles: {
-        select: { role: { select: { key: true, name: true } } },
+        select: {
+          role: {
+            select: {
+              key: true,
+              name: true,
+              permissions: { select: { permission: { select: { key: true } } } },
+            },
+          },
+        },
       },
     },
   });
@@ -85,7 +92,9 @@ export async function resolvePrincipal(claims: TokenClaims): Promise<Principal> 
     isActive: user.isActive,
     tokenVersion: user.tokenVersion,
     roleKeys,
-    permissions: effectivePermissions(roleKeys),
+    permissions: new Set(
+      user.roles.flatMap((r) => r.role.permissions.map((rp) => rp.permission.key)),
+    ),
     employee: user.employee,
   };
 }

@@ -537,8 +537,8 @@ export async function getInvoiceDetail(
     permissions: {
       canEdit: canEditInvoice(statusLabel) && (!permissions || permissions.has('invoice.write')),
       canDelete:
-        (statusLabel === 'Draft' || statusLabel === 'Cancelled') &&
-        (!permissions || permissions.has('invoice.write') || permissions.has('invoice.status')),
+        (statusLabel === 'Draft' && (!permissions || permissions.has('invoice.write'))) ||
+        (statusLabel === 'Cancelled' && (!permissions || permissions.has('invoice.status'))),
       availableTransitions,
     },
     jobPosition: position,

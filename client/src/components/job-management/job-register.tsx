@@ -11,10 +11,9 @@
  * them answered the question this screen exists for - "here is job X, what is on it
  * and what does it cost" - without a click that destroyed your place in the list.
  *
- * So it is one page, two tables, stacked. The jobs register on top; select a row and
- * the job's details and its service-code lines appear below it. The list stays
- * visible and keeps its scroll position and filters while you work on a job, which
- * is the whole reason for the stacked layout rather than a drill-down.
+ * The register links to a separate job detail route. Its filters and pagination
+ * live in the URL, and the register scroll position is restored when navigating
+ * back from a job.
  *
  * ## The register searches on the server
  *
@@ -25,24 +24,24 @@
  * horizontal scroll. Search has to work before the table is big, or it does not work.
  * See `manualPagination` on `DataTable` for the all-or-nothing reasoning.
  *
- * ## The selected job is not URL state
+ * ## Register state is URL state
  *
- * Selecting a row is a drill-down within the page, not navigation. It is kept in
- * component state rather than the query string so that paging the register does not
- * clear the job you are working on, and so the Back button still leaves the screen
- * rather than stepping back through selections.
+ * Search, filters and paging are mirrored in the URL so a job detail link can be
+ * opened and the register reconstructed when navigating back to it.
  */
 
 import type { ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
 import { api, ApiError, type JobDetail, type JobListResponse, type JobRow } from '@/lib/api';
 import { DataTable, type DataTableFilter } from '@/components/data-table/data-table';
 import { StatusPill } from '@/components/lifecycle/status-badge';
-import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { JobSummaryPanel } from '@/components/job-management/JobSummaryPanel';
 import { JobServiceCodeTable } from '@/components/job-management/JobServiceCodeTable';
+import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { useDebounced } from '@/hooks/use-debounced';
 
 /**
@@ -78,12 +77,16 @@ const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE = 300;
 
 export function JobRegister() {
-  const [searchInput, setSearchInput] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [projectFilter, setProjectFilter] = useState('');
-  const [pageSize, setPageSize] = useState(PAGE_SIZE);
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
-
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '');
+  const [projectFilter, setProjectFilter] = useState(searchParams.get('projectId') ?? '');
+  const [pageSize, setPageSize] = useState(() => {
+    const value = Number(searchParams.get('pageSize'));
+    return Number.isInteger(value) && value >= 1 && value <= 200 ? value : PAGE_SIZE;
+  });
+  const restoreScroll = useRef(true);
   const search = useDebounced(searchInput, SEARCH_DEBOUNCE);
 
   // The page is stored *with the query it belongs to*, rather than reset in an
@@ -96,9 +99,58 @@ export function JobRegister() {
   // the current one derives the answer during render, so the first frame is already
   // correct.
   const queryKey = `${search}|${statusFilter}|${projectFilter}|${pageSize}`;
-  const [paging, setPaging] = useState({ key: queryKey, index: 0 });
+  const [paging, setPaging] = useState(() => {
+    const value = Number(searchParams.get('page'));
+    return {
+      key: queryKey,
+      index: Number.isInteger(value) && value > 0 ? value - 1 : 0,
+    };
+  });
   const pageIndex = paging.key === queryKey ? paging.index : 0;
   const goToPage = (next: number) => setPaging({ key: queryKey, index: next });
+  const registerParams = new URLSearchParams(searchParams.toString());
+  for (const [key, value] of [
+    ['search', search],
+    ['status', statusFilter],
+    ['projectId', projectFilter],
+  ] as Array<[string, string]>) {
+    if (value) registerParams.set(key, value);
+    else registerParams.delete(key);
+  }
+  registerParams.set('page', String(pageIndex + 1));
+  registerParams.set('pageSize', String(pageSize));
+  const registerQuery = registerParams.toString();
+
+  useEffect(() => {
+    if (!restoreScroll.current) return;
+    restoreScroll.current = false;
+    const stored = sessionStorage.getItem('operations-register-scroll');
+    if (stored !== null) {
+      const scrollContainer = document.getElementById('main-scroll-container');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = Number(stored);
+        sessionStorage.removeItem('operations-register-scroll');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of [
+      ['search', search],
+      ['status', statusFilter],
+      ['projectId', projectFilter],
+    ] as Array<[string, string]>) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    next.set('page', String(pageIndex + 1));
+    next.set('pageSize', String(pageSize));
+    const query = next.toString();
+    if (query !== searchParams.toString()) {
+      router.replace(`/operations?${query}`, { scroll: false });
+    }
+  }, [pageIndex, pageSize, projectFilter, router, search, searchParams, statusFilter]);
 
   const jobs = useQuery({
     queryKey: [
@@ -213,9 +265,8 @@ export function JobRegister() {
       </header>
 
       {/*
-        Not `fill`: this table shares the page with the selected job's panels, and a
-        table that grows to consume all remaining height would push them off-screen.
-        The register is bounded by its page size instead.
+        Not `fill`: the register is a bounded list, and a table that grows to consume
+        all remaining height would make its own scroll region compete with the page.
       */}
       <DataTable<JobRow>
         data={rows}
@@ -237,35 +288,30 @@ export function JobRegister() {
           onPageSizeChange: setPageSize,
         }}
         renderRowActions={(row) => (
-          <button
-            type="button"
-            onClick={() => setSelectedJobId(row.id)}
-            aria-pressed={selectedJobId === row.id}
-            className={
-              selectedJobId === row.id
-                ? 'rounded-md border border-primary px-2 py-1 text-xs font-medium text-primary'
-                : 'rounded-md border px-2 py-1 text-xs hover:bg-accent'
-            }
+          <Link
+            href={`/operations/${row.id}?${registerQuery}`}
+            onClick={() => {
+              const scrollContainer = document.getElementById('main-scroll-container');
+              if (scrollContainer) {
+                sessionStorage.setItem(
+                  'operations-register-scroll',
+                  String(scrollContainer.scrollTop),
+                );
+              }
+            }}
+            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
           >
-            {selectedJobId === row.id ? 'Selected' : 'Select'}
-          </button>
+            Open
+          </Link>
         )}
       />
-
-      {selectedJobId === null ? (
-        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-          Select a job above to see its details and service-code line items.
-        </p>
-      ) : (
-        <SelectedJob jobId={selectedJobId} onClose={() => setSelectedJobId(null)} />
-      )}
     </div>
   );
 }
 
 /** ------------------------------------------------------------------------- */
 
-function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => void }) {
+export function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => void }) {
   const queryClient = useQueryClient();
 
   const detail = useQuery({
@@ -291,7 +337,7 @@ function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => void })
           {detail.error instanceof ApiError ? detail.error.message : 'Could not load the job.'}
         </p>
         <button type="button" onClick={onClose} className="text-xs underline">
-          Close
+          Back to jobs
         </button>
       </div>
     );
@@ -302,13 +348,8 @@ function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => void })
   const { job, permissions, deliverables, summary } = detail.data;
 
   return (
-    <div className="flex min-h-0 flex-col gap-4 border-t pt-6">
-      <JobSummaryPanel
-        job={job}
-        permissions={permissions}
-        onChanged={refreshAll}
-        onClose={onClose}
-      />
+    <div className="flex min-h-0 flex-col gap-4">
+      <JobSummaryPanel job={job} permissions={permissions} onChanged={refreshAll} />
 
       <JobServiceCodeTable
         jobId={job.id}

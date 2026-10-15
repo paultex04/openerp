@@ -30,6 +30,8 @@ import {
   deliverableCreateSchema,
   deliverablePlannedUpdateSchema,
   isScopedToAssignedJobs,
+  AMENDMENT_TYPE,
+  CONTRACT_AMENDMENT_STATUS,
   jobStatusFromKey,
   jobPriorityFromKey,
   JOB_STATUSES,
@@ -170,7 +172,13 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
             select: { id: true, number: true, client: { select: { id: true, name: true } } },
           },
           amendment: {
-            select: { id: true, amendmentNumber: true, status: true, vatRate: true },
+            select: {
+              id: true,
+              amendmentNumber: true,
+              amendmentType: true,
+              status: true,
+              vatRate: true,
+            },
           },
           jobs: {
             select: { id: true, status: true, priority: true, description: true },
@@ -181,11 +189,14 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       return {
         projects: projects.map((p) => ({
           ...serialise(p),
-          amendment: {
-            ...p.amendment,
-            status: p.amendment.status,
-            vatRate: p.amendment.vatRate.toNumber(),
-          },
+          amendment: p.amendment
+            ? {
+                ...p.amendment,
+                amendmentType: AMENDMENT_TYPE.toLabel(p.amendment.amendmentType),
+                status: CONTRACT_AMENDMENT_STATUS.toLabel(p.amendment.status),
+                vatRate: p.amendment.vatRate.toNumber(),
+              }
+            : null,
           // Statuses are mapped to business labels, matching /api/jobs and the
           // project detail. Leaving the raw Prisma keys here while statusCounts
           // uses labels meant the two halves of this payload disagreed with each
@@ -234,7 +245,15 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
               client: { select: { id: true, name: true, isVatRegistered: true, vatNumber: true } },
             },
           },
-          amendment: { select: { id: true, amendmentNumber: true, status: true, vatRate: true } },
+          amendment: {
+            select: {
+              id: true,
+              amendmentNumber: true,
+              amendmentType: true,
+              status: true,
+              vatRate: true,
+            },
+          },
           jobs: {
             select: {
               id: true,
@@ -285,7 +304,12 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       return {
         project: {
           ...serialise(project),
-          amendment: { ...project.amendment, vatRate: project.amendment.vatRate.toNumber() },
+          amendment: {
+            ...project.amendment,
+            amendmentType: AMENDMENT_TYPE.toLabel(project.amendment.amendmentType),
+            status: CONTRACT_AMENDMENT_STATUS.toLabel(project.amendment.status),
+            vatRate: project.amendment.vatRate.toNumber(),
+          },
           jobs,
           exposure,
         },
@@ -632,7 +656,9 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
               code: true,
               year: true,
               amendmentId: true,
-              contract: { select: { id: true, number: true, client: { select: { name: true } } } },
+              contract: {
+                select: { id: true, number: true, client: { select: { id: true, name: true } } },
+              },
             },
           },
           supervisor: { select: { id: true, name: true, surname: true } },
@@ -660,7 +686,13 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
 
       const amendment = await prisma.contractAmendment.findUnique({
         where: { id: effectiveAmendmentId },
-        select: { id: true, amendmentNumber: true, status: true, vatRate: true },
+        select: {
+          id: true,
+          amendmentNumber: true,
+          amendmentType: true,
+          status: true,
+          vatRate: true,
+        },
       });
 
       const status = jobStatusFromKey(job.status);
@@ -679,13 +711,19 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           priority: jobPriorityFromKey(job.priority),
           amendmentId: effectiveAmendmentId,
           amendment: amendment
-            ? { ...amendment, status: amendment.status, vatRate: amendment.vatRate.toNumber() }
+            ? {
+                ...amendment,
+                amendmentType: AMENDMENT_TYPE.toLabel(amendment.amendmentType),
+                status: CONTRACT_AMENDMENT_STATUS.toLabel(amendment.status),
+                vatRate: amendment.vatRate.toNumber(),
+              }
             : null,
           amendmentInherited: inherited,
           assignments: job.assignments.map((a) => serialise(a)),
           invoices: job.invoices.map((i) => serialise(i)),
         },
         permissions: {
+          canEditJob: principal.permissions.has('job.write'),
           canEditPlanned: canEditPlanned(status),
           plannedLockReason: plannedLockReason(status),
           canEditActuals: canEditActuals(status),
@@ -696,7 +734,7 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           // is actually allowed to honour, rather than letting a request 403.
           canAssign: principal.permissions.has('job.assign'),
           availableTransitions: permitted,
-          scopedToAssignedJobs: isScopedToAssignedJobs(principal.roleKeys),
+          scopedToAssignedJobs: isScopedToAssignedJobs(principal.roleKeys, principal.permissions),
         },
         deliverables,
         summary: aggregateTotals(deliverables),
@@ -859,7 +897,7 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       const principal = request.principal!;
 
       // A field supervisor may only move jobs assigned to them.
-      if (isScopedToAssignedJobs(principal.roleKeys)) {
+      if (isScopedToAssignedJobs(principal.roleKeys, principal.permissions)) {
         await assertJobVisible(id, principal);
       }
 

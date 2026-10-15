@@ -379,8 +379,12 @@ export interface JobDetail {
     priority: string;
     description: string | null;
     workOrder: string | null;
+    workOrderReceivedDate: string | null;
     purchaseOrder: string | null;
+    purchaseOrderReceivedDate: string | null;
     area: string | null;
+    supervisorId: number | null;
+    clientContactId: number | null;
     plannedStartDate: string | null;
     plannedEndDate: string | null;
     actualStartDate: string | null;
@@ -392,9 +396,10 @@ export interface JobDetail {
       id: number;
       code: string;
       year: number;
-      contract: { id: number; number: string; client: { name: string } };
+      contract: { id: number; number: string; client: { id: number; name: string } };
     };
     supervisor: { id: number; name: string; surname: string } | null;
+    clientContact: { id: number; name: string; email: string | null; mobile: string | null } | null;
     assignments: Array<{
       id: number;
       role: string | null;
@@ -404,6 +409,7 @@ export interface JobDetail {
     invoices: Array<{ id: number; invoiceNumber: string; status: string; totalWithTax: number }>;
   };
   permissions: {
+    canEditJob: boolean;
     canEditPlanned: boolean;
     plannedLockReason: string | null;
     canEditActuals: boolean;

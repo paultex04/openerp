@@ -60,6 +60,11 @@ interface RoleOption {
   description: string | null;
 }
 
+interface CreateOptions {
+  employees: Array<{ id: number; name: string; surname: string; email: string | null }>;
+  contractTypes: Array<{ id: number; name: string }>;
+}
+
 /** Mirrors the server's policy. The server remains the authority; this only
     avoids a pointless round trip, and its message is still shown verbatim. */
 const MIN_PASSWORD_LENGTH = 12;
@@ -75,6 +80,12 @@ export function UsersPanel({ myId }: { myId: number | undefined }) {
   const users = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => api.get<{ users: AdminUser[] }>('/api/admin/users'),
+  });
+
+  const createOptions = useQuery({
+    queryKey: ['admin-user-create-options'],
+    queryFn: () => api.get<CreateOptions>('/api/admin/users/create-options'),
+    enabled: creating,
   });
 
   const roles = useQuery({
@@ -270,6 +281,8 @@ export function UsersPanel({ myId }: { myId: number | undefined }) {
         open={creating || editing !== null}
         user={editing}
         roles={roles.data?.roles ?? []}
+        createOptions={createOptions.data}
+        createOptionsLoading={createOptions.isLoading}
         onClose={() => {
           setCreating(false);
           setEditing(null);
@@ -326,12 +339,16 @@ function UserDialog({
   open,
   user,
   roles,
+  createOptions,
+  createOptionsLoading,
   onClose,
   onSaved,
 }: {
   open: boolean;
   user: AdminUser | null;
   roles: RoleOption[];
+  createOptions?: CreateOptions;
+  createOptionsLoading: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -340,6 +357,9 @@ function UserDialog({
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
   const [startDate, setStartDate] = useState('');
+  const [employeeMode, setEmployeeMode] = useState<'existing' | 'new'>('existing');
+  const [employeeId, setEmployeeId] = useState('');
+  const [contractTypeId, setContractTypeId] = useState('');
   const [password, setPassword] = useState('');
   const [roleKeys, setRoleKeys] = useState<string[]>([]);
 
@@ -367,11 +387,19 @@ function UserDialog({
           email: email.trim(),
           password,
           roleKeys,
-          employee: {
-            name: name.trim(),
-            surname: surname.trim(),
-            startDate: startDate || new Date().toISOString().slice(0, 10),
-          },
+          employee:
+            employeeMode === 'existing'
+              ? {
+                  mode: 'existing',
+                  employeeId: Number(employeeId || createOptions?.employees[0]?.id),
+                }
+              : {
+                  mode: 'new',
+                  name: name.trim(),
+                  surname: surname.trim(),
+                  startDate,
+                  contractTypeId: Number(contractTypeId || createOptions?.contractTypes[0]?.id),
+                },
         });
       }
       return api.patch(`/api/admin/users/${user.id}`, {
@@ -403,10 +431,15 @@ function UserDialog({
 
   const canSubmit = isCreate
     ? email.trim().length > 3 &&
-      name.trim().length > 0 &&
-      surname.trim().length > 0 &&
       password.length >= MIN_PASSWORD_LENGTH &&
-      roleKeys.length > 0
+      roleKeys.length > 0 &&
+      !createOptionsLoading &&
+      (employeeMode === 'existing'
+        ? (createOptions?.employees.length ?? 0) > 0
+        : name.trim().length > 0 &&
+          surname.trim().length > 0 &&
+          startDate.length > 0 &&
+          (createOptions?.contractTypes.length ?? 0) > 0)
     : roleKeys.length > 0;
 
   return (
@@ -416,7 +449,7 @@ function UserDialog({
           <DialogTitle>{isCreate ? 'New user' : `Edit ${user?.email}`}</DialogTitle>
           <DialogDescription>
             {isCreate
-              ? 'Creates an account and its linked employee record. At least one role is required.'
+              ? 'Link an existing employee or create a new employee with this account. At least one role is required.'
               : 'Change roles, or reset the password. Resetting signs the person out everywhere.'}
           </DialogDescription>
         </DialogHeader>
@@ -437,6 +470,50 @@ function UserDialog({
           )}
 
           {isCreate && (
+            <Field>
+              <FieldLabel htmlFor="employee-mode">Employee</FieldLabel>
+              <select
+                id="employee-mode"
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                value={employeeMode}
+                onChange={(event) => setEmployeeMode(event.target.value as 'existing' | 'new')}
+              >
+                <option value="existing">Link an existing employee</option>
+                <option value="new">Create a new employee</option>
+              </select>
+            </Field>
+          )}
+
+          {isCreate && employeeMode === 'existing' && (
+            <Field>
+              <FieldLabel htmlFor="existing-employee">
+                Active employee without an app user
+              </FieldLabel>
+              {createOptionsLoading ? (
+                <Skeleton className="h-9 w-full" />
+              ) : createOptions && createOptions.employees.length > 0 ? (
+                <select
+                  id="existing-employee"
+                  className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                  value={employeeId || String(createOptions.employees[0]?.id)}
+                  onChange={(event) => setEmployeeId(event.target.value)}
+                >
+                  {createOptions!.employees.map((employee) => (
+                    <option key={employee.id} value={employee.id}>
+                      {employee.name} {employee.surname}
+                      {employee.email ? ` — ${employee.email}` : ''}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <FieldDescription>
+                  No eligible employees. Choose “Create a new employee”.
+                </FieldDescription>
+              )}
+            </Field>
+          )}
+
+          {isCreate && employeeMode === 'new' && (
             <div className="grid gap-4 sm:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="new-name">First name</FieldLabel>
@@ -457,25 +534,43 @@ function UserDialog({
             </div>
           )}
 
-          {isCreate && (
-            <Field>
-              <FieldLabel htmlFor="new-start">Employment start date</FieldLabel>
-              {/*
-                `max` is today. The server accepts any well-formed date, but an
-                account created with a future start date is almost always a typo,
-                and the browser's own date picker will not offer a later date.
-              */}
-              <Input
-                id="new-start"
-                type="date"
-                max={new Date().toISOString().slice(0, 10)}
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-              />
-              <FieldDescription>
-                Left blank, this is today. The date lands on the employee record, not the login.
-              </FieldDescription>
-            </Field>
+          {isCreate && employeeMode === 'new' && (
+            <>
+              <Field>
+                <FieldLabel htmlFor="new-start">Employment start date</FieldLabel>
+                <Input
+                  id="new-start"
+                  type="date"
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+                <FieldDescription>
+                  The date lands on the employee record, not the login.
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="new-contract-type">Contract type</FieldLabel>
+                {createOptionsLoading ? (
+                  <Skeleton className="h-9 w-full" />
+                ) : createOptions && createOptions.contractTypes.length > 0 ? (
+                  <select
+                    id="new-contract-type"
+                    className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+                    value={contractTypeId || String(createOptions!.contractTypes[0]?.id)}
+                    onChange={(event) => setContractTypeId(event.target.value)}
+                  >
+                    {createOptions!.contractTypes.map((type) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <FieldDescription>No active contract types are available.</FieldDescription>
+                )}
+              </Field>
+            </>
           )}
 
           <Field>

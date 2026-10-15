@@ -247,7 +247,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div id="main-scroll-container" className="min-h-0 flex-1 overflow-y-auto">
           {/*
             `h-full`, not `min-h-full`. The inner wrapper must be exactly the
             scroll container's height so a page's `flex-1` child resolves against
@@ -289,6 +289,7 @@ function BreadcrumbTrail() {
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const trail = breadcrumbFor(pathname, search);
+  const jobId = pathname.match(/^\/operations\/(\d+)$/)?.[1];
 
   return (
     <Breadcrumb>
@@ -305,7 +306,9 @@ function BreadcrumbTrail() {
               <span aria-hidden="true" className="mx-1 text-muted-foreground">
                 /
               </span>
-              <BreadcrumbPage>{trail.item.label}</BreadcrumbPage>
+              <BreadcrumbPage>
+                {jobId ? `${trail.item.label} · Job #${jobId}` : trail.item.label}
+              </BreadcrumbPage>
             </>
           ) : (
             <BreadcrumbPage>OpenERP</BreadcrumbPage>
@@ -431,7 +434,10 @@ function NavSectionList({
               <SidebarMenu className="pl-5 group-data-[collapsible=icon]:p-2">
                 {section.items.map((item) => {
                   const [hrefPath] = item.href.split('?');
-                  const isActive = pathname === hrefPath && filtersMatch(item.href, search);
+                  const isActive =
+                    (pathname === hrefPath ||
+                      (hrefPath === '/operations' && pathname.startsWith('/operations/'))) &&
+                    filtersMatch(item.href, search);
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

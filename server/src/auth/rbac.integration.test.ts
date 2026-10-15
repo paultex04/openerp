@@ -182,6 +182,34 @@ describe('Gate 2: insufficient permissions are rejected with 403', () => {
 // ---------------------------------------------------------------------------
 
 describe('Gate 3: /api/auth/me resolves the employee and active role set', () => {
+  it('uses database role grants as authoritative when resolving permissions', async () => {
+    const role = await prisma.appRole.findUniqueOrThrow({ where: { key: 'commercial_qs' } });
+    const permission = await prisma.permission.findUniqueOrThrow({
+      where: { key: 'ratemaster.write' },
+    });
+    const original = await prisma.rolePermission.findUnique({
+      where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+    });
+    try {
+      if (original)
+        await prisma.rolePermission.delete({
+          where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+        });
+      const user = await track(['commercial_qs']);
+      const cookie = await login(app, user.email, TEST_PASSWORD);
+      const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
+      expect(me.statusCode).toBe(200);
+      expect(me.json().permissions).not.toContain('ratemaster.write');
+      expect(me.json().rolePermissions.commercial_qs).not.toContain('ratemaster.write');
+    } finally {
+      if (original) {
+        await prisma.rolePermission.create({
+          data: { roleId: role.id, permissionId: permission.id },
+        });
+      }
+    }
+  });
+
   it('returns the linked employee record and roles for a multi-role user', async () => {
     const user = await track(['commercial_qs', 'billing_clerk']);
     const cookie = await login(app, user.email, TEST_PASSWORD);

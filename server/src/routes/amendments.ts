@@ -108,6 +108,8 @@ export async function registerAmendmentRoutes(app: FastifyInstance): Promise<voi
       return {
         amendments: amendments.map((a) => ({
           ...a,
+          amendmentType: AMENDMENT_TYPE.toLabel(a.amendmentType),
+          status: CONTRACT_AMENDMENT_STATUS.toLabel(a.status),
           effectiveDate: a.effectiveDate.toISOString().slice(0, 10),
           expiryDate: a.expiryDate?.toISOString().slice(0, 10) ?? null,
           signedDate: a.signedDate?.toISOString().slice(0, 10) ?? null,
@@ -150,7 +152,12 @@ export async function registerAmendmentRoutes(app: FastifyInstance): Promise<voi
       });
 
       return reply.code(201).send({
-        amendment: { ...amendment, vatRate: amendment.vatRate.toNumber() },
+        amendment: {
+          ...amendment,
+          amendmentType: AMENDMENT_TYPE.toLabel(amendment.amendmentType),
+          status: CONTRACT_AMENDMENT_STATUS.toLabel(amendment.status),
+          vatRate: amendment.vatRate.toNumber(),
+        },
       });
     },
   );
@@ -190,7 +197,14 @@ export async function registerAmendmentRoutes(app: FastifyInstance): Promise<voi
         },
       });
 
-      return { amendment: { ...amendment, vatRate: amendment.vatRate.toNumber() } };
+      return {
+        amendment: {
+          ...amendment,
+          amendmentType: AMENDMENT_TYPE.toLabel(amendment.amendmentType),
+          status: CONTRACT_AMENDMENT_STATUS.toLabel(amendment.status),
+          vatRate: amendment.vatRate.toNumber(),
+        },
+      };
     },
   );
 

@@ -16,6 +16,7 @@
 import { prisma } from './client.js';
 import { hashPassword, PasswordPolicyError } from '../auth/password.js';
 import { loadEnvFile } from '../lib/env.js';
+import { seedEmployeeContractTypes } from './employee-contract-types.js';
 import { PERMISSIONS, ROLE_PERMISSIONS, ROLES } from '@openerp/shared';
 
 loadEnvFile();
@@ -43,24 +44,38 @@ async function seedRolesAndPermissions(): Promise<void> {
   }
   console.log(`  permissions    ${PERMISSIONS.length} provisioned`);
 
-  // Rebuild grants from the catalogue so the matrix always matches code.
+  // Seed defaults are applied only when a non-admin role has no grants yet, so
+  // operator edits survive subsequent seed runs. New permissions are also added
+  // to existing non-admin roles only through deliberate admin changes. The
+  // administrator is the exception: it is always locked to the full catalogue.
   const roles = await prisma.appRole.findMany();
   const permissions = await prisma.permission.findMany();
   const permByKey = new Map(permissions.map((p) => [p.key, p]));
 
   let grantCount = 0;
   for (const role of roles) {
-    const desired = ROLE_PERMISSIONS[role.key] ?? [];
-    const desiredIds = desired
-      .map((key) => permByKey.get(key))
-      .filter((p): p is NonNullable<typeof p> => Boolean(p))
-      .map((p) => p.id);
-
+    const desired =
+      role.key === 'administrator'
+        ? PERMISSIONS.map((permission) => permission.key)
+        : (ROLE_PERMISSIONS[role.key] ?? []);
     const existing = await prisma.rolePermission.findMany({
       where: { roleId: role.id },
       select: { permissionId: true },
     });
     const existingIds = new Set(existing.map((r) => r.permissionId));
+
+    // API edits set this durable marker. Uncustomized roles continue to follow
+    // catalogue defaults, allowing new grants to be provisioned on seed reruns.
+    if (role.key !== 'administrator' && role.permissionsCustomized) {
+      grantCount += existingIds.size;
+      continue;
+    }
+
+    const desiredIds = desired
+      .map((key) => permByKey.get(key))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+      .map((p) => p.id);
+
     const desiredIdSet = new Set(desiredIds);
 
     const toAdd = desiredIds.filter((id) => !existingIds.has(id));
@@ -114,12 +129,9 @@ async function seedSuperAdmin(): Promise<void> {
 
   // The admin needs an employee record: app_user.employee_id is a 1-to-1
   // non-nullable foreign key, so accounts can never exist without one.
-  let contractType = await prisma.employeeContractType.findFirst();
-  if (!contractType) {
-    contractType = await prisma.employeeContractType.create({
-      data: { name: 'Full Time' },
-    });
-  }
+  const contractType = await prisma.employeeContractType.findUniqueOrThrow({
+    where: { name: 'Monthly Core' },
+  });
 
   const employee = await prisma.employee.create({
     data: {
@@ -229,7 +241,9 @@ async function seedDemoUsers(): Promise<void> {
     throw e;
   }
 
-  const contractType = await prisma.employeeContractType.findFirstOrThrow();
+  const contractType = await prisma.employeeContractType.findFirstOrThrow({
+    where: { name: 'Monthly Core', isArchived: false },
+  });
   let created = 0;
   let attached = 0;
 
@@ -304,6 +318,8 @@ async function seedDemoUsers(): Promise<void> {
 
 async function main(): Promise<void> {
   console.log('Seeding OpenERP auth + RBAC data...');
+  await seedEmployeeContractTypes(prisma.employeeContractType);
+  console.log('  employee types provisioned');
   await seedRolesAndPermissions();
   await seedSuperAdmin();
   await seedDemoUsers();

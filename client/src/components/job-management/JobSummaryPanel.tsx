@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The selected job's header: identity, status, and inline-editable detail fields.
+ * The job detail header: identity, status, and inline-editable metadata fields.
  *
  * ## Status is a dropdown, and that is deliberate
  *
@@ -30,15 +30,14 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { X } from 'lucide-react';
 import { api, ApiError, type JobDetail, type TransitionOption } from '@/lib/api';
 import { JOB_STATUSES } from '@/components/operations/statusOrder';
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { formatDate, formatPercent } from '@/lib/format';
+import { usePermissions } from '@/components/auth/usePermissions';
 
 type Job = JobDetail['job'];
 type Permissions = JobDetail['permissions'];
@@ -47,21 +46,44 @@ export function JobSummaryPanel({
   job,
   permissions,
   onChanged,
-  onClose,
 }: {
   job: Job;
   permissions: Permissions;
   onChanged: () => void;
-  onClose: () => void;
 }) {
   // One mutation for every inline editor below, so the toast wording, the error
   // handling and the cache invalidation are decided once. A per-field component
   // that forgot to invalidate would leave the panel showing a value the server had
   // already rejected, which is worse than not editing inline at all.
+  const { can } = usePermissions();
   const save = useJobPatch(job.id, onChanged);
+  const contacts = useQuery({
+    queryKey: ['job-contact-options', job.project.contract.client.id],
+    queryFn: () =>
+      api.get<{
+        contacts: Array<{ id: number; name: string; email: string | null; mobile: string | null }>;
+      }>('/api/contacts', { clientId: job.project.contract.client.id, includeArchived: true }),
+    enabled: Boolean(job.project.contract.client.id) && can('contact.read'),
+  });
+  const amendments = useQuery({
+    queryKey: ['job-amendment-options', job.project.contract.id],
+    queryFn: () =>
+      api.get<{ amendments: Array<{ id: number; amendmentNumber: string }> }>('/api/amendments', {
+        contractId: job.project.contract.id,
+      }),
+    enabled: can('amendment.read'),
+  });
+  const employees = useQuery({
+    queryKey: ['job-supervisor-options'],
+    queryFn: () =>
+      api.get<{ employees: Array<{ id: number; name: string; surname: string }> }>(
+        '/api/employees',
+      ),
+    enabled: can('employee.read'),
+  });
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -72,57 +94,137 @@ export function JobSummaryPanel({
             {job.project.code} · {job.project.contract.number} · {job.project.contract.client.name}
           </p>
         </div>
-        <Button size="sm" variant="ghost" onClick={onClose} aria-label="Close job details">
-          <X aria-hidden="true" className="size-4" />
-          Close
-        </Button>
       </div>
 
-      <CommercialBasis job={job} />
+      <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted/40 px-3 py-2 text-xs">
+        <span className="text-muted-foreground">Commercial basis</span>
+        <span className="font-medium">
+          {job.amendment?.amendmentNumber ?? '—'} ({job.amendment?.status ?? '—'})
+        </span>
+        {job.amendmentInherited && <Badge variant="outline">inherited</Badge>}
+        <span className="text-muted-foreground">
+          VAT {formatPercent(job.amendment?.vatRate ?? 0)}
+        </span>
+      </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <EditableText
+          label="Description"
+          value={job.description}
+          save={save}
+          body={(next) => ({ description: next || null })}
+          disabled={!permissions.canEditJob}
+        />
         <EditableText
           label="Work order"
           value={job.workOrder}
           save={save}
           body={(next) => ({ workOrder: next || null })}
+          disabled={!permissions.canEditJob}
+        />
+        <EditableDate
+          label="WO received"
+          value={job.workOrderReceivedDate}
+          save={save}
+          body={(next) => ({ workOrderReceivedDate: next || null })}
+          disabled={!permissions.canEditJob}
         />
         <EditableText
           label="Purchase order"
           value={job.purchaseOrder}
           save={save}
           body={(next) => ({ purchaseOrder: next || null })}
+          disabled={!permissions.canEditJob}
         />
+        <EditableDate
+          label="PO received"
+          value={job.purchaseOrderReceivedDate}
+          save={save}
+          body={(next) => ({ purchaseOrderReceivedDate: next || null })}
+          disabled={!permissions.canEditJob}
+        />
+        {can('employee.read') ? (
+          <SupervisorSelect
+            job={job}
+            canEdit={permissions.canEditJob}
+            employees={employees.data?.employees ?? []}
+            save={save}
+          />
+        ) : (
+          <ReadOnlyField
+            label="Supervisor"
+            value={
+              job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'
+            }
+          />
+        )}
+        {can('contact.read') ? (
+          <ContactSelect
+            job={job}
+            canEdit={permissions.canEditJob}
+            contacts={contacts.data?.contacts ?? []}
+            save={save}
+          />
+        ) : (
+          <ReadOnlyField label="Client contact" value={job.clientContact?.name ?? 'Unassigned'} />
+        )}
+        {can('amendment.read') && (
+          <SelectField
+            label="Amendment"
+            value={
+              job.amendmentInherited ? '' : job.amendmentId == null ? '' : String(job.amendmentId)
+            }
+            emptyLabel={job.amendmentInherited ? 'Inherited from project' : 'No amendment'}
+            disabled={!permissions.canEditJob || amendments.isLoading || save.isPending}
+            options={
+              amendments.data?.amendments.map((a) => ({
+                value: String(a.id),
+                label: a.amendmentNumber,
+              })) ?? []
+            }
+            onChange={(value) =>
+              save.mutate({
+                body: { amendmentId: value ? Number(value) : null },
+                label: 'Amendment',
+              })
+            }
+          />
+        )}
         <EditableText
           label="Area"
           value={job.area}
           save={save}
           body={(next) => ({ area: next || null })}
+          disabled={!permissions.canEditJob}
         />
-        <PrioritySelect job={job} />
+        <PrioritySelect job={job} canEdit={permissions.canEditJob} />
         <EditableDate
           label="Planned start"
           value={job.plannedStartDate}
           save={save}
           body={(next) => ({ plannedStartDate: next || null })}
+          disabled={!permissions.canEditJob}
         />
         <EditableDate
           label="Planned end"
           value={job.plannedEndDate}
           save={save}
           body={(next) => ({ plannedEndDate: next || null })}
+          disabled={!permissions.canEditJob}
         />
         <EditableDate
           label="Actual start"
           value={job.actualStartDate}
           save={save}
           body={(next) => ({ actualStartDate: next || null })}
+          disabled={!permissions.canEditJob}
         />
         <EditableDate
           label="Actual end"
           value={job.actualEndDate}
           save={save}
           body={(next) => ({ actualEndDate: next || null })}
+          disabled={!permissions.canEditJob}
         />
       </div>
 
@@ -139,24 +241,99 @@ export function JobSummaryPanel({
 
 /** ------------------------------------------------------------------------- */
 
-function CommercialBasis({ job }: { job: Job }) {
+function SupervisorSelect({
+  job,
+  canEdit,
+  employees,
+  save,
+}: {
+  job: Job;
+  canEdit: boolean;
+  employees: Array<{ id: number; name: string; surname: string }>;
+  save: JobPatch;
+}) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-md border p-3 text-xs">
-      <span className="text-muted-foreground">Commercial basis</span>
-      <span className="font-medium">
-        {job.amendment?.amendmentNumber ?? '—'} ({job.amendment?.status ?? '—'})
-      </span>
-      <span className="text-muted-foreground">
-        VAT {formatPercent(job.amendment?.vatRate ?? 0)}
-      </span>
-      {job.amendmentInherited && (
-        <Badge
-          variant="outline"
-          title="This job has no amendment of its own and inherits the project's."
-        >
-          inherited from project
-        </Badge>
-      )}
+    <SelectField
+      label="Supervisor"
+      value={job.supervisorId ? String(job.supervisorId) : ''}
+      disabled={!canEdit || save.isPending}
+      options={employees.map((employee) => ({
+        value: String(employee.id),
+        label: `${employee.name} ${employee.surname}`,
+      }))}
+      emptyLabel={
+        job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'
+      }
+      onChange={(value) =>
+        save.mutate({ body: { supervisorId: value ? Number(value) : null }, label: 'Supervisor' })
+      }
+    />
+  );
+}
+
+function ContactSelect({
+  job,
+  canEdit,
+  contacts,
+  save,
+}: {
+  job: Job;
+  canEdit: boolean;
+  contacts: Array<{ id: number; name: string; email: string | null; mobile: string | null }>;
+  save: JobPatch;
+}) {
+  return (
+    <SelectField
+      label="Client contact"
+      value={job.clientContactId ? String(job.clientContactId) : ''}
+      disabled={!canEdit || contacts.length === 0 || save.isPending}
+      options={contacts.map((contact) => ({ value: String(contact.id), label: contact.name }))}
+      emptyLabel={job.clientContact?.name ?? 'Unassigned'}
+      onChange={(value) =>
+        save.mutate({
+          body: { clientContactId: value ? Number(value) : null },
+          label: 'Client contact',
+        })
+      }
+    />
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  disabled,
+  emptyLabel = 'Inherit / none',
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled: boolean;
+  emptyLabel?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-md border p-2">
+      <label htmlFor={`select-${label}`} className="text-[11px] text-muted-foreground">
+        {label}
+      </label>
+      <select
+        id={`select-${label}`}
+        aria-label={label}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-60"
+      >
+        <option value="">{emptyLabel}</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -263,43 +440,14 @@ function StatusControl({
 
 function JobFacts({ job }: { job: Job }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <Fact
-        label="Supervisor"
-        value={job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'}
-      />
-      <Fact
-        label="Crew"
-        value={
-          job.assignments.length === 0
-            ? 'None assigned'
-            : job.assignments
-                .map(
-                  (a) => `${a.employee.name} ${a.employee.surname}${a.role ? ` (${a.role})` : ''}`,
-                )
-                .join(', ')
-        }
-      />
-      <Fact
-        label="Planned window"
-        value={`${formatDate(job.plannedStartDate)} → ${formatDate(job.plannedEndDate)}`}
-      />
-      <Fact
-        label="Actual window"
-        value={`${formatDate(job.actualStartDate)} → ${formatDate(job.actualEndDate)}`}
-      />
-      <Fact label="Description" value={job.description ?? '—'} />
-    </div>
-  );
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border p-3">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-sm break-words" title={value}>
-        {value}
-      </p>
+    <div className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
+      Planned {formatDate(job.plannedStartDate)} → {formatDate(job.plannedEndDate)} · Actual{' '}
+      {formatDate(job.actualStartDate)} → {formatDate(job.actualEndDate)} · Crew:{' '}
+      {job.assignments.length === 0
+        ? 'None assigned'
+        : job.assignments
+            .map((a) => `${a.employee.name} ${a.employee.surname}${a.role ? ` (${a.role})` : ''}`)
+            .join(', ')}
     </div>
   );
 }
@@ -321,28 +469,44 @@ function useJobPatch(jobId: number, onChanged: () => void) {
       void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       onChanged();
     },
-    onError: (error: Error, variables) =>
+    onError: (error: Error, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
+      onChanged();
       toast.add({
         title: `Could not save ${variables.label.toLowerCase()}`,
         description: error instanceof ApiError ? error.message : error.message,
         type: 'error',
-      }),
+      });
+    },
   });
 }
 
 type JobPatch = ReturnType<typeof useJobPatch>;
 
 /** A text field that PATCHes on blur or Enter, and reverts on Escape. */
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 px-3 py-2">
+      <span className="block text-[11px] text-muted-foreground">{label}</span>
+      <span className="mt-1 block truncate text-xs" title={value}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function EditableText({
   label,
   value,
   save,
   body,
+  disabled = false,
 }: {
   label: string;
   value: string | null;
   save: JobPatch;
   body: (next: string) => Record<string, unknown>;
+  disabled?: boolean;
 }) {
   // The draft carries the server value it was seeded from, so a refetch can be
   // detected by comparison during render rather than with an effect.
@@ -361,12 +525,13 @@ function EditableText({
   const commit = (next: string) => setDraft({ server: next, text: next, dirty: false });
 
   return (
-    <div className="rounded-md border p-3">
+    <div className="rounded-md border p-2">
       <label htmlFor={`f-${label}`} className="text-[11px] text-muted-foreground">
         {label}
       </label>
       <Input
         id={`f-${label}`}
+        disabled={disabled}
         value={draft.text}
         onChange={(event) => setDraft({ ...draft, text: event.target.value, dirty: true })}
         onBlur={() => {
@@ -395,11 +560,13 @@ function EditableDate({
   value,
   save,
   body,
+  disabled = false,
 }: {
   label: string;
   value: string | null;
   save: JobPatch;
   body: (next: string) => Record<string, unknown>;
+  disabled?: boolean;
 }) {
   // Same render-time adjustment as `EditableText`; see the comment there.
   const [draft, setDraft] = useState({ server: value ?? '', text: value ?? '', dirty: false });
@@ -408,12 +575,13 @@ function EditableDate({
   }
 
   return (
-    <div className="rounded-md border p-3">
+    <div className="rounded-md border p-2">
       <label htmlFor={`d-${label}`} className="text-[11px] text-muted-foreground">
         {label}
       </label>
       <Input
         id={`d-${label}`}
+        disabled={disabled}
         type="date"
         value={draft.text}
         onChange={(event) => setDraft({ ...draft, text: event.target.value, dirty: true })}
@@ -429,7 +597,7 @@ function EditableDate({
   );
 }
 
-function PrioritySelect({ job }: { job: Job }) {
+function PrioritySelect({ job, canEdit }: { job: Job; canEdit: boolean }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
 
@@ -458,7 +626,7 @@ function PrioritySelect({ job }: { job: Job }) {
       <select
         id={`prio-${job.id}`}
         value={job.priority}
-        disabled={pending}
+        disabled={pending || !canEdit}
         onChange={(event) => {
           setPending(true);
           save.mutate(event.target.value);

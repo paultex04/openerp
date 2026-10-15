@@ -550,8 +550,9 @@ model AppRole {
   /// Stable machine key, e.g. 'administrator', 'commercial_qs'.
   key         String   @unique @db.VarChar(64)
   name        String   @unique @db.VarChar(100)
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  description            String?
+  permissionsCustomized Boolean  @default(false) @map("permissions_customized")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   users       AppUserRole[]
   permissions RolePermission[]

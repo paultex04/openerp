@@ -222,15 +222,15 @@ export function visibleSections(permissions: readonly string[]): NavSection[] {
 /**
  * Resolves a pathname to its breadcrumb trail.
  *
- * Matching ignores the query string and any trailing detail segment, so
- * `/commercial?tab=rates` still resolves to "Labour Rate Masters (Tier 1)" rather
- * than to a label nobody can match.
+ * Matching ignores the query string and detail segments, so a detail screen
+ * keeps the breadcrumb of its register.
  */
 export function breadcrumbFor(
   pathname: string,
   search: string,
 ): { section: NavSection; item: NavItem } | null {
   const query = new URLSearchParams(search);
+  const resolvedPath = pathname.startsWith('/operations/') ? '/operations' : pathname;
 
   // A more specific entry wins: try every item and keep the longest match.
   let best: { section: NavSection; item: NavItem; score: number } | null = null;
@@ -238,7 +238,7 @@ export function breadcrumbFor(
   for (const section of NAV_SECTIONS) {
     for (const item of section.items) {
       const [path, itemQuery] = item.href.split('?');
-      if (path !== pathname) continue;
+      if (path !== resolvedPath) continue;
 
       let score = 1;
       if (itemQuery) {

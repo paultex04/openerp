@@ -5,7 +5,7 @@
  *   admin.user.read   — list users and the role matrix
  *   admin.user.write  — create users, change roles, deactivate, reset credentials
  *   admin.role.read   — roles and their permissions
- *   admin.role.write  — reserved: grant/revoke is seeded, not user-editable here
+ *   admin.role.write  — edit grants on the four non-administrator built-in roles
  *   admin.audit.read  — read the audit log
  *
  * ## Users are deactivated, never hard-deleted
@@ -25,7 +25,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { PERMISSIONS, ROLE_PERMISSIONS } from '@openerp/shared';
+import { PERMISSIONS, ROLE_ADMINISTRATOR, ROLE_KEYS, ROLE_PERMISSIONS } from '@openerp/shared';
 import { prisma } from '../db/client.js';
 import { HttpError } from '../auth/plugin.js';
 import { hashPassword, PasswordPolicyError } from '../auth/password.js';
@@ -40,17 +40,34 @@ const emailSchema = z
   .email('A valid email address is required.')
   .max(255);
 
+const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'A valid start date is required.')
+  .refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  }, 'A valid start date is required.');
+
 const createUserSchema = z.object({
   email: emailSchema,
   password: z.string().min(1, 'A password is required.'),
   roleKeys: z.array(z.string().trim().min(1)).min(1, 'Assign at least one role.'),
-  /** Create the linked employee record, or attach to an existing one. */
-  employee: z.object({
-    name: z.string().trim().min(1),
-    surname: z.string().trim().min(1),
-    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    contractTypeId: z.coerce.number().int().positive().optional(),
-  }),
+  employee: z.discriminatedUnion('mode', [
+    z.object({ mode: z.literal('existing'), employeeId: z.coerce.number().int().positive() }),
+    z.object({
+      mode: z.literal('new'),
+      name: z.string().trim().min(1).max(100),
+      surname: z.string().trim().min(1).max(100),
+      startDate: isoDateSchema,
+      contractTypeId: z.coerce.number().int().positive(),
+    }),
+  ]),
+});
+
+const updateRolePermissionsSchema = z.object({
+  permissionKeys: z
+    .array(z.string().trim().min(1))
+    .refine((keys) => new Set(keys).size === keys.length, 'Permission keys must be unique.'),
 });
 
 const updateUserSchema = z
@@ -133,10 +150,8 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return {
-        // The live database is authoritative for which permissions exist; the
-        // shared catalogue is authoritative for what each role *should* hold.
-        // Sending both lets the admin screen show drift between them, which is a
-        // real and previously invisible failure mode after a permission is added.
+        // Live grants are authoritative. `expected` is only the initial seed
+        // default, retained to provide context to administrators.
         permissions: PERMISSIONS.map((p) => ({
           key: p.key,
           // The catalogue's category is the RBAC module, e.g. 'invoice'.
@@ -150,8 +165,87 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           description: r.description,
           granted: r.permissions.map((rp) => rp.permission.key).sort(),
           expected: [...(ROLE_PERMISSIONS[r.key] ?? [])].sort(),
+          locked: r.key === ROLE_ADMINISTRATOR,
         })),
       };
+    },
+  );
+
+  app.put(
+    '/api/admin/roles/:key/permissions',
+    { preHandler: [app.authenticate, app.requirePermission('admin.role.write')] },
+    async (request: FastifyRequest) => {
+      const { key } = z.object({ key: z.string().trim().min(1) }).parse(request.params);
+      const { permissionKeys } = updateRolePermissionsSchema.parse(request.body);
+
+      if (!ROLE_KEYS.includes(key)) {
+        throw new HttpError(404, 'ROLE_NOT_FOUND', `Built-in role "${key}" does not exist.`);
+      }
+      if (key === ROLE_ADMINISTRATOR) {
+        throw new HttpError(
+          409,
+          'ROLE_LOCKED',
+          'The administrator role is protected and always holds every catalogue permission.',
+        );
+      }
+
+      const forbidden = permissionKeys.filter((permission) => permission.startsWith('admin.'));
+      if (forbidden.length) {
+        throw new HttpError(
+          422,
+          'PROTECTED_PERMISSION',
+          'Administrator permissions cannot be granted to non-administrator roles.',
+        );
+      }
+
+      const unknown = permissionKeys.filter(
+        (permission) => !PERMISSIONS.some((p) => p.key === permission),
+      );
+      if (unknown.length) {
+        throw new HttpError(
+          422,
+          'UNKNOWN_PERMISSION',
+          `Unknown permission(s): ${unknown.join(', ')}.`,
+        );
+      }
+
+      const role = await prisma.appRole.findUnique({ where: { key }, select: { id: true } });
+      if (!role)
+        throw new HttpError(404, 'ROLE_NOT_FOUND', `Built-in role "${key}" does not exist.`);
+      const permissions = await prisma.permission.findMany({
+        where: { key: { in: permissionKeys } },
+        select: { id: true, key: true },
+      });
+      if (permissions.length !== permissionKeys.length) {
+        throw new HttpError(
+          422,
+          'UNKNOWN_PERMISSION',
+          'One or more permissions are not provisioned. Rerun the seed.',
+        );
+      }
+
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.rolePermission.findMany({
+          where: { roleId: role.id },
+          select: { permissionId: true },
+        });
+        for (const grant of existing) {
+          await tx.rolePermission.delete({
+            where: { roleId_permissionId: { roleId: role.id, permissionId: grant.permissionId } },
+          });
+        }
+        for (const permission of permissions) {
+          await tx.rolePermission.create({
+            data: { roleId: role.id, permissionId: permission.id },
+          });
+        }
+        await tx.appRole.update({
+          where: { id: role.id },
+          data: { permissionsCustomized: true },
+        });
+      });
+
+      return { roleKey: key, granted: permissionKeys.slice().sort() };
     },
   );
 
@@ -173,7 +267,18 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           lastLoginAt: true,
           createdAt: true,
           employee: { select: { id: true, name: true, surname: true, email: true } },
-          roles: { select: { role: { select: { id: true, key: true, name: true } } } },
+          roles: {
+            select: {
+              role: {
+                select: {
+                  id: true,
+                  key: true,
+                  name: true,
+                  permissions: { select: { permission: { select: { key: true } } } },
+                },
+              },
+            },
+          },
         },
       });
 
@@ -182,9 +287,31 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           ...serialise(u),
           roleKeys: u.roles.map((r) => r.role.key),
           roles: u.roles.map((r) => r.role),
-          permissionCount: new Set(u.roles.flatMap((r) => ROLE_PERMISSIONS[r.role.key] ?? [])).size,
+          permissionCount: new Set(
+            u.roles.flatMap((r) => r.role.permissions.map((rp) => rp.permission.key)),
+          ).size,
         })),
       };
+    },
+  );
+
+  app.get(
+    '/api/admin/users/create-options',
+    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    async () => {
+      const [employees, contractTypes] = await Promise.all([
+        prisma.employee.findMany({
+          where: { endDate: null, appUser: null },
+          orderBy: [{ surname: 'asc' }, { name: 'asc' }],
+          select: { id: true, name: true, surname: true, email: true },
+        }),
+        prisma.employeeContractType.findMany({
+          where: { isArchived: false },
+          orderBy: { name: 'asc' },
+          select: { id: true, name: true },
+        }),
+      ]);
+      return { employees, contractTypes };
     },
   );
 
@@ -211,36 +338,68 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         throw e;
       }
 
-      // `app_user.employee_id` is a non-nullable 1-to-1, so an account can never
-      // exist without an employee record.
-      const contractTypeId =
-        body.employee.contractTypeId ??
-        (await prisma.employeeContractType.findFirstOrThrow({ select: { id: true } })).id;
+      // Employee selection and account creation share one transaction. The
+      // unique employee_id constraint is the final guard against concurrent
+      // attempts to attach two accounts to the same person.
+      const result = await prisma.$transaction(async (tx) => {
+        let employeeId: number;
+        if (body.employee.mode === 'existing') {
+          const employee = await tx.employee.findUnique({
+            where: { id: body.employee.employeeId },
+            select: { id: true, endDate: true, appUser: { select: { id: true } } },
+          });
+          if (!employee || employee.endDate !== null) {
+            throw new HttpError(
+              422,
+              'EMPLOYEE_NOT_ELIGIBLE',
+              'Select an active employee without an application user.',
+            );
+          }
+          if (employee.appUser) {
+            throw new HttpError(409, 'EMPLOYEE_HAS_USER', 'This employee already has an account.');
+          }
+          employeeId = employee.id;
+        } else {
+          const contractType = await tx.employeeContractType.findUnique({
+            where: { id: body.employee.contractTypeId },
+            select: { id: true, isArchived: true },
+          });
+          if (!contractType || contractType.isArchived) {
+            throw new HttpError(422, 'INVALID_CONTRACT_TYPE', 'Select an active contract type.');
+          }
+          const employee = await tx.employee.create({
+            data: {
+              name: body.employee.name,
+              surname: body.employee.surname,
+              email: body.email,
+              startDate: new Date(`${body.employee.startDate}T00:00:00.000Z`),
+              contractTypeId: contractType.id,
+            },
+            select: { id: true },
+          });
+          employeeId = employee.id;
+        }
 
-      const employee = await prisma.employee.create({
-        data: {
-          name: body.employee.name,
-          surname: body.employee.surname,
-          email: body.email,
-          startDate: new Date(body.employee.startDate),
-          contractTypeId,
-        },
-        select: { id: true },
-      });
-
-      const user = await prisma.appUser.create({
-        data: {
-          employeeId: employee.id,
-          email: body.email,
-          passwordHash,
-          isActive: true,
-          roles: { create: roles.map((r) => ({ roleId: r.id })) },
-        },
-        select: { id: true, email: true },
+        const user = await tx.appUser.create({
+          data: {
+            employeeId,
+            email: body.email,
+            passwordHash,
+            isActive: true,
+            roles: { create: roles.map((r) => ({ roleId: r.id })) },
+          },
+          select: { id: true, email: true },
+        });
+        return { user, employeeId };
       });
 
       return reply.code(201).send({
-        user: { id: user.id, email: user.email, employeeId: employee.id, roleKeys: body.roleKeys },
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          employeeId: result.employeeId,
+          roleKeys: body.roleKeys,
+        },
       });
     },
   );
@@ -288,7 +447,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           );
         }
         if (!body.isActive && (await holdsAdministratorRole(id))) {
-          await assertNotLastAdministrator(id, body.roleKeys ?? []);
+          await assertNotLastAdministrator(id, []);
         }
 
         await prisma.appUser.update({
@@ -325,7 +484,16 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           id: true,
           email: true,
           isActive: true,
-          roles: { select: { role: { select: { key: true } } } },
+          roles: {
+            select: {
+              role: {
+                select: {
+                  key: true,
+                  permissions: { select: { permission: { select: { key: true } } } },
+                },
+              },
+            },
+          },
         },
       });
 

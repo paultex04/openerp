@@ -214,6 +214,7 @@ describe('Gate 5: amendment resolution', () => {
     const body = response.json();
     expect(body.job.amendmentInherited).toBe(true);
     expect(body.job.amendmentId).toBe(body.job.project.amendmentId);
+    expect(body.permissions.canEditJob).toBe(true);
   });
 
   it('honours an explicit job amendment over the project default', async () => {

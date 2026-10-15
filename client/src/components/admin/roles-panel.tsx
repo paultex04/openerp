@@ -1,27 +1,12 @@
 'use client';
 
-/**
- * Roles and permissions matrix.
- *
- * Reframed as one row per permission with a column per role. It was previously a
- * card per role listing its grants as chips, which answered "what can this role
- * do?" but not the question an administrator actually has when granting: "who
- * can do this one thing?" That question needs a row, and a row needs search.
- *
- * The drift warning is kept. A live grant that differs from the seeded catalogue
- * is a genuine operational problem - usually a migration that added a permission
- * and was never re-seeded - so it is surfaced per role rather than buried.
- *
- * Read-only by design: grants come from the code-level catalogue in
- * `@openerp/shared` and are resynchronised by re-running the seed, not edited
- * here. Per-user role assignment lives in the Users tab, where it belongs - it is
- * a property of a person, not of a role.
- */
-import { useQuery } from '@tanstack/react-query';
+/** Editable matrix for the four non-administrator built-in role grants. */
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/data-table/data-table';
+import { toast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 
 interface RoleRow {
@@ -30,6 +15,7 @@ interface RoleRow {
   description: string | null;
   granted: string[];
   expected: string[];
+  locked: boolean;
 }
 
 interface PermissionRow {
@@ -39,37 +25,63 @@ interface PermissionRow {
 }
 
 export function RolesPanel() {
+  const queryClient = useQueryClient();
   const [moduleFilter, setModuleFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, Set<string>>>({});
+  const [savingRole, setSavingRole] = useState<string | null>(null);
 
   const roles = useQuery({
     queryKey: ['admin-roles'],
-    queryFn: () =>
-      api.get<{
-        permissions: PermissionRow[];
-        roles: RoleRow[];
-      }>('/api/admin/roles'),
+    queryFn: () => api.get<{ permissions: PermissionRow[]; roles: RoleRow[] }>('/api/admin/roles'),
   });
 
-  // `?? []` inline would allocate a new array every render, so every memo
-  // downstream of it would recompute on every keystroke in the search box.
   const permissionRows = useMemo(() => roles.data?.permissions ?? [], [roles.data]);
   const roleRows = useMemo(() => roles.data?.roles ?? [], [roles.data]);
+  const grantsFor = (role: RoleRow) => drafts[role.key] ?? new Set(role.granted);
+  const dirty = (role: RoleRow) => {
+    const grants = grantsFor(role);
+    return grants.size !== role.granted.length || role.granted.some((key) => !grants.has(key));
+  };
 
-  // One row per permission; `granted` is a lookup so a cell is O(1) rather than
-  // scanning the role's array for every cell of every row.
+  const save = useMutation({
+    mutationFn: ({ roleKey, permissionKeys }: { roleKey: string; permissionKeys: string[] }) =>
+      api.put(`/api/admin/roles/${encodeURIComponent(roleKey)}/permissions`, { permissionKeys }),
+    onMutate: ({ roleKey }) => setSavingRole(roleKey),
+    onSuccess: async (_result, { roleKey }) => {
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[roleKey];
+        return next;
+      });
+      await queryClient.invalidateQueries({ queryKey: ['admin-roles'] });
+      await queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      toast.add({
+        title: 'Role permissions saved',
+        description: 'The updated grants are active immediately.',
+        type: 'success',
+      });
+    },
+    onError: (error: Error) =>
+      toast.add({
+        title: 'Could not save role permissions',
+        description: error instanceof ApiError ? error.message : error.message,
+        type: 'error',
+      }),
+    onSettled: () => setSavingRole(null),
+  });
+
+  type MatrixRow = PermissionRow & { grantedBy: Set<string> };
   const data = useMemo(
     () =>
       permissionRows.map((permission) => ({
         ...permission,
         grantedBy: new Set(
-          roleRows.filter((role) => role.granted.includes(permission.key)).map((role) => role.key),
+          roleRows.filter((role) => grantsFor(role).has(permission.key)).map((role) => role.key),
         ),
       })),
-    [permissionRows, roleRows],
+    [permissionRows, roleRows, drafts],
   );
-
-  type MatrixRow = (typeof data)[number];
 
   const columns = useMemo<ColumnDef<any, MatrixRow, unknown>[]>(() => {
     const roleColumn = (role: RoleRow) =>
@@ -77,14 +89,29 @@ export function RolesPanel() {
         id: `role-${role.key}`,
         header: role.name,
         enableSorting: false,
-        cell: ({ row }: { row: { original: MatrixRow } }) =>
-          row.original.grantedBy.has(role.key) ? (
-            <Badge variant="success">Granted</Badge>
-          ) : (
-            <span className="text-muted-foreground" title="Not granted">
-              —
-            </span>
-          ),
+        cell: ({ row }: { row: { original: MatrixRow } }) => {
+          const granted = grantsFor(role).has(row.original.key);
+          return (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={granted}
+                disabled={role.locked || save.isPending}
+                aria-label={`${granted ? 'Revoke' : 'Grant'} ${row.original.key} for ${role.name}`}
+                onChange={(event) => {
+                  setDrafts((current) => {
+                    const next = new Set(current[role.key] ?? role.granted);
+                    if (event.target.checked) next.add(row.original.key);
+                    else next.delete(row.original.key);
+                    return { ...current, [role.key]: next };
+                  });
+                }}
+                className="size-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              />
+              <span className="sr-only">{granted ? 'Granted' : 'Not granted'}</span>
+            </label>
+          );
+        },
       }) as ColumnDef<any, MatrixRow, unknown>;
 
     return [
@@ -103,15 +130,13 @@ export function RolesPanel() {
       {
         id: 'grantedByCount',
         header: 'Roles',
-        // Sortable by breadth, which is the fastest way to spot a permission that
-        // almost nobody has - usually a mistake.
         accessorFn: (row) => row.grantedBy.size,
         meta: { align: 'right' },
         cell: ({ row }) => row.original.grantedBy.size,
       },
       ...roleRows.map(roleColumn),
     ];
-  }, [roleRows]);
+  }, [roleRows, drafts, save.isPending]);
 
   const moduleOptions = useMemo(
     () => [
@@ -133,29 +158,53 @@ export function RolesPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {roleRows
-        .map((role) => {
-          const missing = role.expected.filter((p) => !role.granted.includes(p));
-          const extra = role.granted.filter((p) => !role.expected.includes(p));
-          return { role, missing, extra };
-        })
-        .filter(({ missing, extra }) => missing.length > 0 || extra.length > 0)
-        .map(({ role, missing, extra }) => (
-          <p
-            key={role.key}
-            className="rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning"
-          >
-            <strong>{role.name}</strong>: live grants differ from the seeded catalogue
-            {missing.length > 0 && `; missing ${missing.join(', ')}`}
-            {extra.length > 0 && `; unexpected ${extra.join(', ')}`}. Run{' '}
-            <code>npm run seed --workspace server</code> to resynchronise.
-          </p>
-        ))}
-
       <p className="text-xs text-muted-foreground">
-        Read-only. Grants come from the code-level catalogue and are resynchronised by re-running
-        the seed; which roles a <em>person</em> holds is set in the Users tab.
+        Toggle permissions for the four built-in non-administrator roles, then save each role.
+        Changes apply immediately. The administrator role is locked and always holds every catalogue
+        permission. Site supervisors remain scoped to assigned jobs unless another granted role
+        provides general job access. Which roles a person holds is set in the Users tab.
       </p>
+
+      {roleRows
+        .filter((role) => !role.locked && dirty(role))
+        .map((role) => (
+          <div
+            key={role.key}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-3"
+          >
+            <div className="text-sm">
+              <strong>{role.name}</strong>
+              <span className="ml-2 text-muted-foreground">Unsaved permission changes</span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={save.isPending}
+                onClick={() =>
+                  setDrafts((current) => {
+                    const next = { ...current };
+                    delete next[role.key];
+                    return next;
+                  })
+                }
+              >
+                Reset
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={save.isPending}
+                onClick={() =>
+                  save.mutate({ roleKey: role.key, permissionKeys: [...grantsFor(role)].sort() })
+                }
+              >
+                {savingRole === role.key ? 'Saving…' : `Save ${role.name}`}
+              </Button>
+            </div>
+          </div>
+        ))}
 
       <DataTable
         caption="Permission matrix by role"

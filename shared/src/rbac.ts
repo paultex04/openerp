@@ -9,10 +9,9 @@
  *  * A user may hold one or more roles. Effective permissions are the UNION of
  *    every role's permissions, so a person who is both QS and Billing Clerk
  *    legitimately gains both sets of capabilities.
- *  * `administrator` is granted the full permission set explicitly rather than
- *    via a wildcard. That keeps the Phase 5 permissions-matrix screen honest:
- *    it can display exactly which rows an administrator holds, and revoking a
- *    single capability is a normal UPDATE rather than special-case logic.
+ *  * These role grants are seed defaults, not runtime authority. Runtime checks
+ *    use the grants stored in `role_permission`; the administrator is protected
+ *    and its database grants are kept equal to the full catalogue by the seed.
  */
 
 // ---------------------------------------------------------------------------
@@ -252,6 +251,7 @@ const BILLING_CLERK_GRANTS: string[] = [
   'job.transition.invoice',
 ];
 
+/** Default grant set for initial provisioning of each built-in role. */
 export const ROLE_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   [ROLE_ADMINISTRATOR]: PERMISSION_KEYS,
   [ROLE_COMMERCIAL_QS]: COMMERCIAL_GRANTS,
@@ -273,14 +273,16 @@ export function effectivePermissions(roleKeys: readonly string[]): Set<string> {
   return out;
 }
 
+/** Checks seed-default grants; runtime authorization is resolved from the database. */
 export function hasPermission(roleKeys: readonly string[], permission: string): boolean {
   return roleKeys.some((key) => ROLE_PERMISSIONS[key]?.includes(permission));
 }
 
 /** True when any of the user's roles is scoped to assigned jobs only. */
-export function isScopedToAssignedJobs(roleKeys: readonly string[]): boolean {
-  return (
-    roleKeys.includes(ROLE_SITE_SUPERVISOR) &&
-    !roleKeys.some((k) => ROLE_PERMISSIONS[k]?.includes('job.read'))
-  );
+export function isScopedToAssignedJobs(
+  roleKeys: readonly string[],
+  permissions?: ReadonlySet<string>,
+): boolean {
+  const granted = permissions ?? effectivePermissions(roleKeys);
+  return roleKeys.includes(ROLE_SITE_SUPERVISOR) && !granted.has('job.read');
 }

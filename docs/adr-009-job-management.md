@@ -1,4 +1,4 @@
-# ADR-009: Job Management is one page, and the jobs register searches on the server
+# ADR-009: Job Management uses a server-searched register and dedicated job details
 
 - **Status:** accepted
 - **Date:** 2026-10-06
@@ -17,9 +17,9 @@ Operations was three sidebar entries over one route with a `?view=` parameter:
 | Valuation Packs   | `?view=board&status=07. Pack Ready` | a deep link to a pre-filtered board                   |
 
 None of them answered the question the screen exists for — _here is job X, what is on
-it and what does it cost_ — without a drill-down that destroyed your place in the
-list. Selecting a job navigated to a full-screen detail view, and "back" returned you
-to a board whose filters and scroll position had been rebuilt from scratch.
+it and what does it cost_ — and the old drill-down destroyed your place in the list.
+The separate detail screen did not preserve the register's filters or scroll position
+when returning to the list.
 
 The board was also already failing at three jobs. Thirteen statuses means thirteen
 columns of horizontal scroll on a kanban, which ADR-007 had already replaced with a
@@ -28,24 +28,19 @@ exactly the scale a jobs register is built for.
 
 ## Decision
 
-### One page, two tables, stacked
+### Register plus dedicated detail route
 
-`/operations` is now **Job Management**. The jobs register is on top; selecting a row
-reveals that job's details and its service-code line items below it, in the same page.
+`/operations` is **Job Management**, a full-width, server-searched register. Each job
+opens at `/operations/[id]`, where the existing job summary and service-code line items
+are reused. This gives each job a stable, shareable URL and keeps the detailed work
+surface focused instead of squeezing it beneath the register.
 
-The register stays visible while a job is open. That is the whole reason for stacking
-rather than drilling in: on a screen where jobs are constantly being updated — which is
-how the screen was specified — the list is a work queue, not a menu. Losing it on every
-selection is what made the old three-view structure feel wrong.
+### Register state is URL state; scroll is session state
 
-### The selected job is component state, not URL state
-
-Paging the register must not clear the open job, and the Back button must leave the
-screen rather than step backwards through selections. A `?job=` parameter would do
-neither, so the selection is deliberately not in the URL.
-
-The cost of that choice: an open job is not shareable by link. Accepted — a reviewer who
-wants to send someone a specific job can send `/operations` and name the job number.
+Search, status, project, page, and page size are mirrored into `/operations` query
+parameters. Opening a detail page carries those parameters along. Returning to the
+register reconstructs its filters/page from the URL and restores its scroll position
+from `sessionStorage`, so navigation does not restart the work queue at the top.
 
 ### The register searches and paginates on the server
 
@@ -101,11 +96,14 @@ Note that this endpoint returns the machine's _legal neighbours_, not all thirte
 annotated. Absence is the meaningful case: a status not in the response is not
 reachable. The first implementation inverted this and rendered every status enabled.
 
-### Job header fields edit inline
+### Job metadata is one compact editable card
 
-Work order, purchase order, area, priority and the four dates are text inputs and
-selects that `PATCH /api/jobs/:id` on blur or change. Status is excluded — it has its own
-endpoint and its own rules.
+Description, work order and received date, purchase order and received date, supervisor,
+client contact, amendment, area, priority, and planned/actual dates are consolidated in
+one compact card and PATCH `/api/jobs/:id` on blur or change. Editor controls respect
+`permissions.canEditJob`; picker choices are loaded from the corresponding contacts,
+employees, and amendments endpoints when the viewer has read permission. Status is
+excluded — it has its own endpoint and its own rules.
 
 All inline editors share one mutation, so the toast wording, error handling and cache
 invalidation are decided once. A per-field component that forgot to invalidate would
@@ -161,17 +159,19 @@ copied and drift.
 
 ## Consequences
 
-**Better:** one screen answers "what is on this job and what does it cost"; the list
-survives selection; search works at any scale; status is one control that still cannot
-bypass the state machine.
+**Better:** a job is directly linkable, its metadata and service lines have a focused
+detail surface, and the register returns with its filters, page, and scroll position.
+Search works at any scale; status is one control that still cannot bypass the state
+machine.
 
-**Worse:** an open job is not linkable. The dashboard's two Operations tiles now point
-at the same destination as each other, since the Projects Register is gone — variance is
-read from the selected job's totals rather than a project rollup.
+**Worse:** opening a job leaves the register temporarily. The dashboard's two Operations
+tiles now point at the same destination as each other, since the Projects Register is
+gone — variance is read from the job's totals rather than a project rollup.
 
 **Neutral:** `/operations?view=…` is now ignored. The old query parameters are not
 redirected; anyone with a bookmark lands on the register, which is the destination they
-wanted.
+wanted. The detail route's Back control returns to its carried register query state even
+when the detail URL was opened directly.
 
 ## Verification
 

@@ -50,6 +50,7 @@ const MODEL_LABELS: Record<string, string> = {
   EmployeeContractType: 'employee contract type',
   AppUser: 'user account',
   AppRole: 'role',
+  RolePermission: 'role permission grant',
 };
 
 export function modelLabel(model: string): string {
