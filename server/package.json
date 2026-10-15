@@ -1,6 +1,6 @@
 {
   "name": "@openerp/server",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "type": "module",
   "description": "OpenERP REST API: Fastify + Prisma, auth, RBAC, pricing, operations and billing.",

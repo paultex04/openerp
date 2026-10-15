@@ -202,22 +202,23 @@ colourless.
 Production code lives on `main`. Each phase is developed on a `phase/NN-*` branch and merged only
 after its automated tests and verification gates pass:
 
-| Branch                                | Tag      | Contents                                                            |
-| ------------------------------------- | -------- | ------------------------------------------------------------------- |
-| `main`                                | `v0.0.1` | Repo init and connectivity                                          |
-| `phase/01-db-auth-rbac`               | `v0.1.0` | Schema, migrations, auth, RBAC                                      |
-| `phase/02-commercial-pricing-engine`  | `v0.2.0` | Contracts, amendments, pricing engine, VAT                          |
-| `phase/03-operations-lifecycle`       | `v0.3.0` | Projects, job lifecycle, actuals                                    |
-| `phase/04-billing-invoicing`          | `v0.4.0` | Invoice lifecycle and billing                                       |
-| `phase/05-admin-audit-hardening`      | `v1.0.0` | Admin suite, audit log, E2E                                         |
-| `phase/06-enterprise-ui-overhaul`     | `v1.1.0` | App shell, command centre, shadcn, UI pass                          |
-| `phase/06-theming-and-menu-fix`       | `v1.2.0` | Five themes, shared DataTable, full-bleed                           |
-| `phase/07-master-data-crud`           | `v1.3.0` | CRUD for every master-data table, schema amendments, Job Management |
-| `phase/09-container-deployment`       | `v1.4.0` | Container images, production API build, Coolify runbook             |
-| `phase/10-invoicing-workflow`         | `v1.5.0` | Invoicing workflow UI: raise a draft from a job, manual add         |
-| `phase/11-data-import`                | `v1.6.0` | Spreadsheet template, dry-run validation, apply                     |
-| `phase/12-dependency-upgrades`        | `v2.0.0` | Next 16, Prisma 7, TypeScript 7, Node 26 and the rest of the majors |
-| `phase/13-workflow-and-operations-ux` | `v2.1.0` | Amendments, RBAC editing, invoice register popup, job detail route  |
+| Branch                                | Tag      | Contents                                                                   |
+| ------------------------------------- | -------- | -------------------------------------------------------------------------- |
+| `main`                                | `v0.0.1` | Repo init and connectivity                                                 |
+| `phase/01-db-auth-rbac`               | `v0.1.0` | Schema, migrations, auth, RBAC                                             |
+| `phase/02-commercial-pricing-engine`  | `v0.2.0` | Contracts, amendments, pricing engine, VAT                                 |
+| `phase/03-operations-lifecycle`       | `v0.3.0` | Projects, job lifecycle, actuals                                           |
+| `phase/04-billing-invoicing`          | `v0.4.0` | Invoice lifecycle and billing                                              |
+| `phase/05-admin-audit-hardening`      | `v1.0.0` | Admin suite, audit log, E2E                                                |
+| `phase/06-enterprise-ui-overhaul`     | `v1.1.0` | App shell, command centre, shadcn, UI pass                                 |
+| `phase/06-theming-and-menu-fix`       | `v1.2.0` | Five themes, shared DataTable, full-bleed                                  |
+| `phase/07-master-data-crud`           | `v1.3.0` | CRUD for every master-data table, schema amendments, Job Management        |
+| `phase/09-container-deployment`       | `v1.4.0` | Container images, production API build, Coolify runbook                    |
+| `phase/10-invoicing-workflow`         | `v1.5.0` | Invoicing workflow UI: raise a draft from a job, manual add                |
+| `phase/11-data-import`                | `v1.6.0` | Spreadsheet template, dry-run validation, apply                            |
+| `phase/12-dependency-upgrades`        | `v2.0.0` | Next 16, Prisma 7, TypeScript 7, Node 26 and the rest of the majors        |
+| `phase/13-workflow-and-operations-ux` | `v2.1.0` | Amendments, RBAC editing, invoice register popup, job detail route         |
+| `phase/14-hardening-and-automation`   | `v2.1.1` | Proxy rename, Turbopack default, version source, admin locking, oxlint, CI |
 
 Phases 7 and 8 shipped together in `v1.3.0`: Phase 7 is
 [ADR-007](docs/adr-007-master-data-crud.md) — the API supported creating contracts,
@@ -251,6 +252,11 @@ role grants are editable while `admin.*` stays locked, the invoice register is
 full-width with an invoice-number detail popup, and job detail is a separate
 route with URL-backed register state — see
 [phase-13-workflow-and-operations-ux.md](docs/phase-13-workflow-and-operations-ux.md).
+Phase 14 (`v2.1.1`) closed the post-Phase 13 review: the route guard is now
+`proxy.ts`, Turbopack is the default builder again with a webpack fallback,
+`/health` reports the one version source, administrator mutations serialise on
+row locks, oxlint joins ESLint, and CI runs the gates against a disposable
+database.
 
 **Migrations.** `prisma migrate deploy` cannot be used here — the baseline predates
 Prisma, so it fails P3005 — and `prisma migrate diff --from-url` emits a
