@@ -59,10 +59,11 @@ if (process.env.DATABASE_URL === undefined || process.env.DATABASE_URL === '') {
  * Postgres through a driver adapter instead. `PrismaPg` wraps `pg`, which this
  * repository already depends on for the migration runner.
  *
- * The pool settings are pinned to Prisma 6's defaults rather than left to `pg`,
- * because `pg` waits forever by default where Prisma 6 gave up after five
- * seconds. Without this, a database that accepts the socket and then never
- * answers would hang the readiness probe instead of failing it.
+ * The pool settings are pinned to the five-second connect timeout the Rust-era
+ * Prisma engines used, rather than left to `pg`'s default, because `pg` waits
+ * forever where the old engine gave up after five seconds. Without this, a
+ * database that accepts the socket and then never answers would hang the
+ * readiness probe instead of failing it.
  */
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,

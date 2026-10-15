@@ -13,6 +13,7 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerOrganisationRoutes } from './routes/organisation.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
+import { APP_VERSION } from './version.js';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -43,7 +44,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(authPlugin, { config });
 
   // ---- Liveness / readiness ---------------------------------------------
-  app.get('/health', async () => ({ status: 'ok', version: '0.1.0' }));
+  app.get('/health', async () => ({ status: 'ok', version: APP_VERSION }));
 
   app.get('/health/ready', async (_req, reply) => {
     try {

@@ -1,0 +1,80 @@
+# Runs the repository's gates on every push and pull request.
+#
+# WHAT RUNS IS `verify:ci`, NOT `verify` - AND WHY
+#
+# `npm run verify:ci` is `verify` minus three test files — `commercial`,
+# `billing` and `operations` — which assert against the seeded *business
+# baseline*: the contract chain, the service rates/codes and the legacy invoice
+# `INV-2026-03-0042`. That baseline exists only in the development database
+# (it predates Prisma and was never an artifact in this repository), so on a
+# fresh database those suites fail through no fault of the code. When a
+# committed baseline-fixture provisioner exists, this workflow can run plain
+# `verify`. Everything else — format, ESLint, oxlint, typecheck, and the other
+# six test files including the audit gates and the E2E flow — runs here.
+#
+# HOW THE DATABASE IS BUILT
+#
+#   db:push   builds the current schema from `schema.prisma`. The migration
+#             runner cannot provision an empty database: `0001`+ are additive
+#             over the 18 baseline tables, which no file here creates. `db:push`
+#             is the schema source of truth for a disposable database.
+#   seed      provisions roles, permissions, the super admin, demo users and
+#             the employee contract types the suites authenticate against.
+#   wait-for-db  polls the service container until it accepts queries. The
+#             runner's healthcheck support varies between versions, so the
+#             database is polled explicitly instead.
+#
+# Service containers are reached by their service name on the runner's network
+# (`postgres`). If this runner ever runs jobs directly on the host instead of in
+# docker, change the host in DATABASE_URL to `localhost`.
+name: verify
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: openerp
+          POSTGRES_PASSWORD: openerp
+          POSTGRES_DB: openerp_ci
+
+    env:
+      DATABASE_URL: postgresql://openerp:openerp@postgres:5432/openerp_ci?schema=public
+      # CI-only credentials. The database is disposable, is not reachable off
+      # the runner, and these values satisfy the seed's password policy.
+      SEED_ADMIN_EMAIL: admin@contractor.co.za
+      SEED_ADMIN_PASSWORD: 'Ci#AdminPassword2026'
+      SEED_DEMO_PASSWORD: 'Ci#DemoPassword2026'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for the database
+        run: node scripts/wait-for-db.mjs 60
+
+      - name: Generate the Prisma client
+        run: npm run db:generate
+
+      - name: Build the schema
+        run: npm run db:push
+
+      - name: Seed reference data
+        run: npm run seed
+
+      - name: Verify
+        run: npm run verify:ci

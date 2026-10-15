@@ -103,12 +103,14 @@ export async function seededContractWithAmendment(): Promise<{
 }> {
   // `orderBy: { id: 'asc' }` is load-bearing, not decoration.
   //
-  // Vitest runs these files in parallel, and each one creates and deletes its own
-  // contracts. An unordered `findFirst` returns whichever row the planner reaches
-  // first, which during a parallel run is frequently a *fixture* contract belonging
-  // to another test file - so the "seeded" chain was not seeded at all, and the
-  // seeded service code it then reached for belonged to a different amendment.
-  // Lowest id is the seeded contract and is stable under concurrent churn.
+  // The database carries residue: the smoke scripts, manual runs and earlier
+  // test files all create contracts, and nothing wipes the table between runs
+  // (`fileParallelism` is off, but that only stops *concurrent* writers). An
+  // unordered `findFirst` returns whichever row the planner reaches first,
+  // which has been a *fixture* contract left by another test - so the "seeded"
+  // chain was not seeded at all, and the seeded service code it then reached
+  // for belonged to a different amendment. Lowest id is the seeded contract
+  // and is stable under that churn.
   const contract = await prisma.contract.findFirstOrThrow({
     orderBy: { id: 'asc' },
     select: { id: true },

@@ -333,14 +333,14 @@ async function main() {
     probes.length > 0,
     `${probes.length} probe(s)`,
   );
-  for (const target of probes) {
+  for (const probe of probes) {
     const jump = await request(`/api/jobs/${job.id}/transition`, {
       method: 'POST',
       cookie: admin.cookie,
-      body: { status: target },
+      body: { status: probe },
     });
     checkThat(
-      `an administrator cannot jump ${job.status} -> ${target}`,
+      `an administrator cannot jump ${job.status} -> ${probe}`,
       jump.status === 422 || jump.status === 409 || jump.status === 403,
       `HTTP ${jump.status} ${jump.body?.message ?? ''}`.slice(0, 90),
     );
@@ -521,7 +521,7 @@ async function main() {
   if (!contractId || !serviceCodeId) {
     checkThat('fixture round trip', false, 'no contract or service code available');
   } else {
-    const projectCode = `SMOKE-P3-${Date.now().toString(36)}`;
+    const smokeProjectCode = `SMOKE-P3-${Date.now().toString(36)}`;
 
     const project = await request('/api/projects', {
       method: 'POST',
@@ -529,7 +529,7 @@ async function main() {
       // amendmentId omitted: the API defaults to the contract's active amendment.
       body: {
         contractId: contractId.id,
-        code: projectCode,
+        code: smokeProjectCode,
         year: 2026,
         description: 'Phase 3 smoke fixture',
       },

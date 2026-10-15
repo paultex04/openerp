@@ -154,6 +154,9 @@ function isExampleRow(firstCell: string): boolean {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Strips the ` [unit]` and ` *` decorations from a template column header. */
+const baseHeader = (h: string) => h.split(' [')[0].replace(/ \*$/, '');
+
 // ---------------------------------------------------------------------------
 // Workbook loading
 // ---------------------------------------------------------------------------
@@ -167,7 +170,6 @@ function loadSheet(wb: ExcelJS.Workbook, sheetName: string, errors: Issue[]): Ra
     return null;
   }
   const spec = SHEETS.find((s) => s.name === sheetName)!;
-  const baseHeader = (h: string) => h.split(' [')[0].replace(/ \*$/, '');
 
   const headerRow = ws.getRow(1);
   const colToKey = new Map<number, string>();
@@ -343,6 +345,16 @@ function fk(obj: Record<string, unknown>, ...keys: string[]): Record<string, unk
 // Validation — resolves every reference, computes every derived figure
 // ---------------------------------------------------------------------------
 
+/**
+ * Reports the first use of a duplicate key within one sheet section, or null.
+ * Hoisted to module scope: it captures nothing from `validate` and is called
+ * from every section.
+ */
+function dupWithin(m: Map<string, number>, k: string): number | null {
+  if (m.has(k)) return m.get(k)!;
+  return null;
+}
+
 async function validate(
   sheets: Record<string, RawRow[]>,
   errors: Issue[],
@@ -373,10 +385,6 @@ async function validate(
   };
 
   const rows = (name: string): RawRow[] => sheets[name] ?? [];
-  const dupWithin = (m: Map<string, number>, k: string) => {
-    if (m.has(k)) return m.get(k)!;
-    return null;
-  };
 
   // ---- Brokers & contract types: reuse by exact name ----
   const brokerIds = new Map<string, number>();

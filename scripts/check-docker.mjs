@@ -118,6 +118,13 @@ function logicalLines(text) {
   return out;
 }
 
+/**
+ * `FROM node:26-bookworm-slim AS build` is valid: the trailing `AS <stage>` is
+ * part of the instruction, not part of the image reference. Strip it before
+ * testing, or every multi-stage Dockerfile here "fails" for no reason.
+ */
+const imageRef = (f) => f.replace(/\s+AS\s+\S+$/i, '');
+
 for (const file of DOCKERFILES) {
   const text = readFileSync(resolve(root, file), 'utf8');
   const lines = logicalLines(text);
@@ -131,10 +138,6 @@ for (const file of DOCKERFILES) {
   const froms = lines.filter((l) => l.startsWith('FROM '));
   check(`${file}: has at least one FROM`, froms.length > 0);
 
-  // `FROM node:22-bookworm-slim AS build` is valid: the trailing `AS <stage>` is
-  // part of the instruction, not part of the image reference. Strip it before
-  // testing, or every multi-stage Dockerfile here "fails" for no reason.
-  const imageRef = (f) => f.replace(/\s+AS\s+\S+$/i, '');
   check(
     `${file}: every FROM names an image`,
     froms.every((f) => /^FROM\s+\S+$/.test(imageRef(f))),
@@ -437,22 +440,41 @@ check(
 );
 
 const clientPkg = JSON.parse(readFileSync(resolve(root, 'client/package.json'), 'utf8'));
-// `--webpack` is asserted, not merely tolerated. Next 16 defaults to Turbopack,
-// which has no `resolve.extensionAlias` equivalent, and `@openerp/shared` is
-// consumed as TypeScript source with `.js` specifiers on some relative imports -
-// so a build without the flag dies in the `build` stage of Dockerfile.web with
-// `Can't resolve './money.js'`. Pinning the assertion here is what makes that
-// failure land at `npm run check:docker` instead of on a deploy.
+// Turbopack is the default builder again (Phase 14). The assertion pins the
+// plain build command; the webpack fallback is pinned too so the escape hatch
+// cannot be deleted silently. Dockerfile.web builds through `build`, so a
+// regression in the default builder lands at `npm run check:docker` rather than
+// on a deploy.
 check(
-  'client build is next build with the webpack builder',
-  clientPkg.scripts.build === 'next build --webpack',
+  'client build is plain next build (Turbopack)',
+  clientPkg.scripts.build === 'next build',
   `got: ${clientPkg.scripts.build}`,
 );
 check(
-  'client exposes a turbopack build for reproducing the blocker',
-  clientPkg.scripts['build:turbopack'] === 'next build',
+  'client keeps a webpack fallback build',
+  clientPkg.scripts['build:webpack'] === 'next build --webpack',
+  `got: ${clientPkg.scripts['build:webpack']}`,
 );
 check('client start is next start', clientPkg.scripts.start === 'next start');
+
+// ---------------------------------------------------------------------------
+section('one version, four manifests');
+// ---------------------------------------------------------------------------
+//
+// `/health` reports the version `server/build.mjs` freezes in from the ROOT
+// manifest, and the runtime fallback in `server/src/version.ts` reads the
+// *nearest* manifest — the server's. A workspace left at an old number is
+// invisible locally and wrong in production, so pin the invariant here.
+
+const rootPkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
+for (const ws of ['server', 'shared', 'client']) {
+  const manifest = JSON.parse(readFileSync(resolve(root, ws, 'package.json'), 'utf8'));
+  check(
+    `${ws} version matches the root (${rootPkg.version})`,
+    manifest.version === rootPkg.version,
+    `got: ${manifest.version}`,
+  );
+}
 
 check('server build.mjs exists', existsSync(resolve(root, 'server/build.mjs')));
 

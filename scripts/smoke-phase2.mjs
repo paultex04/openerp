@@ -8,6 +8,7 @@
  * Usage (API must be listening on API_BASE):
  *   node scripts/smoke-phase2.mjs
  */
+import { readFileSync } from 'node:fs';
 import { loadEnvFile } from './lib/env.mjs';
 
 loadEnvFile();
@@ -15,6 +16,15 @@ loadEnvFile();
 const BASE = process.env.API_BASE_URL ?? 'http://localhost:4000';
 const PASSWORD = process.env.SEED_ADMIN_PASSWORD;
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL ?? 'admin@contractor.co.za';
+
+/**
+ * The version `/health` must advertise. Read from the root manifest, the same
+ * file the API bundles at build time; `npm run check:docker` asserts every
+ * workspace manifest carries this number so the compare cannot drift.
+ */
+const PACKAGE_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
 
 let passed = 0;
 let failed = 0;
@@ -73,6 +83,11 @@ async function main() {
   console.log('Health');
   const health = await request('/health');
   check('GET /health', health.status, 200);
+  check(
+    'GET /health version matches the workspace manifest',
+    health.body?.version,
+    PACKAGE_VERSION,
+  );
   const ready = await request('/health/ready');
   check('GET /health/ready', ready.status, 200);
   console.log();

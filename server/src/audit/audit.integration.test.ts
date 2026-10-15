@@ -1008,6 +1008,63 @@ describe('Gate 5: lockouts are impossible', () => {
     });
     expect(restored).toBe(others.length + 1);
   });
+
+  it('serialises two concurrent demotions of the last two administrators', async () => {
+    // Both disposable administrators demote the other at the same time. Without
+    // the row locks in `lockActiveAdministrators`, each transaction observes
+    // "the other one remains", both commit, and the system is left with zero
+    // administrators. With the locks, one blocks, re-reads the post-commit state
+    // and is refused.
+    const actorA = await createTestUser(['administrator']);
+    const actorB = await createTestUser(['administrator']);
+    createdUsers.push(actorA, actorB);
+
+    const cookieA = await login(app, actorA.email, TEST_PASSWORD);
+    const cookieB = await login(app, actorB.email, TEST_PASSWORD);
+
+    // Every other active administrator is stepped out of the way, so only these
+    // two remain — the situation the race corrupts. Restored in the `finally`.
+    const others = await prisma.appUser.findMany({
+      where: {
+        isActive: true,
+        id: { notIn: [actorA.id, actorB.id] },
+        roles: { some: { role: { key: 'administrator' } } },
+      },
+      select: { id: true },
+    });
+
+    try {
+      for (const other of others) {
+        await prisma.appUser.update({ where: { id: other.id }, data: { isActive: false } });
+      }
+
+      const demote = (cookie: string, targetId: number) =>
+        app.inject({
+          method: 'PATCH',
+          url: `/api/admin/users/${targetId}`,
+          headers: { cookie },
+          payload: { roleKeys: ['billing_clerk'] },
+        });
+
+      const [first, second] = await Promise.all([
+        demote(cookieA, actorB.id),
+        demote(cookieB, actorA.id),
+      ]);
+
+      expect([first.statusCode, second.statusCode].sort()).toEqual([200, 409]);
+      const loser = first.statusCode === 409 ? first : second;
+      expect(loser.json().error).toBe('LAST_ADMINISTRATOR');
+
+      const remaining = await prisma.appUser.count({
+        where: { isActive: true, roles: { some: { role: { key: 'administrator' } } } },
+      });
+      expect(remaining).toBe(1);
+    } finally {
+      for (const other of others) {
+        await prisma.appUser.update({ where: { id: other.id }, data: { isActive: true } });
+      }
+    }
+  });
 });
 
 describe('Gate 6: the admin surface is closed to everyone else', () => {

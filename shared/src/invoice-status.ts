@@ -171,8 +171,8 @@ export const TERMINAL_INVOICE_STATUSES: ReadonlySet<InvoiceStatus> = new Set<Inv
   'Cancelled',
 ]);
 
-export function isTerminalInvoiceStatus(status: InvoiceStatus): boolean {
-  return TERMINAL_INVOICE_STATUSES.has(status);
+export function isTerminalInvoiceStatus(invoiceStatus: InvoiceStatus): boolean {
+  return TERMINAL_INVOICE_STATUSES.has(invoiceStatus);
 }
 
 /** Legal targets from `from`. Cancellation is an explicit edge, not a wildcard. */
@@ -203,8 +203,8 @@ export const OPEN_INVOICE_STATUSES: ReadonlySet<InvoiceStatus> = new Set<Invoice
   'Disputed',
 ]);
 
-export function isOpenInvoiceStatus(status: InvoiceStatus): boolean {
-  return OPEN_INVOICE_STATUSES.has(status);
+export function isOpenInvoiceStatus(invoiceStatus: InvoiceStatus): boolean {
+  return OPEN_INVOICE_STATUSES.has(invoiceStatus);
 }
 
 /**
@@ -219,18 +219,18 @@ export const RECOGNISED_INVOICE_STATUSES: ReadonlySet<InvoiceStatus> = new Set<I
   'Paid',
 ]);
 
-export function isRecognisedInvoiceStatus(status: InvoiceStatus): boolean {
-  return RECOGNISED_INVOICE_STATUSES.has(status);
+export function isRecognisedInvoiceStatus(invoiceStatus: InvoiceStatus): boolean {
+  return RECOGNISED_INVOICE_STATUSES.has(invoiceStatus);
 }
 
 /** Whether the financial figures may still be edited (notes and due date only). */
-export function canEditInvoice(status: InvoiceStatus): boolean {
-  return status === 'Draft';
+export function canEditInvoice(invoiceStatus: InvoiceStatus): boolean {
+  return invoiceStatus === 'Draft';
 }
 
 /** Whether the document may still be deleted outright. */
-export function canDeleteInvoice(status: InvoiceStatus): boolean {
-  return status === 'Draft' || status === 'Cancelled';
+export function canDeleteInvoice(invoiceStatus: InvoiceStatus): boolean {
+  return invoiceStatus === 'Draft' || invoiceStatus === 'Cancelled';
 }
 
 export type InvoiceTransitionRejection =

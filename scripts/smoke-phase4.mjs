@@ -99,6 +99,11 @@ async function main() {
     'the register includes the seeded invoice',
     (register.body?.invoices ?? []).some((i) => i.invoiceNumber === SEEDED_INVOICE.invoiceNumber),
   );
+  // Snapshot the register's ids. The end-of-run check asserts that *this run*
+  // added nothing that survived, rather than assuming the database holds only
+  // the seeded document - the dev database legitimately carries invoices raised
+  // by hand, and counting those reported "cleanup failed" for untouched rows.
+  const registerIdsAtStart = new Set((register.body?.invoices ?? []).map((i) => i.id));
   checkThat(
     'register rows carry derived totals',
     (register.body?.invoices ?? []).every(
@@ -415,12 +420,23 @@ async function main() {
     SEEDED_INVOICE.totalWithTax,
   );
 
-  // The register must hold exactly the seeded document: every fixture invoice was
-  // deleted above, so any extra row means cleanup failed. Comparing counts
-  // catches that; the previous version tested a condition that was always true.
+  // The register must still hold the seeded document, and no invoice may appear
+  // that was not there when the run started: every fixture invoice was deleted
+  // above, so a new id means cleanup missed one. The previous version compared
+  // the total count against 1, which also counted documents this script never
+  // touched, and so failed on any database that had been used by hand.
   const remaining = (await request('/api/invoices', { cookie: A })).body?.invoices ?? [];
-  check('the register holds only the seeded invoice', remaining.length, 1);
-  check('and it is the seeded one', remaining[0]?.invoiceNumber, SEEDED_INVOICE.invoiceNumber);
+  const appeared = remaining.filter((i) => !registerIdsAtStart.has(i.id));
+  check(
+    'no invoice appeared that cleanup did not remove',
+    appeared.length,
+    0,
+    appeared.map((i) => i.invoiceNumber).join(', '),
+  );
+  checkThat(
+    'the seeded invoice is still in the register',
+    remaining.some((i) => i.invoiceNumber === SEEDED_INVOICE.invoiceNumber),
+  );
 
   summarise();
 }
@@ -448,6 +464,9 @@ async function cleanup(cookie) {
     ok: false,
   };
 
+  // The spread is load-bearing: the loop splices `fixture.invoices` as rows are
+  // cleaned up, and iterating the live array would skip entries.
+  // oxlint-disable-next-line unicorn/no-useless-spread
   for (const id of [...fixture.invoices]) {
     // Cancel first: an approved invoice is an open financial record, and
     // cancellation is the designed withdrawal for a fixture. Deletion alone only
@@ -539,8 +558,14 @@ async function buildBillableFixture() {
   const contract = (contracts.body?.contracts ?? [])[0];
   if (!contract) return null;
 
+  // The amendments come back with enum *labels* ("Active"), not Prisma keys, so
+  // matching 'ACTIVE' never hit and the fallback always took `amendments[0]`.
+  // That happened to be the active amendment until a second, not-yet-approved
+  // amendment existed on the contract - which then starved the fixture, because
+  // a draft amendment carries no service codes. Match the label; keep the
+  // fallback for a contract whose active amendment is not first in the list.
   const active =
-    (contract.amendments ?? []).find((a) => a.status === 'ACTIVE') ?? contract.amendments?.[0];
+    (contract.amendments ?? []).find((a) => a.status === 'Active') ?? contract.amendments?.[0];
   if (!active) return null;
 
   const code = `SMOKE-P4-${Date.now().toString(36)}`;

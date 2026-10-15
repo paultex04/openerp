@@ -43,6 +43,9 @@ interface ParametersResponse {
  */
 type Draft = Record<string, string>;
 
+/** Percent rows are entered as percent numbers (7 = 7%); see the table header. */
+const isPercentRow = (p: CostParameterRow) => p.uom.trim() === '%';
+
 export function CostParameterTable(props: Props) {
   // The edit buffer is keyed by amendment, so switching amendment remounts this
   // component and its state is rebuilt from the newly fetched rows. That avoids
@@ -109,7 +112,6 @@ function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
     );
   }
 
-  const isPercentRow = (p: CostParameterRow) => p.uom.trim() === '%';
   const dirty =
     data !== undefined &&
     data.parameters.some((p) => Number(draft[p.parameterName]) !== p.numericValue);

@@ -107,18 +107,68 @@ async function resolveRoles(roleKeys: string[]): Promise<Array<{ id: number; key
   return roles;
 }
 
+/**
+ * The client a `prisma.$transaction` callback receives.
+ *
+ * `Prisma.TransactionClient` is the documented interface for this, but it is not
+ * assignable from the callback parameter in the generated client: the callback
+ * is typed against the dynamically-extended client, whose `$transaction`
+ * overload set is declared differently. Deriving the type from the call
+ * signature keeps these helpers assignable wherever a transaction is opened.
+ */
+type TransactionClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Serialises administrator-count decisions.
+ *
+ * Every transaction that can remove an administrator calls this FIRST, before
+ * counting. It takes `FOR UPDATE` row locks on every currently active
+ * administrator, so two concurrent mutations cannot both observe "another admin
+ * remains". Under READ COMMITTED the second transaction blocks on the locks,
+ * then (after the first commits) re-reads the post-commit state: if the count
+ * has dropped to zero, its guard fails as it should. Without the lock, both
+ * could pass the count and both write — the "count and update are not
+ * serialized" race found in the Phase 14 review. The concurrency test lives in
+ * `src/audit/audit.integration.test.ts`.
+ */
+async function lockActiveAdministrators(tx: TransactionClient): Promise<void> {
+  await tx.$queryRaw`
+    SELECT u.id
+    FROM app_user u
+    WHERE u.is_active = true
+      AND EXISTS (
+        SELECT 1
+        FROM app_user_role ur
+        JOIN app_role r ON r.id = ur.role_id
+        WHERE ur.user_id = u.id AND r.key = 'administrator'
+      )
+    FOR UPDATE
+  `;
+}
+
 /** Whether a user currently holds the administrator role. */
-async function holdsAdministratorRole(userId: number): Promise<boolean> {
+async function holdsAdministratorRole(tx: TransactionClient, userId: number): Promise<boolean> {
   return (
-    (await prisma.appUserRole.findFirst({
+    (await tx.appUserRole.findFirst({
       where: { userId, role: { key: 'administrator' } },
       select: { userId: true },
     })) !== null
   );
 }
 
-async function assertNotLastAdministrator(userId: number, nextRoles: string[]): Promise<void> {
-  const remaining = await prisma.appUser.count({
+/**
+ * Refuses the change if it would leave the system with no active administrator.
+ * Must be called inside the same transaction as the write it guards; the lock
+ * is what makes the count safe to act on.
+ */
+async function assertNotLastAdministrator(
+  tx: TransactionClient,
+  userId: number,
+  nextRoles: string[],
+): Promise<void> {
+  await lockActiveAdministrators(tx);
+
+  const remaining = await tx.appUser.count({
     where: {
       isActive: true,
       id: { not: userId },
@@ -419,51 +469,15 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       if (!existing) throw new HttpError(404, 'USER_NOT_FOUND', `User ${id} does not exist.`);
 
       const isSelf = actor.userId === id;
+      const nextRoleKeys = body.roleKeys;
 
-      if (body.roleKeys !== undefined) {
-        const roles = await resolveRoles(body.roleKeys);
-        if (await holdsAdministratorRole(id)) await assertNotLastAdministrator(id, body.roleKeys);
+      // Resolved and hashed BEFORE the transaction opens. `resolveRoles` is a
+      // plain read that cannot race, and bcrypt at cost 12 must not run inside
+      // the window that holds the administrator row locks.
+      const roles = nextRoleKeys !== undefined ? await resolveRoles(nextRoleKeys) : undefined;
 
-        if (isSelf && !body.roleKeys.includes('administrator')) {
-          throw new HttpError(
-            409,
-            'SELF_LOCKOUT',
-            'You cannot remove your own administrator role. Ask another administrator to do it.',
-          );
-        }
-
-        await prisma.appUserRole.deleteMany({ where: { userId: id } });
-        await prisma.appUserRole.createMany({
-          data: roles.map((r) => ({ userId: id, roleId: r.id, assignedBy: actor.userId })),
-        });
-      }
-
-      if (body.isActive !== undefined) {
-        if (!body.isActive && isSelf) {
-          throw new HttpError(
-            409,
-            'SELF_LOCKOUT',
-            'You cannot deactivate your own account. Ask another administrator to do it.',
-          );
-        }
-        if (!body.isActive && (await holdsAdministratorRole(id))) {
-          await assertNotLastAdministrator(id, []);
-        }
-
-        await prisma.appUser.update({
-          where: { id },
-          // Bumping tokenVersion invalidates every existing session for the user,
-          // so a deactivated or re-roled account loses access immediately rather
-          // than at token expiry.
-          data: {
-            isActive: body.isActive,
-            ...(body.isActive === false && { tokenVersion: { increment: 1 } }),
-          },
-        });
-      }
-
+      let passwordHash: string | undefined;
       if (body.password !== undefined) {
-        let passwordHash: string;
         try {
           passwordHash = await hashPassword(body.password);
         } catch (e) {
@@ -472,11 +486,62 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           }
           throw e;
         }
-        await prisma.appUser.update({
-          where: { id },
-          data: { passwordHash, tokenVersion: { increment: 1 } },
-        });
       }
+
+      // Guards and writes share one transaction. The last-administrator guard
+      // takes row locks (see `lockActiveAdministrators`), so two concurrent
+      // changes cannot both pass the count and leave zero administrators.
+      await prisma.$transaction(async (tx) => {
+        if (roles !== undefined && nextRoleKeys !== undefined) {
+          if (await holdsAdministratorRole(tx, id)) {
+            await assertNotLastAdministrator(tx, id, nextRoleKeys);
+          }
+
+          if (isSelf && !nextRoleKeys.includes('administrator')) {
+            throw new HttpError(
+              409,
+              'SELF_LOCKOUT',
+              'You cannot remove your own administrator role. Ask another administrator to do it.',
+            );
+          }
+
+          await tx.appUserRole.deleteMany({ where: { userId: id } });
+          await tx.appUserRole.createMany({
+            data: roles.map((r) => ({ userId: id, roleId: r.id, assignedBy: actor.userId })),
+          });
+        }
+
+        if (body.isActive !== undefined) {
+          if (!body.isActive && isSelf) {
+            throw new HttpError(
+              409,
+              'SELF_LOCKOUT',
+              'You cannot deactivate your own account. Ask another administrator to do it.',
+            );
+          }
+          if (!body.isActive && (await holdsAdministratorRole(tx, id))) {
+            await assertNotLastAdministrator(tx, id, []);
+          }
+
+          await tx.appUser.update({
+            where: { id },
+            // Bumping tokenVersion invalidates every existing session for the user,
+            // so a deactivated or re-roled account loses access immediately rather
+            // than at token expiry.
+            data: {
+              isActive: body.isActive,
+              ...(body.isActive === false && { tokenVersion: { increment: 1 } }),
+            },
+          });
+        }
+
+        if (passwordHash !== undefined) {
+          await tx.appUser.update({
+            where: { id },
+            data: { passwordHash, tokenVersion: { increment: 1 } },
+          });
+        }
+      });
 
       const updated = await prisma.appUser.findUniqueOrThrow({
         where: { id },
@@ -526,13 +591,17 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       });
       if (!existing) throw new HttpError(404, 'USER_NOT_FOUND', `User ${id} does not exist.`);
 
-      if (existing.roles.some((r) => r.role.key === 'administrator')) {
-        await assertNotLastAdministrator(id, []);
-      }
+      // Guard and write in one transaction: the guard takes the administrator
+      // row locks, so a concurrent deactivation cannot slip past the count.
+      await prisma.$transaction(async (tx) => {
+        if (await holdsAdministratorRole(tx, id)) {
+          await assertNotLastAdministrator(tx, id, []);
+        }
 
-      await prisma.appUser.update({
-        where: { id },
-        data: { isActive: false, tokenVersion: { increment: 1 } },
+        await tx.appUser.update({
+          where: { id },
+          data: { isActive: false, tokenVersion: { increment: 1 } },
+        });
       });
 
       return { user: { id, isActive: false, deleted: false, deactivated: true } };

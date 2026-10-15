@@ -6,7 +6,7 @@ which keeps the session cookie first-party and means only one container needs TL
 
 | Resource      | Buildpack     | Dockerfile       | Port | Domain              |
 | ------------- | ------------- | ---------------- | ---- | ------------------- |
-| `openerp-db`  | PostgreSQL 16 | managed          | 5432 | none                |
+| `openerp-db`  | PostgreSQL 18 | managed          | 5432 | none                |
 | `openerp-api` | Dockerfile    | `Dockerfile.api` | 4000 | **none**            |
 | `openerp-web` | Dockerfile    | `Dockerfile.web` | 3000 | `erp.example.co.za` |
 
@@ -70,7 +70,7 @@ later signs everyone out.
 
 ## 1. Create the database
 
-1. **New Resource → Database → PostgreSQL 16**
+1. **New Resource → Database → PostgreSQL 18**
 2. Name it `openerp-db`.
 3. Copy the internal connection URL. It looks like
    `postgresql://USER:PASSWORD@openerp-db:5432/openerp?schema=public`.
@@ -276,7 +276,7 @@ the container in addition to the image's own `HEALTHCHECK`.
 
 **`PrismaClientInitializationError` / "did not initialize engine".**
 `prisma generate` did not run, or ran on a different base image. All stages in
-`Dockerfile.api` are deliberately the same `node:22-bookworm-slim`; mixing slim and
+`Dockerfile.api` are deliberately the same `node:26-bookworm-slim`; mixing slim and
 alpine is the usual cause.
 
 **Migrations run twice, or the schema is half-applied.**

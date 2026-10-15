@@ -82,6 +82,12 @@ function draftFrom(card: RateCardRow): Draft {
   };
 }
 
+/** Lenient numeric field parse: anything non-finite becomes 0. */
+function toNumber(value: string): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 interface Props {
   amendmentId: number;
   engine: AmendmentCostParameters;
@@ -94,7 +100,7 @@ interface Props {
  * amendment parameters rather than the rate card.
  */
 function Line({
-  label,
+  label: caption,
   value,
   formula,
   muted,
@@ -109,7 +115,7 @@ function Line({
   return (
     <TableRow className={highlight ? 'bg-success/10' : undefined}>
       <TableCell>
-        <span className="font-medium">{label}</span>
+        <span className="font-medium">{caption}</span>
         {muted && (
           <Badge variant="outline" className="ml-2">
             from parameters
@@ -154,24 +160,19 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
-  const num = (value: string): number => {
-    const n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  };
-
   const hasBaseRate = draft.councilRate.trim() !== '' || draft.customRate.trim() !== '';
 
   const inputs = useMemo(
     () => ({
-      councilRate: draft.councilRate.trim() === '' ? null : num(draft.councilRate),
-      customRate: draft.customRate.trim() === '' ? null : num(draft.customRate),
-      wagePremiumPct: num(draft.wagePremiumPct),
-      leavePay: num(draft.leavePay),
-      totalStatutoryCost: num(draft.totalStatutoryCost),
-      ppeCost: num(draft.ppeCost),
-      transportCost: num(draft.transportCost),
-      equipmentCost: num(draft.equipmentCost),
-      profitPct: num(profitPctInput),
+      councilRate: draft.councilRate.trim() === '' ? null : toNumber(draft.councilRate),
+      customRate: draft.customRate.trim() === '' ? null : toNumber(draft.customRate),
+      wagePremiumPct: toNumber(draft.wagePremiumPct),
+      leavePay: toNumber(draft.leavePay),
+      totalStatutoryCost: toNumber(draft.totalStatutoryCost),
+      ppeCost: toNumber(draft.ppeCost),
+      transportCost: toNumber(draft.transportCost),
+      equipmentCost: toNumber(draft.equipmentCost),
+      profitPct: toNumber(profitPctInput),
     }),
     [draft, profitPctInput],
   );
@@ -190,8 +191,8 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
         }
       : {
           mode: 'authoritative' as const,
-          overheadCost: num(draft.overheadCost),
-          sgaCost: num(draft.sgaCost),
+          overheadCost: toNumber(draft.overheadCost),
+          sgaCost: toNumber(draft.sgaCost),
         };
 
     try {
@@ -208,8 +209,8 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
     try {
       return compareAgainstDerived(
         inputs,
-        num(draft.overheadCost),
-        num(draft.sgaCost),
+        toNumber(draft.overheadCost),
+        toNumber(draft.sgaCost),
         engine.overheadPct,
         engine.sgaPct,
       );
@@ -227,17 +228,17 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
         labourType: selected.labourType,
         shiftType: selected.shiftType,
         uom: selected.uom,
-        councilRate: draft.councilRate.trim() === '' ? null : num(draft.councilRate),
-        customRate: draft.customRate.trim() === '' ? null : num(draft.customRate),
-        wagePremiumPct: num(draft.wagePremiumPct),
-        leavePay: num(draft.leavePay),
-        totalStatutoryCost: num(draft.totalStatutoryCost),
-        ppeCost: num(draft.ppeCost),
-        transportCost: num(draft.transportCost),
-        equipmentCost: num(draft.equipmentCost),
-        overheadCost: num(draft.overheadCost),
-        sgaCost: num(draft.sgaCost),
-        profitPct: num(profitPctInput),
+        councilRate: draft.councilRate.trim() === '' ? null : toNumber(draft.councilRate),
+        customRate: draft.customRate.trim() === '' ? null : toNumber(draft.customRate),
+        wagePremiumPct: toNumber(draft.wagePremiumPct),
+        leavePay: toNumber(draft.leavePay),
+        totalStatutoryCost: toNumber(draft.totalStatutoryCost),
+        ppeCost: toNumber(draft.ppeCost),
+        transportCost: toNumber(draft.transportCost),
+        equipmentCost: toNumber(draft.equipmentCost),
+        overheadCost: toNumber(draft.overheadCost),
+        sgaCost: toNumber(draft.sgaCost),
+        profitPct: toNumber(profitPctInput),
         deriveOverheads: draft.deriveOverheads,
       });
     },
@@ -251,12 +252,12 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
   });
 
   const field = (
-    label: string,
+    caption: string,
     key: keyof Draft,
     options: { step?: string; hint?: string } = {},
   ) => (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{caption}</span>
       <input
         type="number"
         step={options.step ?? '0.01'}
@@ -372,7 +373,11 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
                 value={computed!.baseDirectLabour}
                 formula="in pocket + leave + statutory"
               />
-              <Line label="Equipment cost" value={num(draft.equipmentCost)} formula="per hour" />
+              <Line
+                label="Equipment cost"
+                value={toNumber(draft.equipmentCost)}
+                formula="per hour"
+              />
               <Line
                 label="Overhead cost"
                 value={computed!.overheadCost}
@@ -393,8 +398,12 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
                 }
                 muted={draft.deriveOverheads}
               />
-              <Line label="PPE cost" value={num(draft.ppeCost)} formula="per hour" />
-              <Line label="Transport cost" value={num(draft.transportCost)} formula="per hour" />
+              <Line label="PPE cost" value={toNumber(draft.ppeCost)} formula="per hour" />
+              <Line
+                label="Transport cost"
+                value={toNumber(draft.transportCost)}
+                formula="per hour"
+              />
               <Line
                 label="Profit cost"
                 value={computed!.profitCost}

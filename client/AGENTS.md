@@ -12,14 +12,14 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Generated content above; this section is ours and `next dev` leaves it alone.
 
-- **The build is `next build --webpack`, and `turbopack: {}` in
-  `client/next.config.mjs` is required.** Turbopack has no
-  `resolve.extensionAlias`, and `@openerp/shared` is consumed as TypeScript
-  source. See the long note in `next.config.mjs` and vercel/next.js#82945.
-- **`middleware.ts` is deprecated in favour of `proxy.ts`** in this version.
-  Next still runs it and warns on every dev boot. Renaming is a mechanical
-  codemod (`npx @next/codemod@canary middleware-to-proxy .`) that has not been
-  applied here.
+- **The build is plain `next build` (Turbopack).** The `extensionAlias` webpack
+  workaround was removed in Phase 14 after `@openerp/shared` stopped using `.js`
+  specifiers on relative imports; both builders now resolve the package from
+  defaults. `npm run build:webpack --workspace client` remains as a fallback if a
+  bundler-resolution problem ever returns. See the note in `next.config.mjs`.
+- **`proxy.ts`, not `middleware.ts`.** The Next 16 rename was applied in Phase 14
+  with the official codemod; the export is `proxy` and the `config.matcher` is
+  unchanged. Do not reintroduce a `middleware.ts`.
 - **`next-env.d.ts` is generated.** Do not hand-edit it; the reference style
   changed in Next 16.
 - **Base UI, not Radix.** Components in `src/components/ui/` take a `render`

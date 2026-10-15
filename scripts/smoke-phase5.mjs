@@ -117,6 +117,18 @@ async function main() {
     (roles.body?.roles ?? []).every((r) => Array.isArray(r.granted) && Array.isArray(r.expected)),
   );
 
+  // Phase 13 split employee handling into two explicit modes, so creating a user
+  // needs either an unclaimed employee id or a contract type for the new hire.
+  // The smoke account below uses mode 'new'; this is where its contract type id
+  // comes from.
+  const createOptions = await request('/api/admin/users/create-options', { cookie: A });
+  const contractTypeId = (createOptions.body?.contractTypes ?? [])[0]?.id;
+  checkThat(
+    'the create-user options offer a contract type',
+    Number.isInteger(contractTypeId),
+    `HTTP ${createOptions.status}`,
+  );
+
   // =======================================================================
   section('Self-lockout is refused');
 
@@ -166,7 +178,13 @@ async function main() {
         email,
         password: 'Smoke#Audit2026',
         roleKeys: ['commercial_qs'],
-        employee: { name: 'Smoke', surname: 'Auditor', startDate: '2026-01-01' },
+        employee: {
+          mode: 'new',
+          name: 'Smoke',
+          surname: 'Auditor',
+          startDate: '2026-01-01',
+          contractTypeId,
+        },
       },
     });
     check('POST /api/admin/users', created.status, 201);
@@ -182,7 +200,13 @@ async function main() {
       email: `smoke-p5-weak-${Date.now().toString(36)}@example.test`,
       password: 'short',
       roleKeys: ['commercial_qs'],
-      employee: { name: 'Smoke', surname: 'Weak', startDate: '2026-01-01' },
+      employee: {
+        mode: 'new',
+        name: 'Smoke',
+        surname: 'Weak',
+        startDate: '2026-01-01',
+        contractTypeId,
+      },
     },
   });
   check('a weak password is refused', weak.status, 422);
@@ -194,7 +218,13 @@ async function main() {
       email,
       password: 'Smoke#Audit2026',
       roleKeys: ['commercial_qs'],
-      employee: { name: 'Smoke', surname: 'Duplicate', startDate: '2026-01-01' },
+      employee: {
+        mode: 'new',
+        name: 'Smoke',
+        surname: 'Duplicate',
+        startDate: '2026-01-01',
+        contractTypeId,
+      },
     },
   });
   check('a duplicate email is refused', duplicate.status, 409);

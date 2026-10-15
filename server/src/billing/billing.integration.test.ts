@@ -450,9 +450,10 @@ describe('Gate 2: VAT treatment', () => {
   });
 
   it('flags a missing VAT number when tax is charged', async () => {
-    // The seeded client carries a VAT number, so compliance passes there (Gate 1
-    // asserts ok: true). A registered client WITHOUT a number must warn: the
-    // document claims tax but cannot evidence registration.
+    // A registered client WITHOUT a number must warn: the document claims tax
+    // but cannot evidence registration. Gate 1 asserts the same warning for the
+    // seeded client; here the numberless client is created explicitly, so the
+    // warning cannot be an accident of the baseline data.
     const { jobId } = await makeBillableJob();
     const noVatTag = Date.now().toString(36);
     const client = await prisma.client.create({

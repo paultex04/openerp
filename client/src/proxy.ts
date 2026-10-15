@@ -3,9 +3,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 /**
  * Root routing and the authenticated-area guard.
  *
- * WHY MIDDLEWARE: `/` has to decide between `/login` and `/dashboard` before
+ * WHY A PROXY: `/` has to decide between `/login` and `/dashboard` before
  * anything renders, and the decision has to be a real HTTP redirect (302) rather
- * than a client-side one that paints the wrong screen first.
+ * than a client-side one that paints the wrong screen first. (Next 16 renamed
+ * the `middleware` convention to `proxy`; this file was ported by the official
+ * `middleware-to-proxy` codemod.)
  *
  * WHY A COOKIE PRESENCE CHECK IS ENOUGH HERE: this is a *routing* decision, not
  * an authorisation one. It reads only whether the session cookie exists, and the
@@ -41,7 +43,7 @@ function isProtected(pathname: string): boolean {
   );
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
 

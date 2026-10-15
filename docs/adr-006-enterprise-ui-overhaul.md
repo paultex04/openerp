@@ -61,13 +61,14 @@ The vocabulary differs and the migration reflects it: shadcn's `type` is
 used `variant: 'default' | 'success' | 'destructive'`. `destructive` maps to
 `error`.
 
-## D3 - `/` is a router, decided in middleware
+## D3 - `/` is a router, decided before render
 
-`/` never renders. `src/middleware.ts` answers it with a real **302**, before any
-React runs, because a client-side redirect paints the wrong screen first.
+`/` never renders. `src/proxy.ts` (renamed from `src/middleware.ts` by the Next 16
+convention change in Phase 14) answers it with a real **302**, before any React
+runs, because a client-side redirect paints the wrong screen first.
 
-The middleware reads only whether the session cookie is _present_. That is a
-routing decision, not an authorisation one, and the distinction is load-bearing:
+The proxy reads only whether the session cookie is _present_. That is a routing
+decision, not an authorisation one, and the distinction is load-bearing:
 the cookie is HTTP-only, so no script can read its contents, and a forged or
 expired cookie passes this gate and is then rejected by the API, which is where
 authentication actually happens. **Authorisation must never move into this
@@ -216,6 +217,12 @@ TypeScript 7 upgrade removed `typescript-eslint` (no published version supports
 TS 7), which left ESLint with no parser for TypeScript, so `.ts`/`.tsx` are
 excluded from lint entirely - see `eslint.config.js`. The disable entry is kept
 so the setting is not lost when a parser returns.
+
+**Phase 14 update:** TypeScript files are no longer un-linted. `oxlint` parses
+TypeScript itself and reports its react-hooks layer (`npm run lint` runs it
+alongside ESLint), so this rule's React-side subject matter is covered again. The
+`react-hooks/incompatible-library` disable is an ESLint setting; it stays inert
+until `typescript-eslint` returns, and oxlint does not raise the rule.
 
 ### F5 - Radius scale
 

@@ -22,8 +22,8 @@
  *
  * Bundling sidesteps both. esbuild resolves the workspace package and the
  * extensionless specifiers at build time, and emits one file with no import of
- * `@openerp/shared` left in it. This is the same reason `next.config.mjs` needs
- * its `extensionAlias` workaround, noted there from the other direction.
+ * `@openerp/shared` left in it. (The Next client has the same property, which is
+ * why neither builder needs an `extensionAlias` shim — see `next.config.mjs`.)
  *
  * WHAT STAYS EXTERNAL
  *
@@ -41,6 +41,7 @@
  */
 
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -71,6 +72,10 @@ const EXTERNAL = [
 
 const watch = process.argv.includes('--watch');
 
+// The version `/health` reports comes from the root manifest, frozen into the
+// bundle. `server/src/version.ts` explains why it is injected rather than read.
+const rootVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')).version;
+
 /** @type {import('esbuild').BuildOptions} */
 const options = {
   entryPoints: [resolve(root, 'server/src/index.ts')],
@@ -97,6 +102,7 @@ const options = {
     // Prisma and Fastify both branch on this; leaving it undefined makes some
     // code paths take the development default.
     'process.env.NODE_ENV': process.env.NODE_ENV ?? '"production"',
+    __APP_VERSION__: JSON.stringify(rootVersion),
   },
 };
 

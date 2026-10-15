@@ -33,19 +33,22 @@ note somewhere it can be found again:
   leading feature-set generic, which is why the register column arrays are typed
   `ColumnDef<any, Row, unknown>` — see the note in
   `client/src/components/data-table/data-table.tsx`.
-- **Next 16** builds with Turbopack by default, but `npm run build --workspace
-client` passes `--webpack`. Turbopack has no `resolve.extensionAlias`
-  equivalent, and `@openerp/shared` is consumed as TypeScript source with `.js`
-  specifiers on some relative imports; without the alias the build fails with
-  `Can't resolve './money.js'`. Tracked upstream as vercel/next.js#82945. `next
-dev` is unaffected — Turbopack resolves the extensionless imports fine.
-  `npm run build:turbopack --workspace client` reproduces the failure.
+- **Next 16** builds with Turbopack by default, and that is now the build. Until
+  Phase 14 the build passed `--webpack` because `@openerp/shared` used explicit
+  `.js` specifiers on some relative imports, which Turbopack has no
+  `resolve.extensionAlias` equivalent to resolve (vercel/next.js#82945). The
+  shared package now uses extensionless imports only, both builders resolve them,
+  and the `webpack()` hook is gone. `npm run build:webpack --workspace client`
+  remains as a fallback; `npm run check:docker` pins both script names.
+  `middleware.ts` was also renamed to `proxy.ts` in Phase 14 (the Next 16
+  convention, applied via the official codemod).
 - **TypeScript 7** has no compatible `typescript-eslint`: the current release
-  declares `typescript >=4.8.4 <6.1.0` and throws at import time under TS 7. Lint
-  is therefore ESLint 10 + `@eslint/js` + Prettier and **does not read `.ts` or
-  `.tsx` at all** — both extensions are listed in `eslint.config.js` `ignores` so
-  the gap is visible. `npm run typecheck` is the gate that covers those files.
-  Re-add `typescript-eslint` once it supports TS 7.
+  (8.71.2, re-checked at Phase 14) still declares `typescript >=4.8.4 <6.1.0` and
+  throws at import time under TS 7. ESLint therefore reads only JavaScript, and
+  **oxlint** is the gate that covers `.ts`/`.tsx` — it parses TypeScript itself, so
+  it does not care which compiler version the repo uses. `npm run lint` runs both.
+  `npm run typecheck` remains the only type-aware check. Re-add
+  `typescript-eslint` once it supports TS 7; keep the oxlint layer either way.
 
 ## Repository layout
 
@@ -76,24 +79,26 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Scripts
 
-| Command                      | Purpose                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                    |
-| `npm run verify`             | format + lint + typecheck + test                                              |
-| `npm run test`               | Run all workspace test suites                                                 |
-| `npm run db:generate`        | Regenerate the Prisma client                                                  |
-| `npm run db:push`            | Apply schema changes to the database                                          |
-| `npm run db:studio`          | Open Prisma Studio against the configured database                            |
-| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                    |
-| `npm run db:restore-fixture` | Restore the seeded baseline fixture (`INV-2026-03-0042`) to its shipped state |
-| `npm run seed`               | Provision default roles + super admin                                         |
-| `npm run smoke:phase2`       | HTTP smoke test against a running API                                         |
-| `npm run smoke:phase3`       | As above, for the operations surface                                          |
-| `npm run smoke:phase4`       | As above, for billing and invoicing                                           |
-| `npm run smoke:phase5`       | As above, for admin and the audit log                                         |
-| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)           |
-| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                                  |
-| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)               |
+| Command                      | Purpose                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                     |
+| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + test                             |
+| `npm run verify:ci`          | `verify` minus the suites that need the seeded business baseline (CI gate)     |
+| `npm run test`               | Run all workspace test suites                                                  |
+| `npm run db:generate`        | Regenerate the Prisma client                                                   |
+| `npm run db:push`            | Apply schema changes to the database                                           |
+| `npm run db:studio`          | Open Prisma Studio against the configured database                             |
+| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                     |
+| `npm run db:restore-fixture` | Restore the seeded fixture rows the suites mutate (invoice + client VAT state) |
+| `npm run seed`               | Provision default roles + super admin                                          |
+| `npm run smoke:phase2`       | HTTP smoke test against a running API                                          |
+| `npm run smoke:phase3`       | As above, for the operations surface                                           |
+| `npm run smoke:phase4`       | As above, for billing and invoicing                                            |
+| `npm run smoke:phase5`       | As above, for admin and the audit log                                          |
+| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)            |
+| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                                   |
+| `npm run smoke:phase13`      | As above, for the Phase 13 register/RBAC surfaces                              |
+| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)                |
 
 ## Running the stack
 
@@ -122,6 +127,21 @@ absolute origin are also supported (see the paragraph above), but the path is no
 With the API running, `npm run smoke:phase2` asserts both published pricing vectors (227.61 ZAR/hr
 and 17.5226 ZAR/m) end-to-end over HTTP, together with the 401 paths and the cookie security
 attributes.
+
+## Continuous integration
+
+`.forgejo/workflows/verify.yml` runs on every push and pull request against a disposable
+`postgres:18-alpine` service container that is schema-synced (`db:push`) and seeded from scratch on
+each run.
+
+It runs `npm run verify:ci`, which is `verify` minus three test files — `commercial`, `billing` and
+`operations`. Those suites assert against the seeded **business baseline** (the contract chain, the
+service rates and codes, and the legacy invoice `INV-2026-03-0042`), which exists only in the
+development database: it predates Prisma and no artifact in this repository recreates it, so on a
+fresh database the suites fail for lack of data rather than for lack of correctness. CI therefore
+covers format, ESLint, oxlint, typecheck and the other six test files — the audit gates and the
+business-flow E2E included — and `npm run verify` remains the full gate to run locally. When a
+committed baseline-fixture provisioner exists, the workflow can switch to plain `verify`.
 
 ## Design notes worth knowing
 
@@ -153,8 +173,8 @@ CSS-first, and the theme lives in `client/src/app/globals.css`, where `@theme in
 - `client/src/components/ui/` is owned by the shadcn registry and is replaced wholesale by
   `shadcn add --overwrite`. It is excluded from lint for that reason. Anything OpenERP adds on
   top of it must live **outside** that directory, or the next component update deletes it.
-  Note that lint reads no TypeScript at all at present (see **Version notes** above), so this
-  exclusion is currently belt-and-braces.
+  (oxlint also excludes that directory, so the exclusion holds for the TypeScript lint layer
+  too.)
 - shadcn's base here is **Base UI**, so components take a `render` prop rather than Radix's
   `asChild`. The two are not interchangeable, and `asChild` is a type error rather than a soft
   failure.
@@ -182,18 +202,22 @@ colourless.
 Production code lives on `main`. Each phase is developed on a `phase/NN-*` branch and merged only
 after its automated tests and verification gates pass:
 
-| Branch                               | Tag      | Contents                                                            |
-| ------------------------------------ | -------- | ------------------------------------------------------------------- |
-| `main`                               | `v0.0.1` | Repo init and connectivity                                          |
-| `phase/01-db-auth-rbac`              | `v0.1.0` | Schema, migrations, auth, RBAC                                      |
-| `phase/02-commercial-pricing-engine` | `v0.2.0` | Contracts, amendments, pricing engine, VAT                          |
-| `phase/03-operations-lifecycle`      | `v0.3.0` | Projects, job lifecycle, actuals                                    |
-| `phase/04-billing-invoicing`         | `v0.4.0` | Invoice lifecycle and billing                                       |
-| `phase/05-admin-audit-hardening`     | `v1.0.0` | Admin suite, audit log, E2E                                         |
-| `phase/06-enterprise-ui-overhaul`    | `v1.1.0` | App shell, command centre, shadcn, UI pass                          |
-| `phase/06-theming-and-menu-fix`      | `v1.2.0` | Five themes, shared DataTable, full-bleed                           |
-| `phase/07-master-data-crud`          | `v1.3.0` | CRUD for every master-data table, schema amendments, Job Management |
-| `phase/09-container-deployment`      | `v1.4.0` | Container images, production API build, Coolify runbook             |
+| Branch                                | Tag      | Contents                                                            |
+| ------------------------------------- | -------- | ------------------------------------------------------------------- |
+| `main`                                | `v0.0.1` | Repo init and connectivity                                          |
+| `phase/01-db-auth-rbac`               | `v0.1.0` | Schema, migrations, auth, RBAC                                      |
+| `phase/02-commercial-pricing-engine`  | `v0.2.0` | Contracts, amendments, pricing engine, VAT                          |
+| `phase/03-operations-lifecycle`       | `v0.3.0` | Projects, job lifecycle, actuals                                    |
+| `phase/04-billing-invoicing`          | `v0.4.0` | Invoice lifecycle and billing                                       |
+| `phase/05-admin-audit-hardening`      | `v1.0.0` | Admin suite, audit log, E2E                                         |
+| `phase/06-enterprise-ui-overhaul`     | `v1.1.0` | App shell, command centre, shadcn, UI pass                          |
+| `phase/06-theming-and-menu-fix`       | `v1.2.0` | Five themes, shared DataTable, full-bleed                           |
+| `phase/07-master-data-crud`           | `v1.3.0` | CRUD for every master-data table, schema amendments, Job Management |
+| `phase/09-container-deployment`       | `v1.4.0` | Container images, production API build, Coolify runbook             |
+| `phase/10-invoicing-workflow`         | `v1.5.0` | Invoicing workflow UI: raise a draft from a job, manual add         |
+| `phase/11-data-import`                | `v1.6.0` | Spreadsheet template, dry-run validation, apply                     |
+| `phase/12-dependency-upgrades`        | `v2.0.0` | Next 16, Prisma 7, TypeScript 7, Node 26 and the rest of the majors |
+| `phase/13-workflow-and-operations-ux` | `v2.1.0` | Amendments, RBAC editing, invoice register popup, job detail route  |
 
 Phases 7 and 8 shipped together in `v1.3.0`: Phase 7 is
 [ADR-007](docs/adr-007-master-data-crud.md) — the API supported creating contracts,
@@ -213,6 +237,20 @@ ever run under `tsx`. Phase 9 adds an esbuild bundle, two Dockerfiles, a
 `.dockerignore`, a local-parity Compose stack and
 [docs/coolify-deployment.md](docs/coolify-deployment.md). `npm run check:docker`
 validates the deployment files without needing a Docker daemon.
+
+Phases 10–13 followed the deployment work. Phase 10 (`v1.5.0`) made the Billing
+screen usable: a draft invoice can be raised from a job or added by hand on the
+register, and job creation was restored there. Phase 11 (`v1.6.0`) added the
+spreadsheet importer — template generated from the schema, dry-run validation,
+explicit `--apply` — see [ADR-010](docs/adr-010-data-import.md). Phase 12
+(`v2.0.0`) moved the whole stack to its current majors: Next 16, Prisma 7,
+TypeScript 7, Node 26. Phase 13 (`v2.1.0`) is the workflow and operations UX
+pass: amendment type/status edits persist, the five contract types are seeded,
+users link to a real employee (or create one atomically), non-administrator
+role grants are editable while `admin.*` stays locked, the invoice register is
+full-width with an invoice-number detail popup, and job detail is a separate
+route with URL-backed register state — see
+[phase-13-workflow-and-operations-ux.md](docs/phase-13-workflow-and-operations-ux.md).
 
 **Migrations.** `prisma migrate deploy` cannot be used here — the baseline predates
 Prisma, so it fails P3005 — and `prisma migrate diff --from-url` emits a
@@ -240,3 +278,17 @@ Commits follow Conventional Commits: `<type>(<scope>): <summary>`.
 - Every write to application data is recorded in an append-only audit log, naming
   the actor, the action, the changed fields, the route and the request. See
   [ADR-005](docs/adr-005-admin-audit-hardening.md).
+- **Dependency advisories** are reviewed with `npm audit`. Phase 14 closed the
+  server/runtime tree with `overrides` in the root manifest (`mysql2 ^3.24.6`,
+  `deepmerge-ts ^8.0.2`, both transitive under `prisma`). Two dev-only chains
+  remain open, and both are upstream-blocked rather than ignored:
+  - `braces` (via `micromatch` → `fast-glob` → `@shadcn/registry` → `shadcn`, a
+    devDependency used only by the component-registry CLI). The advisory covers
+    **every published version** — there is no fixed release to move to.
+  - `uuid` (via `exceljs`, used only by the import script, which calls `v4()`
+    with no buffer; the advisory affects v3/v5/v6 **with** a `buf` argument).
+    The fix is a semver-major `overrides` jump (uuid 8 → 14) under a package
+    that pins `^8`, which needs exceljs re-validated first.
+    Both are `npm audit fix --force` bait: it "resolves" them by downgrading
+    `shadcn` to 1.0.0 and `exceljs` to 3.4.0. Do not run it. Re-check with every
+    dependency phase.

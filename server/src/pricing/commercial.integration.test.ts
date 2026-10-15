@@ -387,7 +387,7 @@ describe('VAT fields are exposed and enforced', () => {
     const cookie = await adminCookie();
     const email = `vat-ok-${Date.now()}@example.test`;
 
-    const created = await app.inject({
+    const createdClient = await app.inject({
       method: 'POST',
       url: '/api/clients',
       headers: { cookie },
@@ -398,8 +398,8 @@ describe('VAT fields are exposed and enforced', () => {
         vatNumber: '4123456789',
       },
     });
-    expect(created.statusCode).toBe(201);
-    expect(created.json().client.vatNumber).toBe('4123456789');
+    expect(createdClient.statusCode).toBe(201);
+    expect(createdClient.json().client.vatNumber).toBe('4123456789');
 
     await prisma.client.deleteMany({ where: { email } });
   });

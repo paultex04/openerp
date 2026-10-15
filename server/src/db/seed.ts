@@ -122,6 +122,7 @@ async function seedSuperAdmin(): Promise<void> {
       throw new Error(
         `SEED_ADMIN_PASSWORD rejected by policy: ${e.message} ` +
           'Use at least 12 characters mixing three of lowercase/uppercase/digit/symbol.',
+        { cause: e },
       );
     }
     throw e;
@@ -236,6 +237,7 @@ async function seedDemoUsers(): Promise<void> {
       throw new Error(
         `SEED_DEMO_PASSWORD rejected by policy: ${e.message} ` +
           'Use at least 12 characters mixing three of lowercase/uppercase/digit/symbol.',
+        { cause: e },
       );
     }
     throw e;

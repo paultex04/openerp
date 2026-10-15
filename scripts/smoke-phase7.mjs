@@ -294,15 +294,15 @@ async function main() {
         email: `smoke-p7-proj-${tag}-${stamp}@contractor.co.za`,
       },
     });
-    const clientId = client.body?.client?.id;
-    if (!Number.isInteger(clientId)) return null;
-    residue.clients.push(clientId);
+    const chainClientId = client.body?.client?.id;
+    if (!Number.isInteger(chainClientId)) return null;
+    residue.clients.push(chainClientId);
 
     const contract = await request('/api/contracts', {
       method: 'POST',
       cookie: A,
       body: {
-        clientId,
+        clientId: chainClientId,
         number: `SMOKE-P7-PROJ-${tag}-${stamp}`,
         description: `Smoke Phase 7 project pairing fixture (${tag})`,
       },
@@ -327,7 +327,7 @@ async function main() {
     if (!Number.isInteger(amendmentId)) return null;
     residue.amendments.push(amendmentId);
 
-    return { clientId, contractId, amendmentId };
+    return { clientId: chainClientId, contractId, amendmentId };
   };
 
   const own = await makeChain('OWN');
@@ -971,6 +971,8 @@ async function main() {
   // which made the "no fixtures left behind" assertion report ids for rows that
   // had been deleted successfully - the assertion was wrong, not the cleanup.
   const drop = async (list, path, prep) => {
+    // The spread is load-bearing: the loop prunes `list` via splice below.
+    // oxlint-disable-next-line unicorn/no-useless-spread
     for (const id of [...list]) {
       if (prep) await prep(id);
       const res = await request(path(id), { method: 'DELETE', cookie: A });
@@ -1009,7 +1011,7 @@ async function main() {
   // Restore before delete. A DELETE on an archived client that still has a contract
   // is refused by design, so cleanup has to undo the archive before it can remove
   // the row - archiving is reversible and so is the cleanup that has to undo it.
-  for (const id of [...residue.clients]) {
+  for (const id of residue.clients) {
     await request(`/api/clients/${id}/archive`, { method: 'DELETE', cookie: A });
     const res = await request(`/api/clients/${id}`, { method: 'DELETE', cookie: A });
     if (res.status === 204 || res.status === 404) {

@@ -150,7 +150,7 @@ export function MasterDataPanel<T extends object>({
   const [confirmDelete, setConfirmDelete] = useState<T | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<T | null>(null);
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => ({
-    ...(initialFilters ?? {}),
+    ...initialFilters,
   }));
   // Archived rows are hidden by the server by default. This is a deliberate opt-in
   // rather than a client-side filter, because the server is also what makes the

@@ -91,6 +91,9 @@ async function probe(url, cookie) {
   return { status: response.status, location: response.headers.get('location') };
 }
 
+/** Millisecond sleep; used by the login retry below. */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Signs in and returns the raw session cookie, or null on failure.
  *
@@ -100,8 +103,6 @@ async function probe(url, cookie) {
  * it sends you looking for a seeding problem that does not exist.
  */
 async function login(email, password, { attempts = 4 } = {}) {
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const response = await fetch(`${API}/api/auth/login`, {
       method: 'POST',
@@ -236,21 +237,34 @@ async function main() {
 
   const cssProbe = await fetch(`${WEB}/login`);
   const html = await cssProbe.text();
-  const cssHref = /href="(\/_next\/static\/css\/[^"]+\.css[^"]*)"/.exec(html)?.[1];
+  // Every linked stylesheet is read and concatenated. A production build splits
+  // CSS across chunks and the first link is not always the app stylesheet (in
+  // the Turbopack build it is a small component sheet), while the dev server
+  // serves the same CSS from `/_next/static/chunks/` with the authored syntax
+  // instead of the minified `/css/` form. Reading a single link made this gate
+  // report "0 themes" for whichever mode it was not written for - which read as
+  // a UI defect rather than a parsing one.
+  const cssHrefs = [
+    ...new Set([...html.matchAll(/href="([^"]+\.css[^"]*)"/g)].map((match) => match[1])),
+  ];
 
   // Declared out here so Gate 7 can reuse it; `const` inside the `if` below
   // would not be visible to the later block.
   let cssText = '';
 
-  if (cssHref) {
-    const css = await fetch(`${WEB}${cssHref}`, { redirect: 'manual' });
-    check('stylesheet -> status', css.status, 200);
-    cssText = await css.text();
+  if (cssHrefs.length) {
+    for (const href of cssHrefs) {
+      const css = await fetch(`${WEB}${href}`, { redirect: 'manual' });
+      check(`stylesheet ${href} -> status`, css.status, 200);
+      if (css.status === 200) cssText += await css.text();
+    }
     // The Phase 6 defect that made the entire app render unstyled: the utility
-    // compiled but resolved to an invalid colour, so nothing was applied.
+    // compiled but resolved to an invalid colour, so nothing was applied. The
+    // selector is matched loosely because the minifier groups selectors
+    // (`.bg-background,.bg-background\/95{…}`).
     checkThat(
       'bg-background resolves to a usable colour function',
-      /\.bg-background\s*\{\s*background-color:\s*var\(--background\)/.test(cssText),
+      /\.bg-background[^{}]*\{\s*background-color:\s*var\(--background\)/.test(cssText),
       'expected var(--background), which would be invalid if wrapped in hsl()',
     );
     checkThat(
@@ -259,11 +273,7 @@ async function main() {
       'Tailwind v3 cannot compile --spacing(); this asserts the v4 migration took',
     );
   } else {
-    checkThat(
-      'a compiled stylesheet is referenced by /login',
-      false,
-      'no /_next/static/css link found',
-    );
+    checkThat('a compiled stylesheet is referenced by /login', false, 'no .css link found');
   }
 
   // =====================================================================
@@ -366,7 +376,7 @@ async function main() {
   // is the defect this gate exists to catch: it would render perfectly but be
   // impossible to select, or be selectable and render nothing.
 
-  const themeIdsFromCss = [...cssText.matchAll(/\[data-theme=['"]([a-z]+)['"]\]/g)].map(
+  const themeIdsFromCss = [...cssText.matchAll(/\[data-theme=['"]?([a-z]+)['"]?\]/g)].map(
     (match) => match[1],
   );
   const uniqueCssThemes = [...new Set(themeIdsFromCss)].sort();
@@ -386,7 +396,7 @@ async function main() {
   // this feature was written to fix.
   const primaryByTheme = new Map();
   for (const id of uniqueCssThemes) {
-    const block = new RegExp(`\\[data-theme=['"]${id}['"]\\]\\s*\\{([^}]*)\\}`).exec(cssText);
+    const block = new RegExp(`\\[data-theme=['"]?${id}['"]?\\]\\s*\\{([^}]*)\\}`).exec(cssText);
     const primary = block?.[1]?.match(/--primary:\s*([^;]+);/)?.[1]?.trim();
     if (primary) primaryByTheme.set(id, primary);
   }
@@ -401,11 +411,28 @@ async function main() {
   // The accent must be a real colour, not a near-black placeholder. The v1.1.0
   // "no colour" problem was precisely `--primary: oklch(0.205 0 0)`.
   for (const [id, primary] of primaryByTheme) {
-    const chroma = Number(primary.match(/oklch\(\s*[0-9.]+\s+([0-9.]+)/)?.[1] ?? 0);
+    // Production CSS is rewritten to `oklch(…)` by the minifier; the dev server
+    // serves the authored hex. Each syntax is measured in its own terms - oklch
+    // chroma, or the channel spread of a hex - with a grey failing both.
+    // The minifier writes `oklch(55% .16 238)` - a percent lightness and a
+    // dotless chroma - where the authored form is `oklch(0.55 0.16 238)`.
+    const oklchChroma = Number(primary.match(/oklch\(\s*[\d.]+%?\s+([\d.]+)/)?.[1] ?? NaN);
+    const hexSpread = /^#[0-9a-f]{6}$/i.test(primary)
+      ? (() => {
+          const rgb = Number.parseInt(primary.slice(1), 16);
+          const r = (rgb >> 16) & 0xff;
+          const g = (rgb >> 8) & 0xff;
+          const b = rgb & 0xff;
+          return (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+        })()
+      : NaN;
+    const chromatic = Number.isNaN(oklchChroma) ? hexSpread >= 0.25 : oklchChroma >= 0.1;
     checkThat(
       `"${id}" has a chromatic primary (not grey)`,
-      chroma >= 0.1,
-      `${primary} -> chroma ${chroma}`,
+      chromatic,
+      Number.isNaN(oklchChroma)
+        ? `${primary} -> hex spread ${hexSpread.toFixed(2)}`
+        : `${primary} -> oklch chroma ${oklchChroma}`,
     );
   }
 
@@ -416,11 +443,11 @@ async function main() {
   }
 
   // The dark theme must switch the browser's own widget rendering, or it gets
-  // light scrollbars and looks half-applied.
-  checkThat(
-    'the dark theme sets color-scheme: dark',
-    /\[data-theme=['"]midnight['"]\][\s\S]{0,400}?color-scheme:\s*dark/.test(cssText),
-  );
+  // light scrollbars and looks half-applied. The check is scoped to the theme's
+  // own block; the minified file has both `color-scheme:light` and `:dark`.
+  const midnightBlock =
+    new RegExp(`\\[data-theme=['"]?midnight['"]?\\]\\s*\\{([^}]*)\\}`).exec(cssText)?.[1] ?? '';
+  checkThat('the dark theme sets color-scheme: dark', /color-scheme:\s*dark/.test(midnightBlock));
 
   // The theme must be applied before first paint, or every navigation flashes
   // the default palette. The bootstrap script has to be inline in the document.
