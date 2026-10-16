@@ -648,3 +648,80 @@ describe('costing register', () => {
     expect(costing.costActual).toBe(632);
   });
 });
+
+describe('job time entries', () => {
+  it('lists the lines on a job, previewing drafts and freezing approvals', async () => {
+    const sup = await session('job-entries-supervisor', 'site_supervisor');
+    const admin = await session('job-entries-admin', 'administrator');
+    await prisma.employee.update({ where: { id: sup.user.employeeId }, data: { rate: 79 } });
+    const { projectId } = await makeProjectWithAmendment();
+    const jobId = await makeJob(projectId);
+    await assign(sup.user.employeeId, jobId);
+    const timesheetId = await openWeek(sup.cookie, '2026-06-01');
+
+    const added = await addEntry(sup.cookie, timesheetId, {
+      jobId,
+      workDate: '2026-06-01',
+      labourType: 'Fitter',
+      shiftType: 'NT',
+      hours: 8,
+      isBillable: true,
+    });
+    expect(added.statusCode, added.body).toBe(201);
+
+    // Before approval the line is priced from the live preview, and the week reads
+    // Draft; the tab shows it so a PM can see what is coming.
+    const draft = await app.inject({
+      method: 'GET',
+      url: `/api/timesheets/job-entries?jobId=${jobId}`,
+      headers: { cookie: admin.cookie },
+    });
+    expect(draft.statusCode, draft.body).toBe(200);
+    expect(draft.json().entries).toHaveLength(1);
+    expect(draft.json().entries[0].employee.id).toBe(sup.user.employeeId);
+    expect(draft.json().entries[0].timesheetStatus).toBe('Draft');
+    expect(draft.json().entries[0].priced).toBe(true);
+    expect(draft.json().entries[0].costAmount).toBe(632);
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/timesheets/${timesheetId}/submit`,
+      headers: { cookie: sup.cookie },
+      payload: {},
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/api/timesheets/${timesheetId}/approve`,
+      headers: { cookie: admin.cookie },
+      payload: {},
+    });
+
+    const approved = await app.inject({
+      method: 'GET',
+      url: `/api/timesheets/job-entries?jobId=${jobId}`,
+      headers: { cookie: admin.cookie },
+    });
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(approved.json().entries[0].timesheetStatus).toBe('Approved');
+    expect(approved.json().entries[0].costAmount).toBe(632);
+    expect(approved.json().totals).toEqual({
+      hours: 8,
+      billableHours: 8,
+      cost: 632,
+      unpricedLines: 0,
+    });
+  });
+
+  it('refuses a caller who does not hold timesheet.read', async () => {
+    const sup = await session('job-entries-supervisor', 'site_supervisor');
+    const { projectId } = await makeProjectWithAmendment();
+    const jobId = await makeJob(projectId);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/timesheets/job-entries?jobId=${jobId}`,
+      headers: { cookie: sup.cookie },
+    });
+    expect(response.statusCode).toBe(403);
+  });
+});

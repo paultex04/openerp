@@ -31,17 +31,14 @@
  */
 
 import type { ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
-import { api, ApiError, type JobDetail, type JobListResponse, type JobRow } from '@/lib/api';
+import { api, type JobListResponse, type JobRow } from '@/lib/api';
 import { DataTable, type DataTableFilter } from '@/components/data-table/data-table';
 import { StatusPill } from '@/components/lifecycle/status-badge';
-import { JobSummaryPanel } from '@/components/job-management/JobSummaryPanel';
-import { JobServiceCodeTable } from '@/components/job-management/JobServiceCodeTable';
-import { LabourMarginPanel } from '@/components/timesheets/labour-margin-panel';
 import { useJobWorkflow } from '@/hooks/use-job-workflow';
 import { useDebounced } from '@/hooks/use-debounced';
 
@@ -294,62 +291,6 @@ export function JobRegister() {
           onPageSizeChange: setPageSize,
         }}
       />
-    </div>
-  );
-}
-
-/** ------------------------------------------------------------------------- */
-
-export function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => void }) {
-  const queryClient = useQueryClient();
-
-  const detail = useQuery({
-    queryKey: ['job', jobId],
-    queryFn: () => api.get<JobDetail>(`/api/jobs/${jobId}`),
-  });
-
-  // Refresh the register after any change, so a status moved or a line added shows
-  // up in the list above without a manual reload.
-  const refreshAll = () => {
-    void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
-    void queryClient.invalidateQueries({ queryKey: ['jobs', 'register'] });
-  };
-
-  if (detail.isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading job…</p>;
-  }
-
-  if (detail.isError) {
-    return (
-      <div className="space-y-2">
-        <p className="text-sm text-destructive">
-          {detail.error instanceof ApiError ? detail.error.message : 'Could not load the job.'}
-        </p>
-        <button type="button" onClick={onClose} className="text-xs underline">
-          Back to jobs
-        </button>
-      </div>
-    );
-  }
-
-  if (!detail.data) return <p className="text-sm text-muted-foreground">Job not found.</p>;
-
-  const { job, permissions, deliverables, summary } = detail.data;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <JobSummaryPanel job={job} permissions={permissions} onChanged={refreshAll} />
-
-      <JobServiceCodeTable
-        jobId={job.id}
-        job={job}
-        deliverables={deliverables}
-        summary={summary}
-        permissions={permissions}
-        onChanged={refreshAll}
-      />
-
-      <LabourMarginPanel jobId={job.id} />
     </div>
   );
 }

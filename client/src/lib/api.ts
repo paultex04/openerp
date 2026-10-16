@@ -740,3 +740,33 @@ export interface JobCosting {
   costVariance: number;
   byLabourType: LabourGroupRow[];
 }
+
+/**
+ * One line of time booked to a job, as `GET /api/timesheets/job-entries` returns it.
+ *
+ * An approved line carries the cost frozen when its week was approved; an
+ * unsent or pending one carries the live preview, with `priced: false` when the
+ * employee has no rate to price it at.
+ */
+export interface JobTimeEntry {
+  id: number;
+  workDate: string;
+  labourType: string;
+  shiftType: ShiftType;
+  hours: number;
+  isBillable: boolean;
+  notes: string | null;
+  employee: { id: number; name: string; surname: string };
+  timesheetId: number;
+  timesheetStatus: TimesheetStatus;
+  periodStart: string;
+  periodEnd: string;
+  costRate: number | null;
+  costAmount: number | null;
+  priced: boolean;
+}
+
+export interface JobTimeEntries {
+  entries: JobTimeEntry[];
+  totals: { hours: number; billableHours: number; cost: number; unpricedLines: number };
+}

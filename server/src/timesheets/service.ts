@@ -217,6 +217,36 @@ type TimesheetRow = Prisma.TimesheetGetPayload<{ select: typeof TIMESHEET_SELECT
 type EntryRow = TimesheetRow['entries'][number];
 
 /**
+ * An entry, its employee and its week, flattened for the job's Timesheets tab.
+ *
+ * The select carries `timesheet` because a line on a job must say *whose* week it
+ * belongs to and whether that week was approved — the fields the cost column
+ * depends on: an approved line's cost is frozen, a draft's is the live preview.
+ */
+const JOB_ENTRY_SELECT = {
+  id: true,
+  workDate: true,
+  labourType: true,
+  shiftType: true,
+  hours: true,
+  isBillable: true,
+  notes: true,
+  costRateOverride: true,
+  costRate: true,
+  costAmount: true,
+  timesheet: {
+    select: {
+      id: true,
+      status: true,
+      periodStart: true,
+      periodEnd: true,
+      employeeId: true,
+      employee: { select: { id: true, name: true, surname: true, rate: true } },
+    },
+  },
+} satisfies Prisma.TimesheetEntrySelect;
+
+/**
  * Prices every line of a week, tolerating an unresolvable rate.
  *
  * The only way a line is unpriced is an employee with no `rate` and no override —
@@ -541,6 +571,130 @@ export async function listLoggableJobs(
     projectCode: job.project.code,
     clientName: job.project.contract.client.name,
   }));
+}
+
+export interface JobTimeEntryView {
+  id: number;
+  workDate: string;
+  labourType: string;
+  shiftType: ShiftType;
+  hours: number;
+  isBillable: boolean;
+  notes: string | null;
+  employee: { id: number; name: string; surname: string };
+  timesheetId: number;
+  timesheetStatus: TimesheetStatus;
+  periodStart: string;
+  periodEnd: string;
+  /** Frozen at approval, else the live preview; null when nothing can price it. */
+  costRate: number | null;
+  costAmount: number | null;
+  priced: boolean;
+}
+
+export interface JobTimeEntriesView {
+  entries: JobTimeEntryView[];
+  totals: { hours: number; billableHours: number; cost: number; unpricedLines: number };
+}
+
+/**
+ * Every line of time booked to one job, for the job screen's Timesheets tab.
+ *
+ * This is the granular counterpart to the costing read-model: costing aggregates a
+ * job's hours by labour type, this lists the lines themselves — who, which day,
+ * how long — so a PM can see the detail behind the totals without leaving the job.
+ *
+ * An approved line reports its frozen cost; an unsent or pending one reports the
+ * live preview, flagged `priced: false` when the employee has no rate to price it
+ * at (the same tolerance {@link previewFor} applies, so one rate-less line never
+ * blanks the whole tab). Gated on `timesheet.read`, because every column is cost.
+ */
+export async function listJobTimeEntries(
+  jobId: number,
+  principal: Principal,
+): Promise<JobTimeEntriesView> {
+  if (!can(principal, 'timesheet.read')) {
+    throw new TimesheetError(403, 'FORBIDDEN', 'You may not view a job’s labour.');
+  }
+
+  const rows = await prisma.timesheetEntry.findMany({
+    where: { jobId },
+    orderBy: [{ workDate: 'desc' }, { id: 'desc' }],
+    take: 500,
+    select: JOB_ENTRY_SELECT,
+  });
+
+  const entries: JobTimeEntryView[] = rows.map((row) => {
+    const employeeRate = row.timesheet.employee.rate
+      ? row.timesheet.employee.rate.toNumber()
+      : null;
+
+    // A frozen line keeps the rate it was approved at; everything else previews at
+    // today's employee rate, so the number here matches what approval would write.
+    let costRate = row.costRate ? row.costRate.toNumber() : null;
+    let costAmount = row.costAmount ? row.costAmount.toNumber() : null;
+    let priced = costAmount !== null;
+
+    if (!priced) {
+      try {
+        const resolved = resolveLineRate({
+          employeeId: row.timesheet.employeeId,
+          employeeRate,
+          overrideRate: row.costRateOverride ? row.costRateOverride.toNumber() : null,
+        });
+        costRate = resolved.costRate;
+        costAmount = entryCost(row.hours.toString(), resolved.costRate);
+        priced = true;
+      } catch (error) {
+        if (!(error instanceof TimesheetError && error.code === 'EMPLOYEE_RATE_REQUIRED')) {
+          throw error;
+        }
+      }
+    }
+
+    return {
+      id: row.id,
+      workDate: toIso(row.workDate),
+      labourType: row.labourType,
+      shiftType: shiftTypeFromKey(row.shiftType),
+      hours: row.hours.toNumber(),
+      isBillable: row.isBillable,
+      notes: row.notes,
+      employee: {
+        id: row.timesheet.employee.id,
+        name: row.timesheet.employee.name,
+        surname: row.timesheet.employee.surname,
+      },
+      timesheetId: row.timesheet.id,
+      timesheetStatus: timesheetStatusFromKey(row.timesheet.status),
+      periodStart: toIso(row.timesheet.periodStart),
+      periodEnd: toIso(row.timesheet.periodEnd),
+      costRate,
+      costAmount,
+      priced,
+    };
+  });
+
+  const totals = entries.reduce(
+    (acc, entry) => {
+      acc.hours += entry.hours;
+      if (entry.isBillable) acc.billableHours += entry.hours;
+      if (entry.priced && entry.costAmount !== null) acc.cost += entry.costAmount;
+      if (!entry.priced) acc.unpricedLines += 1;
+      return acc;
+    },
+    { hours: 0, billableHours: 0, cost: 0, unpricedLines: 0 },
+  );
+
+  return {
+    entries,
+    totals: {
+      hours: Math.round(totals.hours * 100) / 100,
+      billableHours: Math.round(totals.billableHours * 100) / 100,
+      cost: Math.round(totals.cost * 100) / 100,
+      unpricedLines: totals.unpricedLines,
+    },
+  };
 }
 
 export interface TimesheetEmployee {

@@ -83,3 +83,15 @@ role needs it added. An administrator account always has every permission.
   `/timesheets` route).
 - `npm run check:docker`.
 - `npm run smoke:phase2` … `smoke:phase7`, `smoke:phase13` against a running API.
+
+## Follow-ups after v2.3.0
+
+- **The job detail is now tabbed.** `/operations/:id` splits into **Details**,
+  **Timesheets**, **Line items** and **Financials**, with the active section in `?tab=`.
+  Before this the summary, the line-items table and the Labour & margin panel were
+  stacked in one fixed-height column; once the panel was added the column held more
+  content than height and the line-items section overlapped it. One section is on
+  screen at a time now, and each owns its own scroll. The **Timesheets** tab lists the
+  individual lines booked to the job — employee, day, hours, cost and week status —
+  from the new `GET /api/timesheets/job-entries`, gated on `timesheet.read`; the
+  **Financials** tab holds the Labour & margin panel. The server suite is now 209 tests.

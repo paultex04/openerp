@@ -4,7 +4,7 @@ import { use, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SelectedJob } from '@/components/job-management/job-register';
+import { JobDetail } from '@/components/job-management/job-detail';
 
 export default function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -21,7 +21,12 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
   }, []);
 
   const handleBack = () => {
-    router.replace(`/operations?${searchParams.toString()}`, { scroll: false });
+    // The job screen's `?tab=` is not a register filter; strip it so "back to jobs"
+    // reconstructs the list rather than carrying a section key the register ignores.
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete('tab');
+    const query = next.toString();
+    router.replace(query ? `/operations?${query}` : '/operations', { scroll: false });
   };
 
   return (
@@ -34,7 +39,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
       </div>
 
       <div className="min-h-0 flex-1">
-        <SelectedJob jobId={jobId} onClose={handleBack} />
+        <JobDetail jobId={jobId} onClose={handleBack} />
       </div>
     </div>
   );
