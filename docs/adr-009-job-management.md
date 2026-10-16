@@ -157,6 +157,29 @@ actual-quantity input, sized for a phone — so it had nothing left to serve.
 projects panel needs the same dependent-picker behaviour and they were about to be
 copied and drift.
 
+### Creating a job from the register
+
+Creation lives on the register, behind a **New job** button gated on `job.write` —
+`AddJobDialog.tsx`. It is the only way to reach `POST /api/jobs` from the UI, and it
+is deliberately narrow: a project (required), an amendment (optional; blank inherits
+the project's, per the Phase 3 rule), a supervisor and client contact, the two orders
+and their received dates, planned dates, area, priority and description. Status and
+actual dates are not fields — a job is born at `01` and the lifecycle owns it; actuals
+are entered in the field.
+
+The amendment picker resolves project → contract → amendments and drops a selection
+that no longer belongs to the chosen project's contract, so a pair the API would reject
+with a 422 is unreachable here. The projects, amendments, employees and contacts
+pickers are each queried only when the operator holds the matching read permission; a
+role with `job.write` but without, say, `contact.read` sees an empty contact list rather
+than a failed dialog.
+
+Creating a job navigates to it — the same destination as clicking its number.
+
+> Job creation has been lost once before, when the register was rebuilt around the
+> dedicated detail route. This ADR records that the _register_, not the job detail,
+> owns the New job button, so a future rebuild does not drop it again.
+
 ## Consequences
 
 **Better:** a job is directly linkable, its metadata and service lines have a focused
@@ -188,6 +211,10 @@ In-browser, on live data (contract `CW169692`, project `MT26-00195`, three jobs)
   selecting one prefilled rate R 23 782,00, adding at qty 4 produced planned
   R 95 128,00 = 4 × 23 782,00; editing to qty 5 produced R 118 910,00; removing returned
   the job to zero lines, confirmed against `GET /api/jobs/2/deliverables`
+- New job on the register: the dialog's amendment picker resolved project `MT26-00195`
+  → contract → `01 (Pending Approval)` and `Baseline (Active)`; creating with only a
+  project made job #5070 and navigated to `/operations/5070`; deleting it left no
+  residue (`DELETE` 204, then 404)
 
 Gates: `verify` exit 0 (177 shared + 140 server); smoke phase2 52, phase3 101, phase4
 67, phase5 46, phase6 71, phase7 101 — all 0 failed; client build clean; `db:check` 25
