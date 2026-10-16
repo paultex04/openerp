@@ -63,7 +63,18 @@ export const employeeUpsertSchema = z.object({
   brokerId: z.coerce.number().int().positive().optional().nullable(),
   contractTypeId: z.coerce.number().int().positive(),
   managerId: z.coerce.number().int().positive().optional().nullable(),
-  rate: z.coerce.number().min(0).max(100_000).optional().nullable(),
+  /**
+   * The employee's cost rate, ZAR per hour. **Required and strictly positive.**
+   *
+   * Timesheets price every recorded hour at this rate (see ADR-012), so an
+   * employee without one cannot record time at all. `0` is rejected rather than
+   * accepted as "free": a missing rate is a data problem, and letting a zero
+   * through would silently cost an hour at nothing.
+   */
+  rate: z.coerce
+    .number()
+    .positive('An employee needs an hourly cost rate.')
+    .max(100_000, 'That hourly rate is implausibly high.'),
 });
 export type EmployeeUpsertInput = z.infer<typeof employeeUpsertSchema>;
 

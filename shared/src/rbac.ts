@@ -77,6 +77,7 @@ export const PERMISSION_CATEGORIES = [
   'job',
   'actuals',
   'invoice',
+  'timesheet',
   'organisation',
   'admin',
 ] as const;
@@ -154,6 +155,17 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   P('invoice.approve', 'invoice', 'Approve an invoice.'),
   P('invoice.status', 'invoice', 'Change invoice status (paid, disputed, cancelled).'),
 
+  // --- Timesheets (Phase 16) ----------------------------------------------
+  // Cost rates and job margins are commercially sensitive, so the read split is
+  // deliberate: `read.own` sees only your own hours, `read` sees everyone's
+  // hours *and* the costing views built on them.
+  P('timesheet.write.own', 'timesheet', 'Draft, edit and submit your own timesheet for a week.'),
+  P('timesheet.write', 'timesheet', "Draft, edit and submit anyone's timesheet (on behalf)."),
+  P('timesheet.read.own', 'timesheet', 'View your own timesheets and hours.'),
+  P('timesheet.read', 'timesheet', 'View all timesheets and the job costing views.'),
+  P('timesheet.approve', 'timesheet', 'Approve, reject and reopen submitted timesheets.'),
+  P('timesheet.override', 'timesheet', 'Enter a manual cost-rate override on a timesheet line.'),
+
   // --- Organisation (Phase 7) ---------------------------------------------
   // Clients deliberately ride on `contract.*` rather than having their own keys,
   // so that a client read/write/delete shows under Commercial in the permission
@@ -213,6 +225,11 @@ const COMMERCIAL_GRANTS: string[] = [
   'invoice.read',
   'invoice.write',
   'invoice.submit',
+  // Reads the costing the hours feed, and signs labour cost off: the commercial
+  // desk is one of the three approvers (with the PM and the administrator). Does
+  // not enter hours — the crew's time is the supervisor's or the PM's to record.
+  'timesheet.read',
+  'timesheet.approve',
 ];
 
 /** The PM owns scoping but has no commercial rate authority. */
@@ -229,6 +246,13 @@ const PROJECT_MANAGER_GRANTS: string[] = [
   // The PM may attach employees to jobs (`job.assign`) but must not be able to
   // rewrite the payroll-adjacent employee record itself.
   'employee.read',
+  // The PM already "monitors cost variances": they enter and approve hours, and
+  // see the costing the hours feed. See ADR-012.
+  'timesheet.write.own',
+  'timesheet.read.own',
+  'timesheet.write',
+  'timesheet.read',
+  'timesheet.approve',
 ];
 
 /** Field supervisors are restricted to their assigned jobs and to actuals. */
@@ -238,6 +262,9 @@ const SITE_SUPERVISOR_GRANTS: string[] = [
   'deliverable.write.actual',
   'job.transition.execute',
   'job.transition.pack',
+  // Logs their own field hours. Approving those hours is someone else's job.
+  'timesheet.write.own',
+  'timesheet.read.own',
 ];
 
 /** Billing clerks read operations but own everything from pack-ready onward. */
@@ -251,6 +278,8 @@ const BILLING_CLERK_GRANTS: string[] = [
   'invoice.status',
   'job.transition.billing',
   'job.transition.invoice',
+  // Reads the costing views for revenue-vs-cost reconciliation.
+  'timesheet.read',
 ];
 
 /** Default grant set for initial provisioning of each built-in role. */

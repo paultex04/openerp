@@ -32,6 +32,9 @@ export async function createTestUser(roleKeys: string[]): Promise<CreatedUser> {
       email,
       startDate: new Date('2026-01-01'),
       contractTypeId: contractType.id,
+      // A default cost rate: timesheets price hours at it, and an employee with
+      // no rate cannot record time at all.
+      rate: 50,
     },
     select: { id: true },
   });

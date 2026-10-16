@@ -60,6 +60,11 @@ const createUserSchema = z.object({
       surname: z.string().trim().min(1).max(100),
       startDate: isoDateSchema,
       contractTypeId: z.coerce.number().int().positive(),
+      /** Hourly cost rate; timesheets price this employee at it. */
+      rate: z.coerce
+        .number()
+        .positive('An employee needs an hourly cost rate.')
+        .max(100_000, 'That hourly rate is implausibly high.'),
     }),
   ]),
 });
@@ -424,6 +429,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
               email: body.email,
               startDate: new Date(`${body.employee.startDate}T00:00:00.000Z`),
               contractTypeId: contractType.id,
+              rate: body.employee.rate,
             },
             select: { id: true },
           });

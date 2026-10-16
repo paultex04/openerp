@@ -143,6 +143,9 @@ async function seedSuperAdmin(): Promise<void> {
       email,
       startDate: new Date(),
       contractTypeId: contractType.id,
+      // Every employee carries a cost rate; the administrator's is nominal (they
+      // do not record field time) but must exist so the record is complete.
+      rate: 280,
     },
     select: { id: true },
   });
@@ -171,34 +174,50 @@ async function seedSuperAdmin(): Promise<void> {
  * the supervisor on job 1, so his login really does see that job. The last two
  * have nobody to attach to and get their own employee records.
  */
-const DEMO_USERS: ReadonlyArray<{ email: string; roleKey: string; name: string; surname: string }> =
-  [
-    {
-      email: 'david.m@contractor.co.za',
-      roleKey: 'site_supervisor',
-      name: 'David',
-      surname: 'Mokoena',
-    },
-    {
-      email: 'sipho.z@contractor.co.za',
-      roleKey: 'site_supervisor',
-      name: 'Sipho',
-      surname: 'Zulu',
-    },
-    {
-      email: 'bongani.d@contractor.co.za',
-      roleKey: 'commercial_qs',
-      name: 'Bongani',
-      surname: 'Dlamini',
-    },
-    { email: 'pm@contractor.co.za', roleKey: 'project_manager', name: 'Nomsa', surname: 'Khumalo' },
-    {
-      email: 'billing@contractor.co.za',
-      roleKey: 'billing_clerk',
-      name: 'Riaan',
-      surname: 'Botha',
-    },
-  ];
+const DEMO_USERS: ReadonlyArray<{
+  email: string;
+  roleKey: string;
+  name: string;
+  surname: string;
+  /** Hourly cost rate, used only when the seed creates the employee record. */
+  rate: number;
+}> = [
+  {
+    email: 'david.m@contractor.co.za',
+    roleKey: 'site_supervisor',
+    name: 'David',
+    surname: 'Mokoena',
+    rate: 190,
+  },
+  {
+    email: 'sipho.z@contractor.co.za',
+    roleKey: 'site_supervisor',
+    name: 'Sipho',
+    surname: 'Zulu',
+    rate: 112.57,
+  },
+  {
+    email: 'bongani.d@contractor.co.za',
+    roleKey: 'commercial_qs',
+    name: 'Bongani',
+    surname: 'Dlamini',
+    rate: 38.72,
+  },
+  {
+    email: 'pm@contractor.co.za',
+    roleKey: 'project_manager',
+    name: 'Nomsa',
+    surname: 'Khumalo',
+    rate: 330,
+  },
+  {
+    email: 'billing@contractor.co.za',
+    roleKey: 'billing_clerk',
+    name: 'Riaan',
+    surname: 'Botha',
+    rate: 260,
+  },
+];
 
 /**
  * Creates one login per non-admin role so the RBAC matrix can actually be
@@ -288,6 +307,7 @@ async function seedDemoUsers(): Promise<void> {
             email: demo.email,
             startDate: new Date(),
             contractTypeId: contractType.id,
+            rate: demo.rate,
           },
           select: { id: true },
         })

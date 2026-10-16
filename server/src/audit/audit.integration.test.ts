@@ -334,6 +334,7 @@ describe('Gate 3: the actor survives account deletion', () => {
           name: 'Vanishing',
           surname: 'User',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },
@@ -547,6 +548,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'New',
           surname: 'Starter',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },
@@ -572,6 +574,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'Dup',
           surname: 'Licate',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },
@@ -596,6 +599,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'No',
           surname: 'Role',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },
@@ -741,6 +745,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'Atomic',
           surname: 'Failure',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: 2147483647,
         },
       },
@@ -779,6 +784,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'Weak',
           surname: 'Pass',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },
@@ -809,6 +815,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'De',
           surname: 'Activate',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },
@@ -872,6 +879,7 @@ describe('Gate 4: the admin suite', () => {
           name: 'Re',
           surname: 'Set',
           startDate: '2026-01-01',
+          rate: 100,
           contractTypeId: (
             await prisma.employeeContractType.findFirstOrThrow({
               where: { isArchived: false },

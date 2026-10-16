@@ -52,6 +52,20 @@ const INVOICE_VARIANTS: Readonly<Record<string, LifecycleVariant>> = {
 };
 
 /**
+ * The four states a timesheet week can be in.
+ *
+ * Rejected shares the loud red of a cancelled record because it is the one state
+ * that demands the employee's attention; submitted is amber (waiting on someone
+ * else), approved is green (settled), draft is neutral.
+ */
+const TIMESHEET_VARIANTS: Readonly<Record<string, LifecycleVariant>> = {
+  Draft: 'secondary',
+  Submitted: 'warning',
+  Approved: 'success',
+  Rejected: 'destructive',
+};
+
+/**
  * Badge variant for a job status. Falls back to `outline` so an unrecognised
  * label looks visibly unknown rather than silently healthy.
  *
@@ -68,4 +82,9 @@ export function statusVariant(status: string): LifecycleVariant {
 /** Badge variant for an invoice status. Same `outline` fallback rationale. */
 export function invoiceVariant(status: string): LifecycleVariant {
   return INVOICE_VARIANTS[status] ?? 'outline';
+}
+
+/** Badge variant for a timesheet week. Same `outline` fallback rationale. */
+export function timesheetVariant(status: string): LifecycleVariant {
+  return TIMESHEET_VARIANTS[status] ?? 'outline';
 }

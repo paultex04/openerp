@@ -21,6 +21,8 @@
 import {
   Boxes,
   Building2,
+  ClipboardCheck,
+  Clock,
   FileSpreadsheet,
   FileText,
   FolderKanban,
@@ -30,6 +32,7 @@ import {
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
+  TrendingUp,
   UserRound,
   Users,
   type LucideIcon,
@@ -112,6 +115,40 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Job Management',
         icon: ListChecks,
         anyOf: ['job.read', 'job.read.assigned'],
+      },
+    ],
+  },
+  {
+    key: 'timesheets',
+    label: 'Timesheets',
+    icon: Clock,
+    // Either you record time (`*.own`/`write`) or you consume what it produced
+    // (`read` — the costing views).
+    anyOf: [
+      'timesheet.write.own',
+      'timesheet.read.own',
+      'timesheet.write',
+      'timesheet.read',
+      'timesheet.approve',
+    ],
+    items: [
+      {
+        href: '/timesheets?tab=enter',
+        label: 'Enter Time',
+        icon: Clock,
+        anyOf: ['timesheet.write.own', 'timesheet.read.own', 'timesheet.write'],
+      },
+      {
+        href: '/timesheets?tab=approvals',
+        label: 'Approvals',
+        icon: ClipboardCheck,
+        anyOf: ['timesheet.approve'],
+      },
+      {
+        href: '/timesheets?tab=profitability',
+        label: 'Labour Profitability',
+        icon: TrendingUp,
+        anyOf: ['timesheet.read'],
       },
     ],
   },
