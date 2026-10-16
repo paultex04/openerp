@@ -492,3 +492,29 @@ export async function searchMessages(
   }
   return results;
 }
+
+/**
+ * Deletes a conversation and everything in it, for both members.
+ *
+ * This is the one destructive chat action, and it is a hard delete: the
+ * conversation row goes, and the foreign keys take its members, messages and
+ * attachments with it. "Delete the chat" means the chat is gone — leaving the
+ * other member in a thread the first person has erased would be a conversation
+ * nobody can reconcile, so both lose it together.
+ *
+ * The member ids are read *before* the delete, because afterwards there is
+ * nobody to notify. The caller publishes the `deleted` event with them so the
+ * other member's open stream drops the row instead of waiting for a poll.
+ *
+ * Deleting frees the `dm_key`, so messaging the same person again opens a fresh,
+ * empty thread rather than resurrecting this one.
+ */
+export async function deleteConversation(
+  principal: Principal,
+  conversationId: number,
+): Promise<{ memberIds: number[] }> {
+  await assertMember(conversationId, principal.userId);
+  const memberIds = await conversationMemberIds(conversationId);
+  await prisma.conversation.delete({ where: { id: conversationId } });
+  return { memberIds };
+}

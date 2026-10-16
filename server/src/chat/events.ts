@@ -21,7 +21,8 @@ export type ChatServerEvent =
   | { type: 'message'; conversationId: number; message: ChatMessageView }
   | { type: 'read'; conversationId: number; userId: number; lastReadAt: string }
   | { type: 'typing'; conversationId: number; userId: number; isTyping: boolean }
-  | { type: 'presence'; userId: number; online: boolean };
+  | { type: 'presence'; userId: number; online: boolean }
+  | { type: 'deleted'; conversationId: number };
 
 export type ChatEventListener = (event: ChatServerEvent) => void;
 

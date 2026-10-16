@@ -100,6 +100,10 @@ interface ChatContextValue {
   sendAttachment: (file: File, body: string) => Promise<void>;
   /** True while an image upload is in flight. */
   sendingAttachment: boolean;
+  /** Deletes the whole conversation, for both members. Final and not undoable. */
+  deleteConversation: (conversationId: number) => void;
+  /** True while a delete is in flight. */
+  deletingConversation: boolean;
   openWith: (userId: number) => void;
   opening: boolean;
   directory: ChatUser[];
@@ -192,6 +196,28 @@ export function ChatProvider({
     [selfId, setDockOpen],
   );
 
+  /**
+   * Removes a conversation from the client's view entirely: the list entry, any
+   * history it holds, and the selection if it was the open one. Used both when
+   * this account deletes it and when the other member does.
+   */
+  const forgetConversation = useCallback(
+    (conversationId: number) => {
+      queryClient.setQueryData<ChatConversationsResponse>(['chat', 'conversations'], (previous) =>
+        previous
+          ? {
+              conversations: previous.conversations.filter(
+                (conversation) => conversation.id !== conversationId,
+              ),
+            }
+          : previous,
+      );
+      queryClient.removeQueries({ queryKey: ['chat', 'messages', conversationId] });
+      setActiveId((current) => (current === conversationId ? null : current));
+    },
+    [queryClient],
+  );
+
   const handleStreamEvent = useCallback(
     (event: ChatStreamEvent) => {
       switch (event.type) {
@@ -228,6 +254,11 @@ export function ChatProvider({
           // refetch is enough to turn the newest own message into "Seen".
           void queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
           break;
+        case 'deleted':
+          // The other member deleted the whole conversation. Drop it locally now
+          // rather than waiting for a poll to notice it is gone.
+          forgetConversation(event.conversationId);
+          break;
         case 'typing': {
           const { conversationId, userId, isTyping } = event;
           const existingTimer = typingTimers.current.get(conversationId);
@@ -255,7 +286,7 @@ export function ChatProvider({
         }
       }
     },
-    [queryClient, notifyIncoming],
+    [queryClient, notifyIncoming, forgetConversation],
   );
 
   const streamStatus = useChatStream(enabled, handleStreamEvent);
@@ -462,6 +493,28 @@ export function ChatProvider({
       }),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (conversationId: number) =>
+      api.delete<{ deleted: true }>(`/api/chat/conversations/${conversationId}`),
+    onSuccess: (_, conversationId) => {
+      // Remove it from the local list at once; the stream confirms with
+      // 'deleted', or a poll will within seconds.
+      forgetConversation(conversationId);
+      queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+      toast.add({
+        title: 'Conversation deleted',
+        description: 'It is gone for both people and cannot be recovered.',
+        type: 'warning',
+      });
+    },
+    onError: (error) =>
+      toast.add({
+        title: 'Could not delete the conversation',
+        description: messageOf(error, 'Try again.'),
+        type: 'error',
+      }),
+  });
+
   const sendAttachment = useCallback(
     async (file: File, body: string) => {
       if (activeId === null) return;
@@ -473,6 +526,11 @@ export function ChatProvider({
       stopTyping();
     },
     [activeId, attachmentMutation, stopTyping],
+  );
+
+  const deleteConversation = useCallback(
+    (conversationId: number) => void deleteMutation.mutate(conversationId),
+    [deleteMutation],
   );
 
   const openMutation = useMutation({
@@ -546,6 +604,8 @@ export function ChatProvider({
       send,
       sendAttachment,
       sendingAttachment: attachmentMutation.isPending,
+      deleteConversation,
+      deletingConversation: deleteMutation.isPending,
       openWith: (userId: number) => openMutation.mutate(userId),
       opening: openMutation.isPending,
       directory: directoryQuery.data?.users ?? EMPTY_USERS,
@@ -571,6 +631,8 @@ export function ChatProvider({
       send,
       sendAttachment,
       attachmentMutation.isPending,
+      deleteMutation,
+      deleteConversation,
       openMutation,
       directoryQuery.data,
       directoryQuery.isLoading,

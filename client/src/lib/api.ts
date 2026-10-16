@@ -858,7 +858,8 @@ export type ChatStreamEvent =
   | { type: 'message'; conversationId: number; message: ChatMessage }
   | { type: 'read'; conversationId: number; userId: number; lastReadAt: string }
   | { type: 'typing'; conversationId: number; userId: number; isTyping: boolean }
-  | { type: 'presence'; userId: number; online: boolean };
+  | { type: 'presence'; userId: number; online: boolean }
+  | { type: 'deleted'; conversationId: number };
 
 /** `connecting`/`open` while the stream is up; `closed` means polling takes over. */
 export type ChatStreamStatus = 'connecting' | 'open' | 'closed';

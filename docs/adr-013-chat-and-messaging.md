@@ -127,6 +127,16 @@ rather than being repeated, and forgotten, in five lists.
   opens the dock, because the browser will not prompt without one, and the in-app
   unread badge is the fallback when it is declined.
 
+### Deleting a conversation
+
+`DELETE /api/chat/conversations/:id` removes the whole conversation — messages,
+members and attachments — for both members at once ("delete the chat", not "hide
+it from me"). Membership is still the boundary, so a non-member gets a 404. The
+`dm_key` is freed with the row, so messaging the same person again opens a fresh,
+empty thread. A `deleted` event fans out to the members' open streams so an open
+panel drops the row at once instead of waiting for a poll. It is final: nothing is
+kept for recovery.
+
 ## Phasing
 
 | Step | Scope                                                                     | State       |
