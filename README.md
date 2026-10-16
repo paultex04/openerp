@@ -9,7 +9,7 @@ labour recipes and material BOMs, planned-vs-actual job tracking, an invoice lif
 | Layer    | Technology                                                                       |
 | -------- | -------------------------------------------------------------------------------- |
 | Database | PostgreSQL 18 (`192.168.50.7:5432/openerp-dev`, `postgres:18-alpine` in Compose) |
-| Backend  | Node.js 26 + TypeScript 7, Fastify 5, Prisma 7, Zod 4, Vitest 5                  |
+| Backend  | Node.js 26 + TypeScript 7, Fastify 5, Prisma 7, Zod 4, sharp, Vitest 5           |
 | Frontend | Next.js 16 (App Router), React 19, Tailwind v4, shadcn/ui (Base UI), TanStack    |
 | Shared   | Zod schemas + pure pricing / state-machine engines                               |
 
@@ -79,26 +79,26 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Scripts
 
-| Command                      | Purpose                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                     |
-| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + test                             |
-| `npm run verify:ci`          | `verify` minus the suites that need the seeded business baseline (CI gate)     |
-| `npm run test`               | Run all workspace test suites                                                  |
-| `npm run db:generate`        | Regenerate the Prisma client                                                   |
-| `npm run db:push`            | Apply schema changes to the database                                           |
-| `npm run db:studio`          | Open Prisma Studio against the configured database                             |
-| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                     |
-| `npm run db:restore-fixture` | Restore the seeded fixture rows the suites mutate (invoice + client VAT state) |
-| `npm run seed`               | Provision default roles + super admin                                          |
-| `npm run smoke:phase2`       | HTTP smoke test against a running API                                          |
-| `npm run smoke:phase3`       | As above, for the operations surface                                           |
-| `npm run smoke:phase4`       | As above, for billing and invoicing                                            |
-| `npm run smoke:phase5`       | As above, for admin and the audit log                                          |
-| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)            |
-| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                                   |
-| `npm run smoke:phase13`      | As above, for the Phase 13 register/RBAC surfaces                              |
-| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)                |
+| Command                      | Purpose                                                                    |
+| ---------------------------- | -------------------------------------------------------------------------- |
+| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                 |
+| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + test                         |
+| `npm run verify:ci`          | `verify` minus the suites that need the seeded business baseline (CI gate) |
+| `npm run test`               | Run all workspace test suites                                              |
+| `npm run db:generate`        | Regenerate the Prisma client                                               |
+| `npm run db:push`            | Apply schema changes to the database                                       |
+| `npm run db:studio`          | Open Prisma Studio against the configured database                         |
+| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                 |
+| `npm run db:restore-fixture` | Restore the seeded fixture rows the suites mutate (the seeded invoice)     |
+| `npm run seed`               | Provision default roles + super admin                                      |
+| `npm run smoke:phase2`       | HTTP smoke test against a running API                                      |
+| `npm run smoke:phase3`       | As above, for the operations surface                                       |
+| `npm run smoke:phase4`       | As above, for billing and invoicing                                        |
+| `npm run smoke:phase5`       | As above, for admin and the audit log                                      |
+| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)        |
+| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                               |
+| `npm run smoke:phase13`      | As above, for the Phase 13 register/RBAC surfaces                          |
+| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)            |
 
 ## Running the stack
 
@@ -219,6 +219,7 @@ after its automated tests and verification gates pass:
 | `phase/12-dependency-upgrades`        | `v2.0.0` | Next 16, Prisma 7, TypeScript 7, Node 26 and the rest of the majors        |
 | `phase/13-workflow-and-operations-ux` | `v2.1.0` | Amendments, RBAC editing, invoice register popup, job detail route         |
 | `phase/14-hardening-and-automation`   | `v2.1.1` | Proxy rename, Turbopack default, version source, admin locking, oxlint, CI |
+| `phase/15-job-management-and-ux`      | `v2.2.0` | Job workflow editor, invoices from the register, My Profile, DataTable fit |
 
 Phases 7 and 8 shipped together in `v1.3.0`: Phase 7 is
 [ADR-007](docs/adr-007-master-data-crud.md) — the API supported creating contracts,
@@ -256,7 +257,13 @@ Phase 14 (`v2.1.1`) closed the post-Phase 13 review: the route guard is now
 `proxy.ts`, Turbopack is the default builder again with a webpack fallback,
 `/health` reports the one version source, administrator mutations serialise on
 row locks, oxlint joins ESLint, and CI runs the gates against a disposable
-database.
+database. Phase 15 (`v2.2.0`) is the job management and UX pass: the job
+workflow becomes administrator-editable data
+([ADR-011](docs/adr-011-job-workflow-editor.md)), a draft invoice can be raised
+from the register, the job detail summary follows the agreed mock, the Field
+Measurements page is retired (its API stays), every DataTable fits its screen,
+and a My Profile screen adds avatar upload — see
+[phase-15-job-management-and-ux.md](docs/phase-15-job-management-and-ux.md).
 
 **Migrations.** `prisma migrate deploy` cannot be used here — the baseline predates
 Prisma, so it fails P3005 — and `prisma migrate diff --from-url` emits a

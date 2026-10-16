@@ -24,7 +24,13 @@ import {
   login,
   seededContractWithAmendment,
 } from '../test/fixtures.js';
-import { allNextStatuses, canEditActuals, canEditPlanned, type JobStatus } from '@openerp/shared';
+import {
+  canEditActuals,
+  canEditPlanned,
+  DEFAULT_JOB_WORKFLOW,
+  nextStatuses,
+  type JobStatus,
+} from '@openerp/shared';
 
 let app: FastifyInstance;
 const createdUsers: Array<{ id: number; employeeId: number }> = [];
@@ -141,7 +147,7 @@ async function makeJob(projectId: number, status?: string): Promise<number> {
       projectId,
       // Deliberately null to exercise amendment inheritance.
       amendmentId: null,
-      status: (status ?? 'JOB_SCOPING') as never,
+      status: status ?? '01. Scoping',
       description: 'Phase 3 test fixture job',
     },
     select: { id: true },
@@ -164,7 +170,7 @@ async function makeJobWithDeliverable(
   options: { advanceTo?: string } = {},
 ): Promise<{ jobId: number; deliverableId: number; appliedRate: number }> {
   const projectId = await makeProject();
-  const jobId = await makeJob(projectId, 'JOB_SCOPING');
+  const jobId = await makeJob(projectId, '01. Scoping');
 
   const serviceCode = await prisma.serviceCode.findFirstOrThrow({
     where: { code: serviceCodeCode },
@@ -189,7 +195,7 @@ async function makeJobWithDeliverable(
   if (options.advanceTo) {
     await prisma.job.update({
       where: { id: jobId },
-      data: { status: options.advanceTo as never },
+      data: { status: options.advanceTo },
     });
   }
 
@@ -277,7 +283,7 @@ describe('Gate 5: amendment resolution', () => {
 describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
   it('refuses every backward transition with 422', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_ACTUALS_IN_PROGRESS');
+    const jobId = await makeJob(projectId, '06. Actuals in Progress');
     const cookie = await sessionFor('site_supervisor');
 
     const backward = [
@@ -306,12 +312,12 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
       where: { id: jobId },
       select: { status: true },
     });
-    expect(after.status).toBe('JOB_ACTUALS_IN_PROGRESS');
+    expect(after.status).toBe('06. Actuals in Progress');
   });
 
   it('refuses a jump from 01. Scoping to 10. Invoiced', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_SCOPING');
+    const jobId = await makeJob(projectId, '01. Scoping');
     const cookie = await sessionFor('site_supervisor');
 
     // Assign the supervisor first, so this test exercises the STATE MACHINE
@@ -344,14 +350,14 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
       where: { id: jobId },
       select: { status: true },
     });
-    expect(after.status).toBe('JOB_SCOPING');
+    expect(after.status).toBe('01. Scoping');
   });
 
   it('refuses the jump for an assigned supervisor as an ILLEGAL transition', async () => {
     // Same move, judged purely by the pipeline. A supervisor lacks
     // job.transition.invoice, so this is a permission refusal...
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_PACK_READY');
+    const jobId = await makeJob(projectId, '07. Pack Ready');
     const cookie = await sessionFor('site_supervisor');
 
     const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
@@ -374,7 +380,7 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
     // because 07. Pack Ready -> 10. Invoiced is a legal billing transition but
     // 01. Scoping -> 10. Invoiced is not in the pipeline at all.
     const adminCookie = await sessionFor('administrator');
-    const scopingJobId = await makeJob(projectId, 'JOB_SCOPING');
+    const scopingJobId = await makeJob(projectId, '01. Scoping');
     const illegal = await app.inject({
       method: 'POST',
       url: `/api/jobs/${scopingJobId}/transition`,
@@ -387,7 +393,7 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
 
   it('refuses the jump even for an administrator, because it is simply illegal', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_SCOPING');
+    const jobId = await makeJob(projectId, '01. Scoping');
     const cookie = await sessionFor('administrator');
 
     const response = await app.inject({
@@ -404,7 +410,7 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
 
   it('refuses to leave a cancelled job', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_CANCELLED');
+    const jobId = await makeJob(projectId, '00. Cancelled');
     const cookie = await sessionFor('administrator');
 
     const response = await app.inject({
@@ -420,7 +426,7 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
 
   it('reports which transitions the supervisor actually has available', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_WIP');
+    const jobId = await makeJob(projectId, '04. WIP');
     const cookie = await sessionFor('site_supervisor');
 
     const response = await app.inject({
@@ -442,7 +448,7 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
 
   it('refuses a transition on a job the supervisor is not assigned to', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_WIP');
+    const jobId = await makeJob(projectId, '04. WIP');
     const cookie = await sessionFor('site_supervisor');
 
     const response = await app.inject({
@@ -462,7 +468,7 @@ describe('Gate 1: a field supervisor cannot rewind or jump ahead', () => {
 describe('Gate 4: planned quantities freeze after release for procurement', () => {
   it('allows planned edits while scoping, then refuses at 03. WNYS', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_SCOPING');
+    const jobId = await makeJob(projectId, '01. Scoping');
     const cookie = await sessionFor('administrator');
 
     const serviceCode = await prisma.serviceCode.findFirstOrThrow({
@@ -495,7 +501,7 @@ describe('Gate 4: planned quantities freeze after release for procurement', () =
     // Move to WNYS and try again.
     await prisma.job.update({
       where: { id: jobId },
-      data: { status: 'JOB_WNYS' as never },
+      data: { status: '03. WNYS' },
     });
 
     const frozen = await app.inject({
@@ -519,7 +525,7 @@ describe('Gate 4: planned quantities freeze after release for procurement', () =
 
   it('refuses to add a deliverable once the scope is frozen', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_PACK_READY');
+    const jobId = await makeJob(projectId, '07. Pack Ready');
     const cookie = await sessionFor('administrator');
 
     const serviceCode = await prisma.serviceCode.findFirstOrThrow({
@@ -544,7 +550,7 @@ describe('Gate 4: planned quantities freeze after release for procurement', () =
 describe('Gate 2: actual quantities recalculate variance', () => {
   it('computes variance in real time from the actual quantity', async () => {
     const { jobId, deliverableId } = await makeJobWithDeliverable('S00247970', 10, {
-      advanceTo: 'JOB_WIP',
+      advanceTo: '04. WIP',
     });
     const cookie = await sessionFor('administrator');
 
@@ -575,7 +581,7 @@ describe('Gate 2: actual quantities recalculate variance', () => {
 
   it('reports an underrun as a negative variance', async () => {
     const { deliverableId } = await makeJobWithDeliverable('S00167401', 100, {
-      advanceTo: 'JOB_WIP',
+      advanceTo: '04. WIP',
     });
     const cookie = await sessionFor('administrator');
 
@@ -593,7 +599,7 @@ describe('Gate 2: actual quantities recalculate variance', () => {
 
   it('refuses actuals outside the execution window', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_SCOPING');
+    const jobId = await makeJob(projectId, '01. Scoping');
     const cookie = await sessionFor('administrator');
 
     const serviceCode = await prisma.serviceCode.findFirstOrThrow({
@@ -624,7 +630,7 @@ describe('Gate 2: actual quantities recalculate variance', () => {
 
   it('lets a supervisor record actuals on their own assigned job', async () => {
     const { jobId, deliverableId } = await makeJobWithDeliverable('S00247970', 10, {
-      advanceTo: 'JOB_WIP',
+      advanceTo: '04. WIP',
     });
     const supervisorCookie = await sessionFor('site_supervisor');
 
@@ -707,7 +713,7 @@ describe('Gate 3: the applied_rate snapshot is immutable', () => {
     });
 
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_SCOPING');
+    const jobId = await makeJob(projectId, '01. Scoping');
 
     try {
       // Scope the job, snapshotting the rate at 10.00.
@@ -727,7 +733,7 @@ describe('Gate 3: the applied_rate snapshot is immutable', () => {
       // Advance to execution so actuals can be recorded.
       await prisma.job.update({
         where: { id: jobId },
-        data: { status: 'JOB_WIP' as never },
+        data: { status: '04. WIP' },
       });
 
       const recorded = await app.inject({
@@ -811,7 +817,7 @@ describe('Gate 3: the applied_rate snapshot is immutable', () => {
 describe('assignments and the field view', () => {
   it('assigns an employee and exposes the job to them', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_WIP');
+    const jobId = await makeJob(projectId, '04. WIP');
     const supervisorCookie = await sessionFor('site_supervisor');
     const me = await app.inject({
       method: 'GET',
@@ -859,7 +865,7 @@ describe('assignments and the field view', () => {
 
   it('scopes a supervisor job list to their own jobs only', async () => {
     const projectId = await makeProject();
-    const unassignedJob = await makeJob(projectId, 'JOB_WIP');
+    const unassignedJob = await makeJob(projectId, '04. WIP');
     const supervisorCookie = await sessionFor('site_supervisor');
 
     const response = await app.inject({
@@ -912,19 +918,19 @@ describe('job detail and dashboard payloads', () => {
     expect(body.summary.plannedSubtotal).toBe(26748.81);
     expect(body.permissions.scopedToAssignedJobs).toBe(false);
 
-    // The permission flags must agree with the shared state machine for
+    // The permission flags must agree with the workflow the API serves for
     // WHATEVER status the job is currently in. Pinning a specific status here
     // broke the suite the first time job 1 legitimately advanced (06 -> 07
     // during interactive verification): baseline jobs are live data that move
     // through the pipeline, so the test asserts consistency, not position.
     const status = body.job.status as JobStatus;
-    expect(body.permissions.canEditActuals).toBe(canEditActuals(status));
-    expect(body.permissions.canEditPlanned).toBe(canEditPlanned(status));
+    expect(body.permissions.canEditActuals).toBe(canEditActuals(DEFAULT_JOB_WORKFLOW, status));
+    expect(body.permissions.canEditPlanned).toBe(canEditPlanned(DEFAULT_JOB_WORKFLOW, status));
 
     // An administrator holds every transition permission, so the available
-    // transitions must be exactly the state machine's legal targets.
+    // transitions must be exactly the workflow's legal targets.
     expect(new Set(body.permissions.availableTransitions)).toEqual(
-      new Set(allNextStatuses(status)),
+      new Set(nextStatuses(DEFAULT_JOB_WORKFLOW, status)),
     );
   });
 
@@ -998,7 +1004,7 @@ describe('access control', () => {
 
   it('stops a billing clerk from editing the scope', async () => {
     const projectId = await makeProject();
-    const jobId = await makeJob(projectId, 'JOB_SCOPING');
+    const jobId = await makeJob(projectId, '01. Scoping');
     const billingCookie = await sessionFor('billing_clerk');
 
     const serviceCode = await prisma.serviceCode.findFirstOrThrow({
@@ -1018,7 +1024,7 @@ describe('access control', () => {
 
   it('stops a PM from recording field actuals', async () => {
     const { deliverableId } = await makeJobWithDeliverable('S00247970', 10, {
-      advanceTo: 'JOB_WIP',
+      advanceTo: '04. WIP',
     });
 
     const pmCookie = await sessionFor('project_manager');

@@ -35,6 +35,8 @@ const MODEL_LABELS: Record<string, string> = {
   Job: 'job',
   JobServiceCode: 'job deliverable',
   JobAssignment: 'job crew assignment',
+  JobStatusDefinition: 'job status',
+  JobTransitionDefinition: 'job transition',
   Project: 'project',
   Contract: 'contract',
   ContractAmendment: 'contract amendment',

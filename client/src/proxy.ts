@@ -33,8 +33,8 @@ const PROTECTED_PREFIXES = [
   '/commercial',
   '/operations',
   '/billing',
-  '/field',
   '/admin',
+  '/profile',
 ];
 
 function isProtected(pathname: string): boolean {

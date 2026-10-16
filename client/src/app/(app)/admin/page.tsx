@@ -33,6 +33,7 @@ import { usePermissions } from '@/components/auth/usePermissions';
 import { UsersPanel } from '@/components/admin/users-panel';
 import { AuditPanel } from '@/components/admin/audit-panel';
 import { RolesPanel } from '@/components/admin/roles-panel';
+import { WorkflowPanel } from '@/components/admin/workflow-panel';
 import {
   AmendmentsPanel,
   BrokersPanel,
@@ -48,6 +49,7 @@ import { api } from '@/lib/api';
 type Tab =
   | 'users'
   | 'roles'
+  | 'workflow'
   | 'clients'
   | 'contacts'
   | 'contracts'
@@ -62,6 +64,7 @@ type Tab =
 const TAB_KEYS: readonly Tab[] = [
   'users',
   'roles',
+  'workflow',
   'clients',
   'contacts',
   'contracts',
@@ -104,6 +107,9 @@ const TAB_GROUPS: ReadonlyArray<{ label: string; tabs: TabDef[] }> = [
       { key: 'employees', label: 'Employees', anyOf: ['employee.read'] },
       { key: 'brokers', label: 'Brokers', anyOf: ['broker.read'] },
       { key: 'contract-types', label: 'Contract types', anyOf: ['contracttype.read'] },
+      // The job pipeline sits with the other catalogues: it is edited data that
+      // the rest of the application reads back.
+      { key: 'workflow', label: 'Job workflow', anyOf: ['admin.workflow.read'] },
     ],
   },
   {
@@ -153,14 +159,19 @@ export default function AdminPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Administration</h1>
         <p className="text-sm text-muted-foreground">
-          User accounts, role permissions, every master-data table, and the audit trail of every
-          change.
+          User accounts, role permissions, the job workflow, every master-data table, and the audit
+          trail of every change.
         </p>
       </header>
 
       <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border p-2">
         {visibleGroups.map((group) => (
-          <div key={group.label} className="flex items-center gap-1">
+          // The group itself wraps: a group with nine tabs cannot fit a narrow
+          // window on one line, and without `flex-wrap` here the buttons were
+          // clipped at the container's edge - the last two tabs rendered past
+          // the border, unreachable. Wrapping inside the group lets a long group
+          // spill onto its own lines instead.
+          <div key={group.label} className="flex flex-wrap items-center gap-1">
             <span className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
               {group.label}
             </span>
@@ -195,6 +206,7 @@ export default function AdminPage() {
         <>
           {activeTab === 'users' && <UsersPanel myId={me.data?.user.id} />}
           {activeTab === 'roles' && <RolesPanel />}
+          {activeTab === 'workflow' && <WorkflowPanel />}
           {activeTab === 'clients' && <ClientsPanel />}
           {activeTab === 'contacts' && <ContactsPanel />}
           {activeTab === 'contracts' && <ContractsPanel />}

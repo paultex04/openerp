@@ -28,7 +28,6 @@ import {
   computeVat,
   invoiceStatusFromKey,
   invoiceStatusToKey,
-  jobStatusFromKey,
   nextInvoiceStatuses,
   OPEN_INVOICE_STATUSES,
   RECOGNISED_INVOICE_STATUSES,
@@ -74,6 +73,18 @@ const BILLABLE_STATUSES: ReadonlySet<string> = new Set([
  */
 const OPEN_KEYS = [...OPEN_INVOICE_STATUSES].map((s) => invoiceStatusToKey(s));
 const RECOGNISED_KEYS = [...RECOGNISED_INVOICE_STATUSES].map((s) => invoiceStatusToKey(s));
+
+/**
+ * Prisma keys for the two `generateDraft` guards, exported for the New-invoice
+ * job picker (`GET /api/jobs?billable=true`), which must offer exactly the
+ * jobs the engine would accept. The picker is a convenience only;
+ * `generateDraft` still re-checks both guards and remains the authority.
+ *
+ * Since Phase 15 the job status is stored as its catalogue key, so these are the
+ * labels themselves - no boundary conversion.
+ */
+export const BILLABLE_JOB_KEYS: readonly string[] = [...BILLABLE_STATUSES];
+export const OPEN_INVOICE_KEYS: readonly string[] = OPEN_KEYS;
 
 function serialise<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -230,7 +241,7 @@ export async function generateDraft(
   });
   if (!job) throw new BillingError(404, 'JOB_NOT_FOUND', `Job ${jobId} does not exist.`);
 
-  const jobStatus = jobStatusFromKey(job.status);
+  const jobStatus = job.status;
 
   if (!BILLABLE_STATUSES.has(jobStatus)) {
     throw new BillingError(
@@ -529,7 +540,7 @@ export async function getInvoiceDetail(
     client: serialise(invoice.job.project.contract.client),
     job: {
       ...serialise(invoice.job),
-      status: jobStatusFromKey(invoice.job.status),
+      status: invoice.job.status,
       project: serialise(invoice.job.project),
     },
     vat: { subtotalAmount, taxRate, effectiveTaxRate, taxAmount, totalWithTax },

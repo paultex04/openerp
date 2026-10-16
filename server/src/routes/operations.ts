@@ -19,36 +19,32 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
-  actualsLockReason,
   aggregateTotals,
   assignmentCreateSchema,
   assignmentUpdateSchema,
   authoriseTransition,
-  canEditActuals,
-  canEditPlanned,
   deliverableActualUpdateSchema,
   deliverableCreateSchema,
   deliverablePlannedUpdateSchema,
   isScopedToAssignedJobs,
   AMENDMENT_TYPE,
   CONTRACT_AMENDMENT_STATUS,
-  jobStatusFromKey,
+  isKnownStatus,
   jobPriorityFromKey,
-  JOB_STATUSES,
   jobPriorityToKey,
-  jobStatusToKey,
   jobTransitionSchema,
   jobUpdateSchema,
   jobUpsertSchema,
-  plannedLockReason,
+  nextStatuses,
   projectUpsertSchema,
-  allNextStatuses,
   type JobStatus,
+  type JobWorkflow,
 } from '@openerp/shared';
 import { prisma } from '../db/client.js';
 import { HttpError } from '../auth/plugin.js';
 import {
   addDeliverable,
+  jobEditability,
   jobVarianceSummary,
   listDeliverables,
   OperationsError,
@@ -58,6 +54,8 @@ import {
   updateActualQuantity,
   updatePlannedQuantity,
 } from '../operations/service.js';
+import { loadJobWorkflow } from '../operations/workflow.js';
+import { BILLABLE_JOB_KEYS, OPEN_INVOICE_KEYS } from '../billing/service.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -186,6 +184,8 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
         },
       });
 
+      const workflow = await loadJobWorkflow();
+
       return {
         projects: projects.map((p) => ({
           ...serialise(p),
@@ -197,22 +197,21 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
                 vatRate: p.amendment.vatRate.toNumber(),
               }
             : null,
-          // Statuses are mapped to business labels, matching /api/jobs and the
-          // project detail. Leaving the raw Prisma keys here while statusCounts
-          // uses labels meant the two halves of this payload disagreed with each
-          // other — caught by the integration suite, not by the UI, which fetches
-          // per-project detail and never reads this jobs array.
           jobs: p.jobs.map((j) => ({
             ...serialise(j),
-            status: jobStatusFromKey(j.status),
+            status: j.status,
             priority: jobPriorityFromKey(j.priority),
           })),
           // Job counts per status, so the dashboard can show the pipeline at a
-          // glance without a second round trip.
-          statusCounts: JOB_STATUSES.reduce<Record<string, number>>((acc, label) => {
-            acc[label] = p.jobs.filter((j) => j.status === jobStatusToKey(label)).length;
-            return acc;
-          }, {}),
+          // glance without a second round trip. Keyed by status key and ordered
+          // by the live catalogue, so a status the administrator invented shows
+          // up under its own name and a renamed one keeps its position.
+          statusCounts: Object.fromEntries(
+            workflow.statuses.map((status) => [
+              status.key,
+              p.jobs.filter((j) => j.status === status.key).length,
+            ]),
+          ),
         })),
       };
     },
@@ -281,7 +280,7 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           const variance = await jobVarianceSummary(job.id);
           return {
             ...serialise(job),
-            status: jobStatusFromKey(job.status),
+            status: job.status,
             priority: jobPriorityFromKey(job.priority),
             ...variance,
           };
@@ -494,11 +493,18 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
         throw new HttpError(403, 'FORBIDDEN', 'Missing required permission(s): job.read.');
       }
 
-      const { projectId, status, assignedToMe, search, page, pageSize } = z
+      const { projectId, status, assignedToMe, billable, search, page, pageSize } = z
         .object({
           projectId: z.coerce.number().int().positive().optional(),
           status: z.string().trim().min(1).optional(),
           assignedToMe: z.coerce.boolean().optional(),
+          /**
+           * Only jobs the billing engine would accept a new invoice for: a
+           * billable status and no open invoice — the same two guards as
+           * `generateDraft`. Added for the New-invoice job picker so it cannot
+           * offer a job that would 409, or omit one that would succeed.
+           */
+          billable: z.coerce.boolean().optional(),
           /**
            * Free text over work order, purchase order, description, area, project
            * code and supervisor name.
@@ -513,6 +519,16 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
           pageSize: z.coerce.number().int().min(1).max(200).optional(),
         })
         .parse(request.query ?? {});
+
+      // The catalogue is data, so a status filter has to be checked against it
+      // rather than against a schema enum - and checked *loudly*, because
+      // silently returning an empty list would look like "no jobs" instead of
+      // "no such status".
+      const workflow = await loadJobWorkflow();
+
+      if (status !== undefined && !isKnownStatus(workflow, status)) {
+        throw new HttpError(422, 'INVALID_STATUS', `"${status}" is not a job status.`);
+      }
 
       // Field supervisors are restricted to their own jobs unless they also hold
       // the general read permission.
@@ -545,7 +561,11 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
 
       const where = {
         ...(projectId !== undefined && { projectId }),
-        ...(status !== undefined && { status: jobStatusToKey(status) as never }),
+        ...(billable === true && {
+          status: { in: BILLABLE_JOB_KEYS as never },
+          invoices: { none: { status: { in: OPEN_INVOICE_KEYS as never } } },
+        }),
+        ...(status !== undefined && { status }),
         ...textFilter,
         ...(mineOnly
           ? {
@@ -567,7 +587,10 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       const [jobs, total] = await Promise.all([
         prisma.job.findMany({
           where,
-          orderBy: [{ status: 'asc' }, { id: 'asc' }],
+          // Pipeline order comes from the catalogue's sort order, not from the
+          // status text: an administrator who moves a status moves the register
+          // with it. (Alphabetically, "11. Partially Invoiced" would lead.)
+          orderBy: [{ statusRef: { sortOrder: 'asc' } }, { id: 'asc' }],
           ...(take !== undefined && { take }),
           ...(skip !== undefined && { skip }),
           select: {
@@ -615,13 +638,42 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       return {
         jobs: jobs.map((j) => ({
           ...serialise(j),
-          status: jobStatusFromKey(j.status),
+          status: j.status,
           priority: jobPriorityFromKey(j.priority),
         })),
         // Present only when the caller paginated, so an unpaginated caller is never
         // tempted to render "1-N" from a total it did not ask for.
         ...(take !== undefined && { total, page: page ?? 1, pageSize: take }),
       };
+    },
+  );
+
+  /**
+   * The live workflow, for the client to render statuses, labels and the
+   * stepper from the same catalogue the API enforces.
+   *
+   * Reads an administrator can already make about any job they can see; the
+   * permission check mirrors the job visibility rule (general read or assigned
+   * read) rather than requiring both.
+   */
+  app.get(
+    '/api/jobs/workflow',
+    { preHandler: [app.authenticate] },
+    async (request: FastifyRequest, _reply: FastifyReply) => {
+      const principal = request.principal!;
+      const mayRead =
+        principal.permissions.has('job.read') || principal.permissions.has('job.read.assigned');
+
+      if (!mayRead) {
+        throw new HttpError(
+          403,
+          'FORBIDDEN',
+          'Missing required permission(s): job.read or job.read.assigned.',
+        );
+      }
+
+      const workflow = await loadJobWorkflow();
+      return { workflow };
     },
   );
 
@@ -695,14 +747,15 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
         },
       });
 
-      const status = jobStatusFromKey(job.status);
+      const workflow = await loadJobWorkflow();
+      const editability = await jobEditability(id);
+      const status = job.status;
       const deliverables = await listDeliverables(id);
 
       // Which transitions this user could actually make right now.
-      const permitted = allNextStatuses(status).filter((to) => {
-        const check = authoriseFor(principal.permissions, status, to);
-        return check;
-      });
+      const permitted = nextStatuses(workflow, status).filter((to) =>
+        authoriseFor(workflow, principal.permissions, status, to),
+      );
 
       return {
         job: {
@@ -724,11 +777,11 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
         },
         permissions: {
           canEditJob: principal.permissions.has('job.write'),
-          canEditPlanned: canEditPlanned(status),
-          plannedLockReason: plannedLockReason(status),
-          canEditActuals: canEditActuals(status),
-          actualsLockReason: actualsLockReason(status),
-          canAddDeliverable: canEditPlanned(status),
+          canEditPlanned: editability.canEditPlanned,
+          plannedLockReason: editability.plannedLockReason,
+          canEditActuals: editability.canEditActuals,
+          actualsLockReason: editability.actualsLockReason,
+          canAddDeliverable: editability.canEditPlanned,
           // Phase 7: crew assignments were already enforceable server-side but
           // had no screen. Exposed here so the job card can offer the buttons it
           // is actually allowed to honour, rather than letting a request 403.
@@ -784,7 +837,7 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       return reply.code(201).send({
         job: {
           ...serialise(job),
-          status: jobStatusFromKey(job.status),
+          status: job.status,
           priority: jobPriorityFromKey(job.priority),
         },
       });
@@ -800,9 +853,23 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
 
       const existing = await prisma.job.findUnique({
         where: { id },
-        select: { id: true },
+        select: { id: true, projectId: true },
       });
       if (!existing) throw new HttpError(404, 'JOB_NOT_FOUND', `Job ${id} does not exist.`);
+
+      // `projectId` is accepted by the schema because the register round-trips
+      // the row, but it is not writable: moving a job between projects would
+      // strand its pricing (service codes are amendment-scoped and the
+      // amendment follows the project) and its work orders. Echoing the current
+      // value is tolerated; changing it is refused rather than silently ignored,
+      // which is what it used to be. (Phase 15 Q10.)
+      if (body.projectId !== undefined && body.projectId !== existing.projectId) {
+        throw new HttpError(
+          422,
+          'JOB_PROJECT_IMMUTABLE',
+          'A job cannot be moved to another project. Raise a new job under the target project.',
+        );
+      }
 
       const job = await prisma.job.update({
         where: { id },
@@ -845,7 +912,7 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       return {
         job: {
           ...serialise(job),
-          status: jobStatusFromKey(job.status),
+          status: job.status,
           priority: jobPriorityFromKey(job.priority),
         },
       };
@@ -924,13 +991,13 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
       });
       if (!job) throw new HttpError(404, 'JOB_NOT_FOUND', `Job ${id} does not exist.`);
 
-      const from = jobStatusFromKey(job.status);
-      const all = allNextStatuses(from);
+      const workflow = await loadJobWorkflow();
+      const from = job.status;
 
       return {
         from,
-        transitions: all.map((to) => {
-          const check = authoriseFor(principal.permissions, from, to);
+        transitions: nextStatuses(workflow, from).map((to) => {
+          const check = authoriseFor(workflow, principal.permissions, from, to);
           return {
             to,
             allowed: check.allowed,
@@ -1168,7 +1235,7 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
             { assignments: { some: { employeeId: principal.employeeId } } },
           ],
         },
-        orderBy: [{ status: 'asc' }, { id: 'asc' }],
+        orderBy: [{ statusRef: { sortOrder: 'asc' } }, { id: 'asc' }],
         select: {
           id: true,
           status: true,
@@ -1181,18 +1248,21 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
         },
       });
 
+      const workflow = await loadJobWorkflow();
+
       const enriched = await Promise.all(
         jobs.map(async (job) => {
           const deliverables = await listDeliverables(job.id);
-          const status = jobStatusFromKey(job.status);
+          const status = job.status;
+          const editability = await jobEditability(job.id);
           return {
             ...serialise(job),
             status,
             permissions: {
-              canEditActuals: canEditActuals(status),
-              actualsLockReason: actualsLockReason(status),
-              availableTransitions: allNextStatuses(status).filter((to) =>
-                authoriseFor(principal.permissions, status, to),
+              canEditActuals: editability.canEditActuals,
+              actualsLockReason: editability.actualsLockReason,
+              availableTransitions: nextStatuses(workflow, status).filter((to) =>
+                authoriseFor(workflow, principal.permissions, status, to),
               ),
             },
             deliverables,
@@ -1208,9 +1278,10 @@ export async function registerOperationsRoutes(app: FastifyInstance): Promise<vo
 
 /** Local helper so every transition projection reads consistently. */
 function authoriseFor(
+  workflow: JobWorkflow,
   permissions: Set<string>,
   from: JobStatus,
   to: JobStatus,
 ): { allowed: boolean; reason: string; requiredPermission?: string } {
-  return authoriseTransition(from, to, permissions);
+  return authoriseTransition(workflow, from, to, permissions);
 }

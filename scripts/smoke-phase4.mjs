@@ -180,6 +180,19 @@ async function main() {
     try {
       const { jobId, appliedRate } = chain;
 
+      // The fixture job is at 07. Pack Ready with no invoice: exactly what the
+      // New-invoice picker's `billable` filter exists to offer. Membership is
+      // checked by id because the search term can also match fixtures left by a
+      // crashed run.
+      const billableBefore = await request(
+        `/api/jobs?billable=true&search=${encodeURIComponent('Phase 4 smoke fixture job')}`,
+        { cookie: A },
+      );
+      checkThat(
+        'the billable filter offers the fixture job',
+        (billableBefore.body?.jobs ?? []).some((job) => job.id === jobId),
+      );
+
       const generated = await request(`/api/jobs/${jobId}/invoices`, {
         method: 'POST',
         cookie: A,
@@ -188,6 +201,17 @@ async function main() {
       check('POST /api/jobs/:id/invoices', generated.status, 201);
 
       if (generated.status === 201) {
+        // ...and the job must drop out the moment a draft exists: the same
+        // open-invoice guard `generateDraft` enforces, seen through the filter.
+        const billableAfter = await request(
+          `/api/jobs?billable=true&search=${encodeURIComponent('Phase 4 smoke fixture job')}`,
+          { cookie: A },
+        );
+        checkThat(
+          'the billable filter drops the job once a draft is open',
+          !(billableAfter.body?.jobs ?? []).some((job) => job.id === jobId),
+        );
+
         const invoice = generated.body.invoice;
         fixture.invoices.push(invoice.id);
 
@@ -235,10 +259,20 @@ async function main() {
           invoice.invoiceNumber.slice(-4) !== '0000',
         );
 
-        // Compliance: the seeded client has no VAT number on file.
+        // Compliance mirrors the client's VAT state, and that is operator data:
+        // until Phase 15 this asserted "the seeded client has no VAT number",
+        // so entering Sasol's number made the smoke fail for doing nothing
+        // wrong. Read the state and assert the rule instead.
+        const invoiceDetail = await request(`/api/invoices/${invoice.id}`, { cookie: A });
+        const client = invoiceDetail.body?.client ?? {};
+        const registeredWithoutNumber = Boolean(client.isVatRegistered) && !client.vatNumber;
         checkThat(
-          'a VAT number is required before a VAT invoice is compliant',
-          generated.body.compliance.warnings.length > 0,
+          registeredWithoutNumber
+            ? 'a registered client with no VAT number on file warns'
+            : 'a client with VAT evidence on file raises no warning',
+          registeredWithoutNumber
+            ? generated.body.compliance.warnings.length > 0
+            : generated.body.compliance.warnings.length === 0,
         );
 
         const id = invoice.id;

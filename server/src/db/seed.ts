@@ -6,20 +6,22 @@
  *   2. The full permission catalogue.
  *   3. The role -> permission grants.
  *   4. A super administrator linked to a "root" employee record.
+ *   5. The default job status workflow, but only when the catalogue is empty.
  *
- * Safe to run repeatedly: roles, permissions and grants are upserted, and the
+ * Safe to run repeatedly: roles, permissions and grants are upserted, the
  * admin account is only created if it does not already exist (so re-running
- * never resets a password that an operator has since changed).
+ * never resets a password that an operator has since changed), and the job
+ * workflow is only filled when it has no statuses at all - it is admin-editable
+ * data, not a catalogue this script owns.
  *
  * Usage: npm run seed --workspace server
  */
+import '../load-env.js';
 import { prisma } from './client.js';
 import { hashPassword, PasswordPolicyError } from '../auth/password.js';
-import { loadEnvFile } from '../lib/env.js';
 import { seedEmployeeContractTypes } from './employee-contract-types.js';
+import { seedJobWorkflow } from './job-workflow.js';
 import { PERMISSIONS, ROLE_PERMISSIONS, ROLES } from '@openerp/shared';
-
-loadEnvFile();
 
 async function seedRolesAndPermissions(): Promise<void> {
   for (const role of ROLES) {
@@ -323,6 +325,7 @@ async function main(): Promise<void> {
   await seedEmployeeContractTypes(prisma.employeeContractType);
   console.log('  employee types provisioned');
   await seedRolesAndPermissions();
+  await seedJobWorkflow(prisma);
   await seedSuperAdmin();
   await seedDemoUsers();
   console.log('Seed complete.');

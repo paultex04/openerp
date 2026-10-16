@@ -116,16 +116,29 @@ async function sessionFor(role: string): Promise<string> {
 
 const stamp = () => Date.now().toString(36);
 
+/** Which client the fixture chain bills. `seeded` reuses the seeded contract,
+ *  amendment and service code; the other three build their own client (plus
+ *  contract, amendment, rate card and service code) with the given VAT state. */
+type ClientMode = 'seeded' | 'exempt' | 'numberless' | 'numbered';
+
 /**
  * Builds a billable fixture job: project -> job -> scoped deliverable ->
  * walked to 07. Pack Ready with a recorded actual.
  *
  * The walk uses the API transitions rather than direct status writes, so the
- * fixture proves the pipeline it will later bill through. `clientId` and
- * `amendmentId` default to the seeded chain; pass `exemptClient: true` for a
- * non-VAT-registered chain (its own client/contract/amendment/service code).
+ * fixture proves the pipeline it will later bill through.
+ *
+ * The client mode decides whose VAT state the invoice sees:
+ *   - `seeded`     the seeded chain (whose client is operator data, not test data)
+ *   - `exempt`     its own non-registered client
+ *   - `numberless` its own registered client with no VAT number on file
+ *   - `numbered`   its own registered client with a VAT number on file
+ *
+ * Phase 15: before this, the VAT tests wrote the *seeded* client's VAT number
+ * and nulled it again in `finally`, so any suite run wiped whatever the
+ * operator had entered. Fixtures now own every field they assert on.
  */
-async function makeBillableJob(options: { exemptClient?: boolean } = {}): Promise<{
+async function makeBillableJob(options: { clientMode?: ClientMode } = {}): Promise<{
   jobId: number;
   deliverableId: number;
   appliedRate: number;
@@ -133,14 +146,15 @@ async function makeBillableJob(options: { exemptClient?: boolean } = {}): Promis
 }> {
   let contractId: number;
   let amendmentId: number;
+  const clientMode = options.clientMode ?? 'seeded';
 
-  if (options.exemptClient) {
+  if (clientMode !== 'seeded') {
     const client = await prisma.client.create({
       data: {
-        name: `Smoke Exempt ${stamp()}`,
-        email: `exempt-${stamp()}@example.test`,
-        isVatRegistered: false,
-        vatNumber: null,
+        name: `Smoke ${clientMode} ${stamp()}`,
+        email: `${clientMode}-${stamp()}@example.test`,
+        isVatRegistered: clientMode !== 'exempt',
+        vatNumber: clientMode === 'numbered' ? '4123456789' : null,
       },
       select: { id: true },
     });
@@ -149,8 +163,8 @@ async function makeBillableJob(options: { exemptClient?: boolean } = {}): Promis
     const contract = await prisma.contract.create({
       data: {
         clientId: client.id,
-        number: `EXEMPT-${stamp()}`,
-        description: 'Phase 4 exempt-chain fixture contract',
+        number: `FIX-${clientMode.toUpperCase()}-${stamp()}`,
+        description: `Phase 4 ${clientMode}-chain fixture contract`,
       },
       select: { id: true },
     });
@@ -159,7 +173,7 @@ async function makeBillableJob(options: { exemptClient?: boolean } = {}): Promis
     const amendment = await prisma.contractAmendment.create({
       data: {
         contractId: contract.id,
-        amendmentNumber: `AMD-EX-${stamp()}`,
+        amendmentNumber: `AMD-${clientMode.toUpperCase()}-${stamp()}`,
         effectiveDate: new Date('2026-01-01'),
         vatRate: 0.15,
       },
@@ -195,11 +209,11 @@ async function makeBillableJob(options: { exemptClient?: boolean } = {}): Promis
   });
   fixtureJobs.push(job.id);
 
-  // A service code under the job's amendment. The exempt chain needs its own;
-  // the standard chain reuses a seeded code.
+  // A service code under the job's amendment. The non-seeded chains need
+  // their own; the standard chain reuses a seeded code.
   let serviceCodeId: number;
   let appliedRate: number;
-  if (options.exemptClient) {
+  if (clientMode !== 'seeded') {
     const rateCard = await prisma.serviceMasterRate.create({
       data: {
         amendmentId,
@@ -333,6 +347,17 @@ async function moveInvoice(invoiceId: number, to: string, role = 'administrator'
   });
 }
 
+/** Unpaginated id list of what the New-invoice picker would offer. */
+async function listBillable(): Promise<number[]> {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/api/jobs?billable=true',
+    headers: { cookie: await sessionFor('administrator') },
+  });
+  expect(res.statusCode).toBe(200);
+  return (res.json().jobs as Array<{ id: number }>).map((job) => job.id);
+}
+
 // ===========================================================================
 
 describe('Gate 1: generation derives every figure', () => {
@@ -357,13 +382,10 @@ describe('Gate 1: generation derives every figure', () => {
     expect(invoice.taxAmount).toBe(52.57); // 350.45 x 15%
     expect(invoice.totalWithTax).toBe(403.02);
     expect(invoice.totalAmount).toBe(403.02); // legacy column mirrors the total
-    // The seeded client is VAT-registered but carries no VAT number (a known
-    // baseline gap, ADR-001), so a new VAT-charging invoice cannot be fully
-    // compliant. The tax figures are still correct; what is flagged is the
-    // missing registration evidence.
-    expect(body.compliance.ok).toBe(false);
-    expect(body.compliance.warnings.length).toBeGreaterThan(0);
-    expect(body.compliance.warnings.join(' ').toLowerCase()).toContain('vat');
+    // Compliance is deliberately *not* asserted here. Its inputs (the client's
+    // VAT registration state) belong to operator data, not this fixture, and
+    // Phase 15 removed the assumption that the seeded client has no VAT number.
+    // Gate 2 proves both sides of the warning against purpose-built clients.
 
     // The job position reports the unbilled remainder honestly.
     const detail = await app.inject({
@@ -404,31 +426,59 @@ describe('Gate 1: generation derives every figure', () => {
   });
 });
 
-describe('Gate 2: VAT treatment', () => {
-  it('reports compliance as clean once a VAT number is on file', async () => {
-    // Mirrors Gate 1, which must warn because the seeded client has no VAT
-    // number. Filling it in proves the compliance check keys on that field
-    // rather than always warning.
+describe('Gate 1b: the billable filter mirrors the engine', () => {
+  it('offers a billable job, then drops it once it has an open invoice', async () => {
     const { jobId } = await makeBillableJob();
-    const client = await prisma.client.update({
-      where: { id: 1 },
-      data: { vatNumber: '4123456789' },
+
+    expect(await listBillable()).toContain(jobId);
+
+    const created = await generateOn(jobId);
+    expect(created.statusCode).toBe(201);
+
+    expect(await listBillable()).not.toContain(jobId);
+  });
+
+  it('never offers a job the status guard would refuse', async () => {
+    // A job at its creation status (01. Scoping) with no invoice at all: if the
+    // filter only checked the open-invoice guard, this is the job it would leak.
+    const { contractId, amendmentId } = await seededContractWithAmendment();
+    const code = `TEST-FILTER-${stamp()}`;
+    const project = await prisma.project.create({
+      data: { contractId, amendmentId, code, year: 2026, description: 'Phase 15 filter fixture' },
       select: { id: true },
     });
-    void client;
+    fixtureProjects.push(code);
+    const job = await prisma.job.create({
+      data: { projectId: project.id, description: 'Phase 15 filter fixture job' },
+      select: { id: true },
+    });
+    fixtureJobs.push(job.id);
 
-    try {
-      const res = await generateOn(jobId);
-      expect(res.statusCode).toBe(201);
-      expect(res.json().compliance.ok).toBe(true);
-      expect(res.json().invoice.taxAmount).toBeGreaterThan(0);
-    } finally {
-      await prisma.client.update({ where: { id: 1 }, data: { vatNumber: null } });
-    }
+    expect(await listBillable()).not.toContain(job.id);
+  });
+});
+
+describe('Gate 2: VAT treatment', () => {
+  it('reports compliance as clean once a VAT number is on file', async () => {
+    // Two chains that differ only in the client's VAT number. Before Phase 15
+    // this test wrote the *seeded* client's number and nulled it in `finally`,
+    // so every suite run wiped whatever the operator had entered there.
+    const numberless = await makeBillableJob({ clientMode: 'numberless' });
+    const numbered = await makeBillableJob({ clientMode: 'numbered' });
+
+    const missing = await generateOn(numberless.jobId);
+    expect(missing.statusCode).toBe(201);
+    expect(missing.json().compliance.ok).toBe(false);
+    expect(missing.json().compliance.warnings.length).toBeGreaterThan(0);
+
+    const clean = await generateOn(numbered.jobId);
+    expect(clean.statusCode).toBe(201);
+    expect(clean.json().compliance.ok).toBe(true);
+    expect(clean.json().invoice.taxAmount).toBeGreaterThan(0);
   });
 
   it('bills no tax for a non-registered client', async () => {
-    const { jobId } = await makeBillableJob({ exemptClient: true });
+    const { jobId } = await makeBillableJob({ clientMode: 'exempt' });
     const res = await generateOn(jobId);
 
     expect(res.statusCode).toBe(201);
@@ -451,52 +501,14 @@ describe('Gate 2: VAT treatment', () => {
 
   it('flags a missing VAT number when tax is charged', async () => {
     // A registered client WITHOUT a number must warn: the document claims tax
-    // but cannot evidence registration. Gate 1 asserts the same warning for the
-    // seeded client; here the numberless client is created explicitly, so the
-    // warning cannot be an accident of the baseline data.
-    const { jobId } = await makeBillableJob();
-    const noVatTag = Date.now().toString(36);
-    const client = await prisma.client.create({
-      data: {
-        name: `No-VAT-No ${noVatTag}`,
-        email: `novatno-${noVatTag}@example.test`,
-        isVatRegistered: true,
-        vatNumber: null,
-      },
-      select: { id: true },
-    });
-    fixtureClients.push(client.id);
+    // but cannot evidence registration. The warning is proven against a client
+    // this suite created, never against the seeded client's operator data.
+    const { jobId } = await makeBillableJob({ clientMode: 'numberless' });
 
-    // Re-point the fixture job's chain at the numberless client via its project.
-    const job = await prisma.job.findUniqueOrThrow({
-      where: { id: jobId },
-      select: { projectId: true },
-    });
-    const project = await prisma.project.findUniqueOrThrow({
-      where: { id: job.projectId },
-      select: { contractId: true },
-    });
-    const contract = await prisma.contract.findUniqueOrThrow({
-      where: { id: project.contractId },
-      select: { clientId: true },
-    });
-    const originalClientId = contract.clientId;
-    await prisma.contract.update({
-      where: { id: project.contractId },
-      data: { clientId: client.id },
-    });
-
-    try {
-      const res = await generateOn(jobId);
-      expect(res.statusCode).toBe(201);
-      expect(res.json().compliance.ok).toBe(false);
-      expect(res.json().compliance.warnings.length).toBeGreaterThan(0);
-    } finally {
-      await prisma.contract.update({
-        where: { id: project.contractId },
-        data: { clientId: originalClientId },
-      });
-    }
+    const res = await generateOn(jobId);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().compliance.ok).toBe(false);
+    expect(res.json().compliance.warnings.length).toBeGreaterThan(0);
   });
 });
 
@@ -519,7 +531,7 @@ describe('Gate 3: approval settles the job', () => {
       where: { id: jobId },
       select: { status: true },
     });
-    expect(job.status).toBe('JOB_INVOICED');
+    expect(job.status).toBe('10. Invoiced');
   });
 
   it('marks 11. Partially Invoiced when only some lines are billed', async () => {
@@ -549,7 +561,7 @@ describe('Gate 3: approval settles the job', () => {
       where: { id: jobId },
       select: { status: true },
     });
-    expect(job.status).toBe('JOB_PARTIALLY_INVOICED');
+    expect(job.status).toBe('11. Partially Invoiced');
   });
 
   it('a second invoice may follow once the first is settled', async () => {
@@ -881,7 +893,7 @@ describe('Gate 4: lifecycle guards', () => {
       where: { id: jobId },
       select: { status: true },
     });
-    expect(job.status).toBe('JOB_INVOICED');
+    expect(job.status).toBe('10. Invoiced');
 
     // The voided document reports the gap honestly and can be removed.
     const detail = await app.inject({

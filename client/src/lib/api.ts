@@ -86,6 +86,37 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     ...(options.signal ? { signal: options.signal } : {}),
   });
 
+  return readResponse<T>(response);
+}
+
+/**
+ * Uploads a `FormData` body - the profile avatar today.
+ *
+ * Separate from `apiRequest` because `fetch` must set the multipart boundary
+ * itself: setting `Content-Type` by hand produces a body the server cannot
+ * parse. The CSRF header still rides along, because an upload is a mutation
+ * like any other.
+ */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  const token = readCookie(CSRF_COOKIE);
+  if (token) headers[CSRF_HEADER] = token;
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: form,
+  });
+
+  return readResponse<T>(response);
+}
+
+/**
+ * Completes a request: unwraps the `{ error, message }` envelope, or returns
+ * the parsed JSON. Shared so every path fails the same way.
+ */
+async function readResponse<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();
@@ -135,14 +166,28 @@ export interface EmployeeSummary {
   id: number;
   name: string;
   surname: string;
+  mobile: string | null;
   email: string | null;
 }
 
 export interface CurrentUser {
-  user: { id: number; email: string; isActive: boolean };
+  user: {
+    id: number;
+    email: string;
+    isActive: boolean;
+    /** Cache-buster for the avatar URL; null when none has been uploaded. */
+    avatarUpdatedAt: string | null;
+  };
   employee: EmployeeSummary;
   roles: Array<{ key: string; name: string; description: string | null }>;
   permissions: string[];
+}
+
+/** Response of `PATCH /api/auth/me`: the saved profile, echoed back. */
+export interface ProfileUpdateResponse {
+  user: CurrentUser['user'];
+  employee: EmployeeSummary;
+  message: string;
 }
 
 export interface ClientRow {

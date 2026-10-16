@@ -24,24 +24,6 @@ datasource db {
 // Enums
 // ---------------------------------------------------------------------------
 
-enum JobStatus {
-  JOB_CANCELLED             @map("00. Cancelled")
-  JOB_SCOPING               @map("01. Scoping")
-  JOB_SCOPED                @map("01A. Scoped")
-  JOB_AWAITING_PO           @map("02. Awaiting PO")
-  JOB_WNYS                  @map("03. WNYS")
-  JOB_WIP                   @map("04. WIP")
-  JOB_WORK_COMPLETE         @map("05. Work Complete")
-  JOB_ACTUALS_IN_PROGRESS   @map("06. Actuals in Progress")
-  JOB_PACK_READY            @map("07. Pack Ready")
-  JOB_OUT_FOR_SIGNATURE     @map("08. Out for signature")
-  JOB_AWAITING_CHANGE_ORDER @map("09. Awaiting change order")
-  JOB_INVOICED              @map("10. Invoiced")
-  JOB_PARTIALLY_INVOICED    @map("11. Partially Invoiced")
-
-  @@map("job_status_enum")
-}
-
 enum JobPriority {
   P1_EMERGENCY_BREAKDOWN @map("P1 - Emergency / Breakdown")
   P2_URGENT              @map("P2 - Urgent")
@@ -385,6 +367,56 @@ model Project {
   @@map("project")
 }
 
+/// Admin-editable job status catalogue (Phase 15 item 5).
+///
+/// Replaces the `job_status_enum` PostgreSQL enum: statuses are rows so an
+/// administrator can rename them, move them in the pipeline, change which
+/// quantities they allow, and add new ones - without a deploy. `key` is the
+/// stable identity that `job.status` stores and every transition names; the
+/// label is free text.
+model JobStatusDefinition {
+  key       String @id @db.VarChar(40)
+  label     String @db.VarChar(80)
+  /// Pipeline position; lower is earlier. Unique so the order is total.
+  sortOrder Int    @unique @map("sort_order")
+
+  /// No further transition is possible from a terminal status. At least one
+  /// status in the catalogue must remain terminal; the admin API enforces it.
+  isTerminal Boolean @default(false) @map("is_terminal")
+  /// Planned quantities may be edited while a job is in this status.
+  editablePlanned Boolean @default(false) @map("editable_planned")
+  /// Actual quantities may be recorded while a job is in this status.
+  editableActuals Boolean @default(false) @map("editable_actuals")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  jobs            Job[]
+  transitionsFrom JobTransitionDefinition[] @relation("JobTransitionFrom")
+  transitionsTo   JobTransitionDefinition[] @relation("JobTransitionTo")
+
+  @@map("job_statuses")
+}
+
+/// One legal move between two statuses. Cancellation is an ordinary edge, so
+/// which statuses may be cancelled - and who may do it - is editable data.
+model JobTransitionDefinition {
+  id         Int    @id @default(autoincrement())
+  fromKey    String @map("from_key") @db.VarChar(40)
+  toKey      String @map("to_key") @db.VarChar(40)
+  /// RBAC capability required to perform the move, e.g. 'job.transition.execute'.
+  permission String @db.VarChar(80)
+  /// Human-readable justification, surfaced in the UI and 403 responses.
+  reason     String
+
+  from JobStatusDefinition @relation("JobTransitionFrom", fields: [fromKey], references: [key], onDelete: Cascade)
+  to   JobStatusDefinition @relation("JobTransitionTo", fields: [toKey], references: [key], onDelete: Cascade)
+
+  @@unique([fromKey, toKey])
+  @@index([toKey])
+  @@map("job_transitions")
+}
+
 model Job {
   id              Int         @id @default(autoincrement())
   projectId       Int         @map("project_id")
@@ -392,7 +424,9 @@ model Job {
   amendmentId     Int?        @map("amendment_id")
   supervisorId    Int?        @map("supervisor_id")
   clientContactId Int?        @map("client_contact_id")
-  status          JobStatus   @default(JOB_SCOPING)
+  /// A `job_statuses.key`. The foreign key is what makes it impossible for a
+  /// status in use to disappear from the catalogue.
+  status          String      @default("01. Scoping") @db.VarChar(40)
   priority        JobPriority @default(P3_ROUTINE_NORMAL)
 
   workOrder                 String?   @map("work_order") @db.VarChar(100)
@@ -410,6 +444,7 @@ model Job {
   amendment     ContractAmendment? @relation(fields: [amendmentId], references: [id])
   supervisor    Employee?          @relation("JobSupervisor", fields: [supervisorId], references: [id])
   clientContact Contact?           @relation(fields: [clientContactId], references: [id])
+  statusRef     JobStatusDefinition @relation(fields: [status], references: [key])
   serviceCodes  JobServiceCode[]
   assignments   JobAssignment[]
   invoices      Invoice[]
@@ -536,6 +571,15 @@ model AppUser {
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz(3)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Profile avatar (Phase 15). Processed on upload to a 256x256 WebP, so the
+  /// bytes are tens of KB and safe to keep inline. They live on the *account*,
+  /// not the employee: an avatar identifies a login, and an avatar column on
+  /// `employee` would suggest employees without accounts can have one.
+  avatarBytes     Bytes?    @map("avatar_bytes")
+  avatarMime      String?   @map("avatar_mime") @db.VarChar(64)
+  /// Doubles as the cache-buster: the client appends it to the image URL.
+  avatarUpdatedAt DateTime? @map("avatar_updated_at") @db.Timestamptz(3)
 
   employee Employee      @relation(fields: [employeeId], references: [id])
   roles    AppUserRole[]

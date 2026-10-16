@@ -143,6 +143,9 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
           id: principal.userId,
           email: principal.email,
           isActive: principal.isActive,
+          // The profile screen and the shell avatar read this; it is also the
+          // cache-buster appended to the avatar URL.
+          avatarUpdatedAt: principal.avatarUpdatedAt,
         },
         employee: principal.employee,
         roles: roles.map((r) => ({

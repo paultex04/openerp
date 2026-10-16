@@ -53,6 +53,20 @@ export const clientUpsertSchema = z.object({
 });
 export type ClientUpsertInput = z.infer<typeof clientUpsertSchema>;
 
+/**
+ * Partial update.
+ *
+ * `.partial()` is not enough on its own: zod still applies a field's
+ * `.default()` through `.partial()` (verified on zod 4.6.7), so a PATCH that
+ * omitted `isVatRegistered` parsed to `true` and silently re-registered a
+ * VAT-exempt client. `isVatRegistered` is re-declared without its default;
+ * everything else was already presence-based.
+ */
+export const clientUpdateSchema = clientUpsertSchema.partial().extend({
+  isVatRegistered: z.coerce.boolean().optional(),
+});
+export type ClientUpdateInput = z.infer<typeof clientUpdateSchema>;
+
 // ---------------------------------------------------------------------------
 // Contracts
 // ---------------------------------------------------------------------------
@@ -83,7 +97,24 @@ export const amendmentUpsertSchema = z.object({
 });
 export type AmendmentUpsertInput = z.infer<typeof amendmentUpsertSchema>;
 
-export const amendmentUpdateSchema = amendmentUpsertSchema.partial().omit({ contractId: true });
+/**
+ * Partial update.
+ *
+ * `.partial()` alone is not enough here: zod still applies a field's
+ * `.default()` through `.partial()` (verified on zod 4.6.7), so an edit that
+ * omitted `amendmentType`, `status` or `vatRate` silently wrote the
+ * create-time defaults back over stored values — a custom VAT rate of 0 was
+ * reset to 0.15 by any unrelated amendment edit. The three defaulted fields
+ * are re-declared without defaults; the rest were already presence-based.
+ */
+export const amendmentUpdateSchema = amendmentUpsertSchema
+  .partial()
+  .omit({ contractId: true })
+  .extend({
+    amendmentType: amendmentTypeSchema.optional(),
+    status: contractAmendmentStatusSchema.optional(),
+    vatRate: pctSchema.optional(),
+  });
 export type AmendmentUpdateInput = z.infer<typeof amendmentUpdateSchema>;
 
 // ---------------------------------------------------------------------------
@@ -170,9 +201,19 @@ export const serviceCodeUpsertSchema = z.object({
 });
 export type ServiceCodeUpsertInput = z.infer<typeof serviceCodeUpsertSchema>;
 
+/**
+ * Partial update. Same `.partial()` + `.default()` correction as the amendment
+ * schema above: without it, every service-code edit re-wrote `category` and
+ * `materialMarkupPct` to their create-time defaults (and, as a side effect,
+ * re-ran the recipe rollup on edits that touched neither).
+ */
 export const serviceCodeUpdateSchema = serviceCodeUpsertSchema
   .partial()
-  .omit({ amendmentId: true });
+  .omit({ amendmentId: true })
+  .extend({
+    category: serviceCodeCategorySchema.optional(),
+    materialMarkupPct: pctSchema.optional(),
+  });
 export type ServiceCodeUpdateInput = z.infer<typeof serviceCodeUpdateSchema>;
 
 export const labourItemUpsertSchema = z.object({

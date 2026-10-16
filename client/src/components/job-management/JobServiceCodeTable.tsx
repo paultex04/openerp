@@ -99,7 +99,7 @@ export function JobServiceCodeTable({
   });
 
   return (
-    <section className="space-y-3">
+    <section className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Service code line items</h3>
         <Button
@@ -161,7 +161,13 @@ export function JobServiceCodeTable({
         </span>
       </div>
 
-      <div className="rounded-lg border">
+      {/*
+        The body scrolls rather than the page: on a job with a hundred lines the
+        totals, the search box and the row above never leave the screen. The
+        wrapper is the scroll region; `min-h-0` is what lets it shrink instead of
+        pushing the page taller.
+      */}
+      <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border">
         <Table>
           <TableCaption className="sr-only">
             Service code line items for job {jobId}, with planned and actual values

@@ -62,7 +62,6 @@ import { Empty, EmptyDescription } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Table,
   TableBody,
   TableCaption,
   TableCell,
@@ -140,17 +139,17 @@ export interface DataTableProps<T extends object> {
   renderRowActions?: (row: T) => ReactNode;
   isLoading?: boolean;
   /**
-   * Grow to fill the available height, scrolling the rows internally and pinning
-   * the toolbar and pagination in place.
+   * Extra classes on the table's root, for the rare card that needs to adjust
+   * its own spacing.
    *
-   * This is what makes a register behave like an application screen rather than a
-   * document: the toolbar stays visible while you scroll fifty rows, and the
-   * pagination controls never end up below the fold.
-   *
-   * Requires an ancestor with a definite height - the app shell supplies one.
+   * The table always behaves the same way: it fills the height its parent gives
+   * it, the rows scroll inside it, the header stays pinned and the pagination
+   * never leaves the bottom edge. Phase 15 made that unconditional — the `fill`
+   * prop it replaced was threaded through nine call sites and was silently inert
+   * wherever a parent had not also been turned into a flex chain, which is why
+   * some registers scrolled as documents and others as tables. The parent's job
+   * is now simply to give the table a definite height.
    */
-  fill?: boolean;
-  /** Extra classes on the scroll container, for cards of a known height. */
   className?: string;
 
   /**
@@ -235,7 +234,6 @@ export function DataTable<T extends object>({
   actions,
   renderRowActions,
   isLoading = false,
-  fill = false,
   className,
   manualPagination,
   onSearchChange,
@@ -333,17 +331,18 @@ export function DataTable<T extends object>({
   return (
     <div
       className={cn(
-        'flex flex-col gap-3',
-        // In fill mode the table owns the leftover height: the scroll region
-        // takes `flex-1 min-h-0` and the toolbar and pagination stay put.
-        fill && 'min-h-0 flex-1',
+        // The table owns the leftover height of whatever contains it: the
+        // scroll region below takes `flex-1 min-h-0`, and the toolbar and
+        // pagination stay put while the rows scroll. The parent has to give
+        // this box a definite height (a flex chain) for that to mean anything.
+        'flex min-h-0 flex-1 flex-col gap-3',
         className,
       )}
     >
       {/* Toolbar. `role="search"` marks it as a search region for assistive tech. */}
       <div
         role="search"
-        className="flex flex-wrap items-center gap-2"
+        className="flex shrink-0 flex-wrap items-center gap-2"
         aria-label={`${caption} controls`}
       >
         <div className="relative min-w-48 flex-1 sm:max-w-xs">
@@ -416,13 +415,25 @@ export function DataTable<T extends object>({
         role="region"
         aria-label={caption}
         className={cn(
-          'focus-visible:ring-ring overflow-x-auto rounded-lg border focus-visible:ring-2 focus-visible:outline-none',
-          // In fill mode this is the scrolling element. `min-h-0` again: without
-          // it a flex child refuses to shrink and the whole page grows instead.
-          fill && 'min-h-0 flex-1 overflow-y-auto',
+          // This is the scrolling element, in both axes. `min-h-0` is what lets
+          // it shrink: a flex child defaults to `min-height: auto` and would
+          // push the page taller instead of ever scrolling.
+          'focus-visible:ring-ring min-h-0 flex-1 overflow-auto rounded-lg border focus-visible:ring-2 focus-visible:outline-none',
+          // The table paints its own surface: the sticky header has to be
+          // opaque to hide the rows sliding under it, and `card`, `popover`
+          // and this panel are one token in every theme, so it reads as the
+          // surface it sits in - page, dashboard card or dialog alike.
+          'bg-card',
         )}
       >
-        <Table>
+        {/*
+          A raw <table>, not `Table` from `ui/table.tsx`: that component wraps the
+          table in a scroll container of its own, and an intermediate scrollport
+          divorces the sticky header from the region that actually scrolls — the
+          header would scroll away with the rows. The subcomponents below are the
+          registry's own, used as-is.
+        */}
+        <table className="w-full caption-bottom text-sm">
           <TableCaption className="sr-only">{caption}</TableCaption>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
@@ -445,7 +456,14 @@ export function DataTable<T extends object>({
                               ? 'none'
                               : undefined
                       }
-                      className={cn(!sortable && '[&_button]:cursor-default')}
+                      className={cn(
+                        // Sticky lives on the cells, not on the <tr>: a sticky
+                        // row keeps its box where it was and loses its border
+                        // from view the moment it pins, so each cell carries its
+                        // own background and rule.
+                        'sticky top-0 z-10 border-b bg-card',
+                        !sortable && '[&_button]:cursor-default',
+                      )}
                     >
                       {sortable ? (
                         <button
@@ -514,7 +532,7 @@ export function DataTable<T extends object>({
               ))
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       {/*
@@ -529,7 +547,7 @@ export function DataTable<T extends object>({
       */}
       <nav
         aria-label={`${caption} pagination`}
-        className="flex flex-wrap items-center justify-between gap-2 text-xs"
+        className="flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs"
       >
         <span className="text-muted-foreground">
           {pageRows.length === 0

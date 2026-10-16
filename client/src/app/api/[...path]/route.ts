@@ -57,7 +57,14 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
     upstream = await fetch(target, {
       method,
       headers,
-      ...(hasBody ? { body: await request.text() } : {}),
+      // Buffered as bytes, not forwarded as a stream and definitely not read
+      // as text: decoding a multipart upload as UTF-8 corrupted the image
+      // (the server answered AVATAR_UNREADABLE), and the streamed variant
+      // arrived mangled through the dev server too. `arrayBuffer()` keeps the
+      // bytes exact. The largest body through here is a 5 MB avatar, so
+      // holding it in memory is the right trade for a proxy that cannot corrupt
+      // what it forwards.
+      ...(hasBody ? { body: await request.arrayBuffer() } : {}),
       // Never let a cached response mask a 401.
       cache: 'no-store',
       redirect: 'manual',

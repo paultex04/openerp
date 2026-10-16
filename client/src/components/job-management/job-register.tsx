@@ -32,7 +32,7 @@
 
 import type { ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -41,7 +41,7 @@ import { DataTable, type DataTableFilter } from '@/components/data-table/data-ta
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { JobSummaryPanel } from '@/components/job-management/JobSummaryPanel';
 import { JobServiceCodeTable } from '@/components/job-management/JobServiceCodeTable';
-import { JOB_STATUSES } from '@/components/operations/statusOrder';
+import { useJobWorkflow } from '@/hooks/use-job-workflow';
 import { useDebounced } from '@/hooks/use-debounced';
 
 /**
@@ -86,7 +86,6 @@ export function JobRegister() {
     const value = Number(searchParams.get('pageSize'));
     return Number.isInteger(value) && value >= 1 && value <= 200 ? value : PAGE_SIZE;
   });
-  const restoreScroll = useRef(true);
   const search = useDebounced(searchInput, SEARCH_DEBOUNCE);
 
   // The page is stored *with the query it belongs to*, rather than reset in an
@@ -120,19 +119,6 @@ export function JobRegister() {
   registerParams.set('page', String(pageIndex + 1));
   registerParams.set('pageSize', String(pageSize));
   const registerQuery = registerParams.toString();
-
-  useEffect(() => {
-    if (!restoreScroll.current) return;
-    restoreScroll.current = false;
-    const stored = sessionStorage.getItem('operations-register-scroll');
-    if (stored !== null) {
-      const scrollContainer = document.getElementById('main-scroll-container');
-      if (scrollContainer) {
-        scrollContainer.scrollTop = Number(stored);
-        sessionStorage.removeItem('operations-register-scroll');
-      }
-    }
-  }, []);
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams.toString());
@@ -182,12 +168,17 @@ export function JobRegister() {
   const rows = jobs.data?.jobs ?? [];
   const total = jobs.data?.total ?? 0;
 
+  // The filter offers whatever the workflow currently contains - a status an
+  // administrator added appears here, a deleted one disappears, and the labels
+  // are the live ones. The server validates the filter against the same
+  // catalogue, so there is no value here it would reject.
+  const { statuses } = useJobWorkflow();
   const statusOptions = useMemo(
     () => [
       { value: '', label: 'All statuses' },
-      ...JOB_STATUSES.map((status) => ({ value: status, label: status })),
+      ...statuses.map((status) => ({ value: status.key, label: status.label })),
     ],
-    [],
+    [statuses],
   );
 
   const projectOptions = useMemo(
@@ -200,7 +191,19 @@ export function JobRegister() {
 
   const columns = useMemo<ColumnDef<any, JobRow, unknown>[]>(
     () => [
-      cell<JobRow>('Job', (row) => <span className="font-mono font-medium">#{row.id}</span>),
+      // The job number is the doorway into the job. The old trailing "Open"
+      // button was a second click target for the same destination; the number
+      // is what the reader is already looking at, so it became the link and
+      // the button went away. The register's query rides along so returning
+      // from the job restores the same filters and page.
+      cell<JobRow>('Job', (row) => (
+        <Link
+          href={`/operations/${row.id}?${registerQuery}`}
+          className="font-mono font-medium text-primary underline-offset-4 hover:underline"
+        >
+          #{row.id}
+        </Link>
+      )),
       cell<JobRow>('Status', (row) => <StatusPill status={row.status} />),
       cell<JobRow>('Description', (row) =>
         row.description ? (
@@ -233,7 +236,7 @@ export function JobRegister() {
         <span className="tabular-nums">{row._count?.serviceCodes ?? 0}</span>
       )),
     ],
-    [],
+    [registerQuery],
   );
 
   const filters: DataTableFilter<JobRow>[] = [
@@ -265,8 +268,10 @@ export function JobRegister() {
       </header>
 
       {/*
-        Not `fill`: the register is a bounded list, and a table that grows to consume
-        all remaining height would make its own scroll region compete with the page.
+        No `fill` prop any more, and no scroll juggling either: the table fills
+        the page and scrolls its own rows, so returning from a job lands on the
+        same filters and page without the sessionStorage hack this register used
+        to need. See `DataTable` for the one behaviour every register now has.
       */}
       <DataTable<JobRow>
         data={rows}
@@ -287,23 +292,6 @@ export function JobRegister() {
           onPageIndexChange: goToPage,
           onPageSizeChange: setPageSize,
         }}
-        renderRowActions={(row) => (
-          <Link
-            href={`/operations/${row.id}?${registerQuery}`}
-            onClick={() => {
-              const scrollContainer = document.getElementById('main-scroll-container');
-              if (scrollContainer) {
-                sessionStorage.setItem(
-                  'operations-register-scroll',
-                  String(scrollContainer.scrollTop),
-                );
-              }
-            }}
-            className="rounded-md border px-2 py-1 text-xs hover:bg-accent"
-          >
-            Open
-          </Link>
-        )}
       />
     </div>
   );
@@ -348,7 +336,7 @@ export function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => 
   const { job, permissions, deliverables, summary } = detail.data;
 
   return (
-    <div className="flex min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <JobSummaryPanel job={job} permissions={permissions} onChanged={refreshAll} />
 
       <JobServiceCodeTable

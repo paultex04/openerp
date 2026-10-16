@@ -185,7 +185,6 @@ export function AuditPanel() {
       ) : (
         <DataTable<AuditEntry>
           caption="Audit log"
-          fill
           data={rows}
           columns={columns}
           rowKey={(entry) => entry.id}

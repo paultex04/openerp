@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
   AMENDMENT_TYPE,
   CONTRACT_AMENDMENT_STATUS,
+  clientUpdateSchema,
   clientUpsertSchema,
   contractUpsertSchema,
 } from '@openerp/shared';
@@ -154,7 +155,10 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
     { preHandler: [app.authenticate, app.requirePermission('contract.write')] },
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const { id } = idParam.parse(request.params);
-      const body = clientUpsertSchema.partial().parse(request.body);
+      // `clientUpdateSchema`, not `clientUpsertSchema.partial()`: `.partial()`
+      // still applies `isVatRegistered`'s default, silently re-registering a
+      // VAT-exempt client on any edit that did not mention it. See the schema.
+      const body = clientUpdateSchema.parse(request.body);
 
       const existing = await prisma.client.findUnique({ where: { id }, select: { id: true } });
       if (!existing) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);

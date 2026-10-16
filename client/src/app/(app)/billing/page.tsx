@@ -21,6 +21,8 @@ import {
   type InvoiceTransitionOption,
 } from '@/lib/api';
 import { InvoiceTransitions } from '@/components/billing/InvoicePanel';
+import { NewInvoiceDialog } from '@/components/billing/NewInvoiceDialog';
+import { usePermissions } from '@/components/auth/usePermissions';
 import { invoiceVariant } from '@/lib/lifecycle-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -116,8 +118,10 @@ const invoiceColumns = (onOpen: (id: number) => void): ColumnDef<any, InvoiceRow
 ];
 
 export default function BillingPage() {
+  const { can } = usePermissions();
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [newInvoiceOpen, setNewInvoiceOpen] = useState(false);
 
   const register = useQuery({
     // Fetched unfiltered: `DataTable` owns filtering. The previous version sent
@@ -140,11 +144,19 @@ export default function BillingPage() {
             Invoices generated from measured actuals, with VAT treatment and lifecycle control.
           </p>
         </div>
+        {/*
+          The button needs both permissions: creating an invoice is
+          `invoice.write`, and the job picker reads `/api/jobs` (`job.read`).
+          Rendering it without either would promise a dialog that 403s.
+        */}
+        {can('invoice.write') && can('job.read') && (
+          <Button onClick={() => setNewInvoiceOpen(true)}>New invoice</Button>
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
         {/* ---- Register ---- */}
-        <section className="space-y-3">
+        <section className="flex min-h-0 flex-1 flex-col gap-3">
           {register.isError && (
             <p className="text-sm text-negative">
               {register.error instanceof ApiError
@@ -166,7 +178,6 @@ export default function BillingPage() {
           */}
           <DataTable<InvoiceRow>
             caption="Invoice register"
-            fill
             data={invoices}
             columns={columns}
             rowKey={(invoice) => invoice.id}
@@ -210,6 +221,12 @@ export default function BillingPage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <NewInvoiceDialog
+          open={newInvoiceOpen}
+          onOpenChange={setNewInvoiceOpen}
+          onCreated={(invoiceId) => setSelectedId(invoiceId)}
+        />
       </div>
     </div>
   );
