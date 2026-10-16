@@ -39,6 +39,7 @@ import {
   deleteEntry,
   getTimesheet,
   listApprovals,
+  listJobTimeEntries,
   listLoggableJobs,
   listTimesheetEmployees,
   listTimesheets,
@@ -73,7 +74,7 @@ const jobsQuery = z.object({
   limit: z.coerce.number().int().positive().max(200).optional(),
 });
 
-const ratesQuery = z.object({ jobId: z.coerce.number().int().positive() });
+const jobIdQuery = z.object({ jobId: z.coerce.number().int().positive() });
 
 function principalOf(request: FastifyRequest): Principal {
   if (!request.principal) throw new TimesheetError(401, 'UNAUTHORIZED', 'Authentication required.');
@@ -147,6 +148,20 @@ export async function registerTimesheetRoutes(app: FastifyInstance): Promise<voi
     const query = jobsQuery.parse(request.query);
     return { jobs: await listLoggableJobs(principal, query.search, query.limit) };
   });
+
+  /**
+   * Every line booked to one job, for the job screen's Timesheets tab. Cost is the
+   * point, so it needs `timesheet.read` at the edge and again in the service.
+   */
+  app.get(
+    '/api/timesheets/job-entries',
+    { preHandler: [app.authenticate, app.requirePermission('timesheet.read')] },
+    async (request) => {
+      const principal = principalOf(request);
+      const { jobId } = jobIdQuery.parse(request.query);
+      return listJobTimeEntries(jobId, principal);
+    },
+  );
 
   /** Opens (or returns) a week, so the grid has something to write into. */
   app.post('/api/timesheets', { preHandler: [app.authenticate] }, async (request, reply) => {
@@ -264,7 +279,7 @@ export async function registerTimesheetRoutes(app: FastifyInstance): Promise<voi
   app.get('/api/costing/rates', { preHandler: [app.authenticate] }, async (request) => {
     const principal = principalOf(request);
     assertAny(principal, WRITE_ANY_OR_OWN);
-    const { jobId } = ratesQuery.parse(request.query);
+    const { jobId } = jobIdQuery.parse(request.query);
     const card = await loadJobRateCard(jobId);
     return {
       jobId: card.jobId,

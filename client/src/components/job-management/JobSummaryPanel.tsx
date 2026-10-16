@@ -1,7 +1,12 @@
 'use client';
 
 /**
- * The job detail header: identity, status, and inline-editable metadata fields.
+ * The job's Details tab: inline-editable metadata and the status control.
+ *
+ * The job's identity (its number, status pill and commercial basis) is rendered by
+ * the tab host in `job-detail.tsx`, above the tab bar, so it stays on screen while
+ * a user is on the Timesheets or Financials tab. This panel is the Details tab's
+ * body: the fields you edit.
  *
  * ## Status is a dropdown, and that is deliberate
  *
@@ -27,23 +32,22 @@
  * `PATCH /api/jobs/:id` on blur or change. Status is excluded because it has its own
  * endpoint and its own rules - see above.
  *
- * ## Shape (Phase 15)
+ * ## Shape
  *
  * The panel is three cards - job & area, orders & people, timeline & workflow -
  * over a status bar and a facts strip: what this job is, who and what it is
  * attached to, when it runs, and where it stands. Same controls, same save
- * mechanics; only the layout changed. The commercial-basis pill in the header is
- * a read-out, not a second editor.
+ * mechanics. The commercial-basis pill above the tabs is a read-out, not a second
+ * editor.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { api, ApiError, type JobDetail, type TransitionOption } from '@/lib/api';
-import { SectionHeading, StatusPill } from '@/components/lifecycle/status-badge';
-import { Badge } from '@/components/ui/badge';
+import { SectionHeading } from '@/components/lifecycle/status-badge';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
-import { formatDate, formatPercent } from '@/lib/format';
+import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { useJobWorkflow } from '@/hooks/use-job-workflow';
@@ -93,40 +97,6 @@ export function JobSummaryPanel({
 
   return (
     <section className="space-y-3">
-      {/*
-        Identity first: which job, where it stands, and who it is for. The status
-        pill here is the read-out; the bar below is the control - scanning the
-        page should answer "what is this job" before it offers to change anything.
-      */}
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-xl font-semibold">Job #{job.id}</h2>
-            <StatusPill status={job.status} />
-          </div>
-          <p className="truncate text-sm text-muted-foreground">
-            {job.project.code} · {job.project.contract.number} · {job.project.contract.client.name}
-          </p>
-        </div>
-
-        {/*
-          Commercial basis as a read-out pill, not a second editor. The amendment
-          select inside Timeline & workflow is where this changes; two editors for
-          one field invent a way for them to disagree mid-save.
-        */}
-        <div className="flex flex-wrap items-center gap-2 rounded-full border bg-muted/40 px-3 py-1.5 text-xs">
-          <span className="text-muted-foreground">Commercial basis</span>
-          <span className="font-medium">
-            {job.amendment?.amendmentNumber ?? '—'}
-            {job.amendment?.status ? ` (${job.amendment.status})` : ''}
-          </span>
-          {job.amendmentInherited && <Badge variant="outline">inherited</Badge>}
-          <span className="text-muted-foreground">
-            VAT {formatPercent(job.amendment?.vatRate ?? 0)}
-          </span>
-        </div>
-      </header>
-
       <div className="grid gap-3 lg:grid-cols-3">
         <FieldCard title="Job & area">
           <EditableText
