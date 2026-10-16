@@ -15,6 +15,7 @@ import { registerAdminRoutes } from './routes/admin.js';
 import { registerAdminWorkflowRoutes } from './routes/admin-workflow.js';
 import { registerOrganisationRoutes } from './routes/organisation.js';
 import { registerTimesheetRoutes } from './routes/timesheets.js';
+import { registerChatRoutes } from './routes/chat.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 import { APP_VERSION } from './version.js';
@@ -95,6 +96,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Phase 16: timesheets & job costing -------------------------------
   await registerTimesheetRoutes(app);
+
+  // ---- Phase 17: internal chat ------------------------------------------
+  await registerChatRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

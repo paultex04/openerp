@@ -62,6 +62,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { ChatDock, ChatToggle } from '@/components/chat/chat-dock';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { api } from '@/lib/api';
 import { avatarImageUrl, avatarTint, initials } from '@/lib/avatar';
@@ -197,6 +198,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Theme is a per-device preference, so it is offered to every
               authenticated user rather than gated on a permission.
             */}
+            <ChatToggle />
             <ThemePicker />
             <ThemeAnnouncer />
             <UserMenu
@@ -239,6 +241,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </SidebarInset>
+
+      {/*
+        The dock is a sibling of the inset rather than a child of it, so pinned it
+        is a real flex column that pushes the content; unpinned it renders
+        `fixed`, so it leaves the layout completely alone.
+      */}
+      <ChatDock />
     </SidebarProvider>
   );
 }

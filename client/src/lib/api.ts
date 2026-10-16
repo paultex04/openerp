@@ -770,3 +770,56 @@ export interface JobTimeEntries {
   entries: JobTimeEntry[];
   totals: { hours: number; billableHours: number; cost: number; unpricedLines: number };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 17: internal chat
+// ---------------------------------------------------------------------------
+
+/** Another account, as the chat directory and a conversation's peer present it. */
+export interface ChatUser {
+  id: number;
+  employeeId: number;
+  name: string;
+  email: string;
+  isActive: boolean;
+  avatarUpdatedAt: string | null;
+}
+
+export interface ChatMessage {
+  id: number;
+  conversationId: number;
+  senderId: number;
+  senderName: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+}
+
+/** A conversation as the list needs it. Step 1 only creates direct ones. */
+export interface ChatConversation {
+  id: number;
+  kind: string;
+  /** The other member. */
+  peer: ChatUser;
+  lastMessage: ChatMessage | null;
+  lastMessageAt: string | null;
+  lastReadAt: string | null;
+  unreadCount: number;
+}
+
+export interface ChatConversationsResponse {
+  conversations: ChatConversation[];
+}
+export interface ChatConversationResponse {
+  conversation: ChatConversation;
+}
+export interface ChatMessagesResponse {
+  messages: ChatMessage[];
+}
+export interface ChatMessageResponse {
+  message: ChatMessage;
+}
+export interface ChatUsersResponse {
+  users: ChatUser[];
+}

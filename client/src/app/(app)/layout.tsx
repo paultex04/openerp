@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/app-shell';
+import { ChatGate } from '@/components/chat/chat-gate';
 import { Spinner } from '@/components/ui/spinner';
 import type { ReactNode } from 'react';
 import { Suspense } from 'react';
@@ -22,17 +23,19 @@ import { Suspense } from 'react';
  */
 export default function AuthenticatedLayout({ children }: { children: ReactNode }) {
   return (
-    <AppShell>
-      <Suspense
-        fallback={
-          <div className="flex min-h-64 items-center justify-center">
-            <Spinner className="size-6 text-muted-foreground" />
-            <span className="sr-only">Loading…</span>
-          </div>
-        }
-      >
-        {children}
-      </Suspense>
-    </AppShell>
+    <ChatGate>
+      <AppShell>
+        <Suspense
+          fallback={
+            <div className="flex min-h-64 items-center justify-center">
+              <Spinner className="size-6 text-muted-foreground" />
+              <span className="sr-only">Loading…</span>
+            </div>
+          }
+        >
+          {children}
+        </Suspense>
+      </AppShell>
+    </ChatGate>
   );
 }
