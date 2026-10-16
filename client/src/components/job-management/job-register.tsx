@@ -36,8 +36,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
+import { Plus } from 'lucide-react';
 import { api, type JobListResponse, type JobRow } from '@/lib/api';
 import { DataTable, type DataTableFilter } from '@/components/data-table/data-table';
+import { Button } from '@/components/ui/button';
+import { AddJobDialog } from '@/components/job-management/AddJobDialog';
+import { usePermissions } from '@/components/auth/usePermissions';
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { useJobWorkflow } from '@/hooks/use-job-workflow';
 import { useDebounced } from '@/hooks/use-debounced';
@@ -77,6 +81,7 @@ const SEARCH_DEBOUNCE = 300;
 export function JobRegister() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { can } = usePermissions();
   const [searchInput, setSearchInput] = useState(searchParams.get('search') ?? '');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '');
   const [projectFilter, setProjectFilter] = useState(searchParams.get('projectId') ?? '');
@@ -85,6 +90,11 @@ export function JobRegister() {
     return Number.isInteger(value) && value >= 1 && value <= 200 ? value : PAGE_SIZE;
   });
   const search = useDebounced(searchInput, SEARCH_DEBOUNCE);
+
+  // Creating a job is a `job.write` action; the server refuses anyone else, and
+  // the button is hidden rather than offered to a role that cannot use it.
+  const [adding, setAdding] = useState(false);
+  const canWrite = can('job.write');
 
   // The page is stored *with the query it belongs to*, rather than reset in an
   // effect when the query changes.
@@ -283,6 +293,14 @@ export function JobRegister() {
         caption="Jobs"
         emptyMessage="No jobs match the current search and filters."
         isLoading={jobs.isLoading}
+        actions={
+          canWrite ? (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" className="size-4" />
+              New job
+            </Button>
+          ) : undefined
+        }
         manualPagination={{
           pageIndex,
           pageSize,
@@ -291,6 +309,18 @@ export function JobRegister() {
           onPageSizeChange: setPageSize,
         }}
       />
+
+      {adding && (
+        <AddJobDialog
+          onClose={() => setAdding(false)}
+          onCreated={(jobId) => {
+            setAdding(false);
+            // The register has no inline detail view any more, so creating a job
+            // takes you to it — the same destination as clicking its number.
+            router.push(`/operations/${jobId}`);
+          }}
+        />
+      )}
     </div>
   );
 }
