@@ -191,6 +191,8 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   P('admin.role.read', 'admin', 'View roles and the permission matrix.'),
   P('admin.role.write', 'admin', 'Grant or revoke role assignments and permissions.'),
   P('admin.audit.read', 'admin', 'Read the system audit log.'),
+  P('admin.workflow.read', 'admin', 'View the job status workflow.'),
+  P('admin.workflow.write', 'admin', 'Edit job statuses and the transitions between them.'),
 ] as const;
 
 export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);

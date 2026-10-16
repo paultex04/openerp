@@ -195,7 +195,6 @@ export function UsersPanel({ myId }: { myId: number | undefined }) {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <DataTable<AdminUser>
         caption="System user accounts"
-        fill
         data={users.data?.users ?? []}
         columns={columns}
         rowKey={(user) => user.id}

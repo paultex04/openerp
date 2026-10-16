@@ -25,11 +25,9 @@ import {
   costParameterCategoryValues,
   invoiceStatusValues,
   jobPriorityValues,
-  jobStatusValues,
   serviceCodeCategoryValues,
   shiftTypeValues,
   type InvoiceStatus,
-  type JobStatus,
 } from './enums';
 
 /** Compile-time exhaustiveness guard. */
@@ -84,33 +82,10 @@ function buildMapping<L extends string>(
 }
 
 // ---------------------------------------------------------------------------
-// Job status — Prisma keys are deliberately prefixed JOB_ because several labels
-// would otherwise collide (e.g. no two are alike, but the prefix keeps the
-// generated names self-describing).
+// Job status — since Phase 15 the statuses are catalogue rows, not an enum, so
+// the API speaks the stored key directly and no mapping is needed. See
+// `../job-status.ts`.
 // ---------------------------------------------------------------------------
-
-export const JOB_STATUS = buildMapping(
-  jobStatusValues,
-  [
-    'JOB_CANCELLED',
-    'JOB_SCOPING',
-    'JOB_SCOPED',
-    'JOB_AWAITING_PO',
-    'JOB_WNYS',
-    'JOB_WIP',
-    'JOB_WORK_COMPLETE',
-    'JOB_ACTUALS_IN_PROGRESS',
-    'JOB_PACK_READY',
-    'JOB_OUT_FOR_SIGNATURE',
-    'JOB_AWAITING_CHANGE_ORDER',
-    'JOB_INVOICED',
-    'JOB_PARTIALLY_INVOICED',
-  ],
-  {
-    // '03. WNYS' has no derivable form ("WNYS" is already the whole label).
-    '03. WNYS': 'JOB_WNYS',
-  },
-);
 
 export const JOB_PRIORITY = buildMapping(jobPriorityValues, [
   'P1_EMERGENCY_BREAKDOWN',
@@ -173,14 +148,11 @@ export const INVOICE_STATUS = buildMapping(invoiceStatusValues, [
 /**
  * Direct lookups between a Prisma enum key and its business label.
  *
- * Reading a database row gives the Prisma key (`JOB_WIP`), while the shared
- * state machine and every API payload use the label (`04. WIP`). These two maps
- * keep that translation in one place rather than at each call site.
+ * Reading a database row gives the Prisma key while the shared state machine
+ * and every API payload use the label. This map keeps that translation in one
+ * place rather than at each call site. (Job status needs no entry: it is stored
+ * as its own key.)
  */
-export const JOB_STATUS_TO_KEY: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(JOB_STATUS.labels.map((label) => [JOB_STATUS.toKey(label), label])),
-);
-
 export const JOB_PRIORITY_TO_KEY: Readonly<Record<string, string>> = Object.freeze(
   Object.fromEntries(JOB_PRIORITY.labels.map((label) => [JOB_PRIORITY.toKey(label), label])),
 );
@@ -193,23 +165,6 @@ export function serviceCodeCategoryToKey(label: string): PrismaServiceCodeCatego
 
 export function serviceCodeCategoryToLabel(key: string): string {
   return SERVICE_CODE_CATEGORY.toLabel(key);
-}
-
-/** Business label ('04. WIP') -> Prisma enum key ('JOB_WIP'). */
-export function jobStatusToKey(label: string): string {
-  return JOB_STATUS.toKey(label);
-}
-
-/**
- * Prisma enum key ('JOB_WIP') -> business label ('04. WIP').
- *
- * Throws on an unknown key rather than returning `undefined`. Under
- * `noUncheckedIndexedAccess` a plain map lookup widens to `string | undefined`,
- * which would force a cast at every call site; a function keeps the return type
- * honest and turns a data problem into a loud failure.
- */
-export function jobStatusFromKey(key: string): JobStatus {
-  return JOB_STATUS.toLabel(key) as JobStatus;
 }
 
 /** Business label -> Prisma job status key, typed for Prisma writes. */

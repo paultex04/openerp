@@ -4,7 +4,7 @@
  * Shared so client forms and server validation cannot drift.
  */
 import { z } from 'zod';
-import { jobStatusSchema, jobPrioritySchema } from './enums';
+import { jobPrioritySchema } from './enums';
 
 const isoDate = z
   .string()
@@ -89,7 +89,12 @@ export const jobUpdateSchema = z
 export type JobUpdateInput = z.infer<typeof jobUpdateSchema>;
 
 export const jobTransitionSchema = z.object({
-  status: jobStatusSchema,
+  /**
+   * A status key from the live catalogue. Deliberately a free string here: the
+   * catalogue is data and the route validates against it, so a new status an
+   * administrator invents works without a schema change.
+   */
+  status: z.string().trim().min(1).max(40),
   /** Optional note recorded with the transition. */
   note: z.string().trim().max(500).optional(),
 });

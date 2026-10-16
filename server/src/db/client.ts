@@ -296,6 +296,13 @@ function sanitise(value: unknown): Record<string, unknown> | undefined {
       out[key] = v.toISOString();
     } else if (typeof v === 'bigint') {
       out[key] = v.toString();
+    } else if (v instanceof Uint8Array) {
+      // Binary columns (the avatar bytes today) are summarised, not stored:
+      // JSON has no representation for bytes, and a Uint8Array serialises as an
+      // object with one key per byte - a 40 KB avatar became a ~250 KB audit
+      // entry, and "who changed the avatar" does not need the image itself.
+      // The size is kept so a reviewer can still see that it changed shape.
+      out[key] = `[${v.length} bytes]`;
     } else if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
       // A nested object is either a Decimal, an included relation, or a JSON
       // column. Decimal is detected by its class name because it has no reliable

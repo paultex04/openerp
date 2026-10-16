@@ -269,6 +269,13 @@ baseline. It is not a regression, and it will flake again.
 Not fixed here; it wants its own issue, and the fix is to stop sharing `client 1`
 across parallel test files rather than to add a retry.
 
+**Resolved in Phase 15**, and the prescription above was followed: the suite no
+longer shares client 1 at all. Gate 1 dropped its assertion on the seeded client's
+VAT state, and Gate 2 builds dedicated fixture clients (`numberless` / `numbered`)
+for every VAT assertion, deleted in teardown. The same change removes the reason
+`scripts/restore-baseline-fixture.mjs` used to force the seeded client's VAT number
+back to NULL, so it no longer does; that field is operator data.
+
 ---
 
 ## The Jobs Board became a table, not a bespoke screen

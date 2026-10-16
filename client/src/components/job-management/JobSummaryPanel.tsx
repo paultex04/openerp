@@ -26,18 +26,27 @@
  * Detail fields edit in place. Each control is a text input or select that PATCHes
  * `PATCH /api/jobs/:id` on blur or change. Status is excluded because it has its own
  * endpoint and its own rules - see above.
+ *
+ * ## Shape (Phase 15)
+ *
+ * The panel is three cards - job & area, orders & people, timeline & workflow -
+ * over a status bar and a facts strip: what this job is, who and what it is
+ * attached to, when it runs, and where it stands. Same controls, same save
+ * mechanics; only the layout changed. The commercial-basis pill in the header is
+ * a read-out, not a second editor.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { api, ApiError, type JobDetail, type TransitionOption } from '@/lib/api';
-import { JOB_STATUSES } from '@/components/operations/statusOrder';
-import { StatusPill } from '@/components/lifecycle/status-badge';
+import { SectionHeading, StatusPill } from '@/components/lifecycle/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { formatDate, formatPercent } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { useJobWorkflow } from '@/hooks/use-job-workflow';
 
 type Job = JobDetail['job'];
 type Permissions = JobDetail['permissions'];
@@ -83,149 +92,170 @@ export function JobSummaryPanel({
   });
 
   return (
-    <section className="space-y-3 rounded-lg border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="space-y-3">
+      {/*
+        Identity first: which job, where it stands, and who it is for. The status
+        pill here is the read-out; the bar below is the control - scanning the
+        page should answer "what is this job" before it offers to change anything.
+      */}
+      <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl font-semibold">Job #{job.id}</h2>
             <StatusPill status={job.status} />
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="truncate text-sm text-muted-foreground">
             {job.project.code} · {job.project.contract.number} · {job.project.contract.client.name}
           </p>
         </div>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-md bg-muted/40 px-3 py-2 text-xs">
-        <span className="text-muted-foreground">Commercial basis</span>
-        <span className="font-medium">
-          {job.amendment?.amendmentNumber ?? '—'} ({job.amendment?.status ?? '—'})
-        </span>
-        {job.amendmentInherited && <Badge variant="outline">inherited</Badge>}
-        <span className="text-muted-foreground">
-          VAT {formatPercent(job.amendment?.vatRate ?? 0)}
-        </span>
-      </div>
+        {/*
+          Commercial basis as a read-out pill, not a second editor. The amendment
+          select inside Timeline & workflow is where this changes; two editors for
+          one field invent a way for them to disagree mid-save.
+        */}
+        <div className="flex flex-wrap items-center gap-2 rounded-full border bg-muted/40 px-3 py-1.5 text-xs">
+          <span className="text-muted-foreground">Commercial basis</span>
+          <span className="font-medium">
+            {job.amendment?.amendmentNumber ?? '—'}
+            {job.amendment?.status ? ` (${job.amendment.status})` : ''}
+          </span>
+          {job.amendmentInherited && <Badge variant="outline">inherited</Badge>}
+          <span className="text-muted-foreground">
+            VAT {formatPercent(job.amendment?.vatRate ?? 0)}
+          </span>
+        </div>
+      </header>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <EditableText
-          label="Description"
-          value={job.description}
-          save={save}
-          body={(next) => ({ description: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableText
-          label="Work order"
-          value={job.workOrder}
-          save={save}
-          body={(next) => ({ workOrder: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableDate
-          label="WO received"
-          value={job.workOrderReceivedDate}
-          save={save}
-          body={(next) => ({ workOrderReceivedDate: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableText
-          label="Purchase order"
-          value={job.purchaseOrder}
-          save={save}
-          body={(next) => ({ purchaseOrder: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableDate
-          label="PO received"
-          value={job.purchaseOrderReceivedDate}
-          save={save}
-          body={(next) => ({ purchaseOrderReceivedDate: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        {can('employee.read') ? (
-          <SupervisorSelect
-            job={job}
-            canEdit={permissions.canEditJob}
-            employees={employees.data?.employees ?? []}
+      <div className="grid gap-3 lg:grid-cols-3">
+        <FieldCard title="Job & area">
+          <EditableText
+            label="Description"
+            value={job.description}
             save={save}
+            body={(next) => ({ description: next || null })}
+            disabled={!permissions.canEditJob}
           />
-        ) : (
-          <ReadOnlyField
-            label="Supervisor"
-            value={
-              job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'
-            }
-          />
-        )}
-        {can('contact.read') ? (
-          <ContactSelect
-            job={job}
-            canEdit={permissions.canEditJob}
-            contacts={contacts.data?.contacts ?? []}
+          <EditableText
+            label="Area"
+            value={job.area}
             save={save}
+            body={(next) => ({ area: next || null })}
+            disabled={!permissions.canEditJob}
           />
-        ) : (
-          <ReadOnlyField label="Client contact" value={job.clientContact?.name ?? 'Unassigned'} />
-        )}
-        {can('amendment.read') && (
-          <SelectField
-            label="Amendment"
-            value={
-              job.amendmentInherited ? '' : job.amendmentId == null ? '' : String(job.amendmentId)
-            }
-            emptyLabel={job.amendmentInherited ? 'Inherited from project' : 'No amendment'}
-            disabled={!permissions.canEditJob || amendments.isLoading || save.isPending}
-            options={
-              amendments.data?.amendments.map((a) => ({
-                value: String(a.id),
-                label: a.amendmentNumber,
-              })) ?? []
-            }
-            onChange={(value) =>
-              save.mutate({
-                body: { amendmentId: value ? Number(value) : null },
-                label: 'Amendment',
-              })
-            }
+          <PrioritySelect job={job} canEdit={permissions.canEditJob} />
+        </FieldCard>
+
+        <FieldCard title="Orders & people">
+          <EditableText
+            label="Work order"
+            value={job.workOrder}
+            save={save}
+            body={(next) => ({ workOrder: next || null })}
+            disabled={!permissions.canEditJob}
+            mono
           />
-        )}
-        <EditableText
-          label="Area"
-          value={job.area}
-          save={save}
-          body={(next) => ({ area: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <PrioritySelect job={job} canEdit={permissions.canEditJob} />
-        <EditableDate
-          label="Planned start"
-          value={job.plannedStartDate}
-          save={save}
-          body={(next) => ({ plannedStartDate: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableDate
-          label="Planned end"
-          value={job.plannedEndDate}
-          save={save}
-          body={(next) => ({ plannedEndDate: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableDate
-          label="Actual start"
-          value={job.actualStartDate}
-          save={save}
-          body={(next) => ({ actualStartDate: next || null })}
-          disabled={!permissions.canEditJob}
-        />
-        <EditableDate
-          label="Actual end"
-          value={job.actualEndDate}
-          save={save}
-          body={(next) => ({ actualEndDate: next || null })}
-          disabled={!permissions.canEditJob}
-        />
+          <EditableDate
+            label="WO received"
+            value={job.workOrderReceivedDate}
+            save={save}
+            body={(next) => ({ workOrderReceivedDate: next || null })}
+            disabled={!permissions.canEditJob}
+          />
+          <EditableText
+            label="Purchase order"
+            value={job.purchaseOrder}
+            save={save}
+            body={(next) => ({ purchaseOrder: next || null })}
+            disabled={!permissions.canEditJob}
+            mono
+          />
+          <EditableDate
+            label="PO received"
+            value={job.purchaseOrderReceivedDate}
+            save={save}
+            body={(next) => ({ purchaseOrderReceivedDate: next || null })}
+            disabled={!permissions.canEditJob}
+          />
+          {can('employee.read') ? (
+            <SupervisorSelect
+              job={job}
+              canEdit={permissions.canEditJob}
+              employees={employees.data?.employees ?? []}
+              save={save}
+            />
+          ) : (
+            <ReadOnlyField
+              label="Supervisor"
+              value={
+                job.supervisor ? `${job.supervisor.name} ${job.supervisor.surname}` : 'Unassigned'
+              }
+            />
+          )}
+          {can('contact.read') ? (
+            <ContactSelect
+              job={job}
+              canEdit={permissions.canEditJob}
+              contacts={contacts.data?.contacts ?? []}
+              save={save}
+            />
+          ) : (
+            <ReadOnlyField label="Client contact" value={job.clientContact?.name ?? 'Unassigned'} />
+          )}
+        </FieldCard>
+
+        <FieldCard title="Timeline & workflow">
+          <EditableDate
+            label="Planned start"
+            value={job.plannedStartDate}
+            save={save}
+            body={(next) => ({ plannedStartDate: next || null })}
+            disabled={!permissions.canEditJob}
+          />
+          <EditableDate
+            label="Planned end"
+            value={job.plannedEndDate}
+            save={save}
+            body={(next) => ({ plannedEndDate: next || null })}
+            disabled={!permissions.canEditJob}
+          />
+          <EditableDate
+            label="Actual start"
+            value={job.actualStartDate}
+            save={save}
+            body={(next) => ({ actualStartDate: next || null })}
+            disabled={!permissions.canEditJob}
+          />
+          <EditableDate
+            label="Actual end"
+            value={job.actualEndDate}
+            save={save}
+            body={(next) => ({ actualEndDate: next || null })}
+            disabled={!permissions.canEditJob}
+          />
+          {can('amendment.read') && (
+            <SelectField
+              label="Amendment"
+              value={
+                job.amendmentInherited ? '' : job.amendmentId == null ? '' : String(job.amendmentId)
+              }
+              emptyLabel={job.amendmentInherited ? 'Inherited from project' : 'No amendment'}
+              disabled={!permissions.canEditJob || amendments.isLoading || save.isPending}
+              options={
+                amendments.data?.amendments.map((a) => ({
+                  value: String(a.id),
+                  label: a.amendmentNumber,
+                })) ?? []
+              }
+              onChange={(value) =>
+                save.mutate({
+                  body: { amendmentId: value ? Number(value) : null },
+                  label: 'Amendment',
+                })
+              }
+            />
+          )}
+        </FieldCard>
       </div>
 
       <StatusControl
@@ -236,6 +266,23 @@ export function JobSummaryPanel({
 
       <JobFacts job={job} />
     </section>
+  );
+}
+
+/** ------------------------------------------------------------------------- */
+
+/**
+ * One of the three summary cards: a heading and a stack of labelled controls.
+ *
+ * Deliberately dumb - every save mechanic lives in the field components, so a
+ * card can be rearranged without touching how anything persists.
+ */
+function FieldCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <SectionHeading>{title}</SectionHeading>
+      <div className="mt-2.5 grid gap-2.5">{children}</div>
+    </div>
   );
 }
 
@@ -315,8 +362,8 @@ function SelectField({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="rounded-md border p-2">
-      <label htmlFor={`select-${label}`} className="text-[11px] text-muted-foreground">
+    <div className="flex flex-col gap-1">
+      <label htmlFor={`select-${label}`} className="text-[11px] font-medium text-muted-foreground">
         {label}
       </label>
       <select
@@ -325,7 +372,7 @@ function SelectField({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-60"
+        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs disabled:opacity-60"
       >
         <option value="">{emptyLabel}</option>
         {options.map((option) => (
@@ -356,6 +403,7 @@ function StatusControl({
   onChanged: () => void;
 }) {
   const queryClient = useQueryClient();
+  const { statuses, label } = useJobWorkflow();
 
   const transitions = useQuery({
     queryKey: ['job-transitions', job.id],
@@ -364,9 +412,12 @@ function StatusControl({
   });
 
   const move = useMutation({
-    mutationFn: (to: string) => api.post(`/api/jobs/${job.id}/transition`, { to }),
+    // `status` is the field the endpoint reads (`jobTransitionSchema`). Posting
+    // `{ to }` here was a long-standing bug — every move 400'd, so the dropdown
+    // looked dead. Fixed in Phase 15 alongside the detail-page re-skin.
+    mutationFn: (to: string) => api.post(`/api/jobs/${job.id}/transition`, { status: to }),
     onSuccess: (_result, to) => {
-      toast.add({ title: `Moved to ${to}`, type: 'success' });
+      toast.add({ title: `Moved to ${label(to)}`, type: 'success' });
       void queryClient.invalidateQueries({ queryKey: ['job-transitions', job.id] });
       onChanged();
     },
@@ -386,7 +437,7 @@ function StatusControl({
   const ready = options.length > 0 || availableTransitions.length > 0;
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-md border p-3">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
       <label htmlFor={`status-${job.id}`} className="text-sm font-medium">
         Status
       </label>
@@ -401,8 +452,8 @@ function StatusControl({
         aria-describedby={`status-help-${job.id}`}
         className="h-9 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-60"
       >
-        {JOB_STATUSES.map((status) => {
-          const isCurrent = status === job.status;
+        {statuses.map((status) => {
+          const isCurrent = status.key === job.status;
           // The endpoint returns the machine's *legal neighbours* from the current
           // stage — not all thirteen statuses annotated. So absence is the
           // meaningful case: a status not in the response is not reachable at all.
@@ -411,11 +462,11 @@ function StatusControl({
           // enabled, which is how the first version of this control rendered: a
           // dropdown that offered every stage and let the server 409 on nine of
           // them. Absence must mean disabled.
-          const option = options.find((t) => t.to === status);
+          const option = options.find((t) => t.to === status.key);
           const allowed = isCurrent || (option ? option.allowed : false);
           return (
-            <option key={status} value={status} disabled={!allowed} title={option?.reason}>
-              {status}
+            <option key={status.key} value={status.key} disabled={!allowed} title={option?.reason}>
+              {status.label}
               {option && !option.allowed ? ` — ${option.reason}` : ''}
             </option>
           );
@@ -427,7 +478,7 @@ function StatusControl({
           : availableTransitions.length === 0
             ? // A terminal stage. Saying so is more useful than a permanently
               // greyed-out box, which reads as a bug.
-              `${job.status} is a terminal stage — there is nowhere to move it to.`
+              `${label(job.status)} is a terminal stage — there is nowhere to move it to.`
             : ready
               ? 'Only stages the workflow allows from here are selectable.'
               : 'Loading transitions…'}
@@ -440,7 +491,7 @@ function StatusControl({
 
 function JobFacts({ job }: { job: Job }) {
   return (
-    <div className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
+    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
       Planned {formatDate(job.plannedStartDate)} → {formatDate(job.plannedEndDate)} · Actual{' '}
       {formatDate(job.actualStartDate)} → {formatDate(job.actualEndDate)} · Crew:{' '}
       {job.assignments.length === 0
@@ -486,9 +537,14 @@ type JobPatch = ReturnType<typeof useJobPatch>;
 /** A text field that PATCHes on blur or Enter, and reverts on Escape. */
 function ReadOnlyField({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-muted/20 px-3 py-2">
-      <span className="block text-[11px] text-muted-foreground">{label}</span>
-      <span className="mt-1 block truncate text-xs" title={value}>
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      {/* Dashed while its editable twin is solid: a read-only field should look
+          like the same control, parked. */}
+      <span
+        className="flex h-8 items-center truncate rounded-md border border-dashed px-2 text-xs"
+        title={value}
+      >
         {value}
       </span>
     </div>
@@ -501,12 +557,15 @@ function EditableText({
   save,
   body,
   disabled = false,
+  mono = false,
 }: {
   label: string;
   value: string | null;
   save: JobPatch;
   body: (next: string) => Record<string, unknown>;
   disabled?: boolean;
+  /** Identifiers (work order, purchase order) read as code; prose does not. */
+  mono?: boolean;
 }) {
   // The draft carries the server value it was seeded from, so a refetch can be
   // detected by comparison during render rather than with an effect.
@@ -525,8 +584,8 @@ function EditableText({
   const commit = (next: string) => setDraft({ server: next, text: next, dirty: false });
 
   return (
-    <div className="rounded-md border p-2">
-      <label htmlFor={`f-${label}`} className="text-[11px] text-muted-foreground">
+    <div className="flex flex-col gap-1">
+      <label htmlFor={`f-${label}`} className="text-[11px] font-medium text-muted-foreground">
         {label}
       </label>
       <Input
@@ -549,7 +608,7 @@ function EditableText({
             event.currentTarget.blur();
           }
         }}
-        className="mt-1 h-8 font-mono text-xs"
+        className={cn('h-8 text-xs', mono && 'font-mono')}
       />
     </div>
   );
@@ -575,8 +634,8 @@ function EditableDate({
   }
 
   return (
-    <div className="rounded-md border p-2">
-      <label htmlFor={`d-${label}`} className="text-[11px] text-muted-foreground">
+    <div className="flex flex-col gap-1">
+      <label htmlFor={`d-${label}`} className="text-[11px] font-medium text-muted-foreground">
         {label}
       </label>
       <Input
@@ -591,7 +650,7 @@ function EditableDate({
             setDraft({ server: draft.text, text: draft.text, dirty: false });
           }
         }}
-        className="mt-1 h-8 text-xs"
+        className="h-8 text-xs"
       />
     </div>
   );
@@ -619,8 +678,8 @@ function PrioritySelect({ job, canEdit }: { job: Job; canEdit: boolean }) {
   const priorities = ['P1 Emergency', 'P2 Urgent', 'P3 Routine Normal', 'P4 Low'];
 
   return (
-    <div className="rounded-md border p-3">
-      <label htmlFor={`prio-${job.id}`} className="text-[11px] text-muted-foreground">
+    <div className="flex flex-col gap-1">
+      <label htmlFor={`prio-${job.id}`} className="text-[11px] font-medium text-muted-foreground">
         Priority
       </label>
       <select
@@ -631,7 +690,7 @@ function PrioritySelect({ job, canEdit }: { job: Job; canEdit: boolean }) {
           setPending(true);
           save.mutate(event.target.value);
         }}
-        className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
       >
         {/* Keep a value the server knows about but this list omits, rather than
             silently coercing it to the first option on render. */}

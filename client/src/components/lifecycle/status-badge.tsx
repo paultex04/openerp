@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { statusVariant } from '@/lib/lifecycle-status';
+import { useJobWorkflow } from '@/hooks/use-job-workflow';
 import { cn } from '@/lib/utils';
 import type { HTMLAttributes } from 'react';
 
@@ -28,11 +29,18 @@ export function varianceTone(value: number): string {
  * Compact status pill for use inside dense tables, where a full-size `Badge` is
  * too heavy. Still derives its colour from the shared lifecycle map, so a job
  * looks identical in the stepper, the board and the register.
+ *
+ * The label is resolved through `useJobWorkflow` rather than shown verbatim:
+ * status *keys* are what the database stores, and since Phase 15 an administrator
+ * can relabel a stage, so the name a reader sees has to come from the live
+ * catalogue. A key that no longer exists falls back to itself, which is the
+ * honest display for a job standing on a status the catalogue has lost.
  */
 export function StatusPill({ status, className }: { status: string; className?: string }) {
+  const { label } = useJobWorkflow();
   return (
     <Badge variant={statusVariant(status)} className={cn('px-1.5 text-[10px]', className)}>
-      {status}
+      {label(status)}
     </Badge>
   );
 }

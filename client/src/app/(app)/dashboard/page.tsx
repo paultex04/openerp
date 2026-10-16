@@ -44,6 +44,7 @@ import {
 } from '@/lib/api';
 import { formatDate, formatZar } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { useJobWorkflow } from '@/hooks/use-job-workflow';
 
 /**
  * Statuses that count as "not active" for the live-jobs tile.
@@ -207,6 +208,8 @@ export default function DashboardPage() {
   const mayReadInvoices = can('invoice.read');
   const mayReadContracts = can('contract.read');
 
+  const { statuses, label } = useJobWorkflow({ enabled: mayReadJobs });
+
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: () => api.get<{ projects: ProjectRow[] }>('/api/projects'),
@@ -297,10 +300,18 @@ export default function DashboardPage() {
   );
   const pendingValue = pendingInvoices.reduce((sum, invoice) => sum + invoice.totalWithTax, 0);
 
-  const stageCounts = allJobs.reduce<Record<string, number>>((counts, job) => {
-    counts[job.status] = (counts[job.status] ?? 0) + 1;
-    return counts;
-  }, {});
+  // Ordered by the live workflow rather than alphabetically: an administrator
+  // who moves a stage moves this list with it, and a stage whose label no longer
+  // starts with a number still sorts where the pipeline says it belongs.
+  const stageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const job of allJobs) counts.set(job.status, (counts.get(job.status) ?? 0) + 1);
+    const order = new Map(statuses.map((status) => [status.key, status.sortOrder]));
+    return [...counts.entries()].sort(
+      ([a], [b]) =>
+        (order.get(a) ?? Number.MAX_SAFE_INTEGER) - (order.get(b) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [allJobs, statuses]);
 
   const loading = authLoading;
   const nothingToShow =
@@ -422,36 +433,34 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
+          <div className="grid min-h-0 flex-1 auto-rows-fr gap-4 lg:grid-cols-2">
             {(mayReadJobs || mayReadProjects) && (
-              <Card>
+              <Card className="flex min-h-0 flex-col">
                 <CardHeader>
                   <CardTitle className="text-base">Pipeline by stage</CardTitle>
                   <CardDescription>
                     Where every job currently sits in the lifecycle.
                   </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="min-h-0 flex-1 overflow-y-auto">
                   {loading ? (
                     <div className="space-y-2">
                       <Skeleton className="h-6 w-full" />
                       <Skeleton className="h-6 w-4/5" />
                       <Skeleton className="h-6 w-2/3" />
                     </div>
-                  ) : Object.keys(stageCounts).length === 0 ? (
+                  ) : stageCounts.length === 0 ? (
                     <Empty>
                       <EmptyDescription>No jobs on the board.</EmptyDescription>
                     </Empty>
                   ) : (
                     <ul className="flex flex-col gap-2">
-                      {Object.entries(stageCounts)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([status, count]) => (
-                          <li key={status} className="flex items-center justify-between gap-3">
-                            <Badge variant={statusVariant(status)}>{status}</Badge>
-                            <span className="font-mono text-sm tabular-nums">{count}</span>
-                          </li>
-                        ))}
+                      {stageCounts.map(([status, count]) => (
+                        <li key={status} className="flex items-center justify-between gap-3">
+                          <Badge variant={statusVariant(status)}>{label(status)}</Badge>
+                          <span className="font-mono text-sm tabular-nums">{count}</span>
+                        </li>
+                      ))}
                     </ul>
                   )}
                 </CardContent>
@@ -477,7 +486,6 @@ export default function DashboardPage() {
                   ) : (
                     <DataTable<ExpiringAmendment>
                       caption="Contract amendments within 90 days of expiry"
-                      fill
                       data={expiring}
                       columns={expiringColumns}
                       rowKey={(row) => row.amendment.id}
@@ -526,7 +534,6 @@ export default function DashboardPage() {
                 ) : (
                   <DataTable<InvoiceRow>
                     caption="Invoices awaiting money"
-                    fill
                     data={pendingInvoices}
                     columns={pendingInvoiceColumns}
                     rowKey={(invoice) => invoice.id}

@@ -208,7 +208,6 @@ export function RolesPanel() {
 
       <DataTable
         caption="Permission matrix by role"
-        fill
         data={data}
         columns={columns}
         rowKey={(row) => row.key}

@@ -6,10 +6,12 @@
  *
  *  - **Amendment resolution.** A job with a null `amendment_id` inherits its
  *    project's. Resolved centrally so every read path agrees.
- *  - **Transition authorisation.** Legality comes from the shared state machine;
- *    capability comes from the principal. Both are checked here.
+ *  - **Transition authorisation.** Legality comes from the live workflow (the
+ *    admin-editable catalogue, loaded via `workflow.ts`); capability comes from
+ *    the principal. Both are checked here.
  *  - **Scope locking.** Planned quantities freeze once a job is released for
- *    procurement; actuals are only recordable during execution.
+ *    procurement; actuals are only recordable during execution. Both are
+ *    per-status flags in the workflow, not hard-coded stage lists.
  *  - **Price snapshots.** `applied_rate` is written once and never recomputed.
  */
 import { createHash } from 'node:crypto';
@@ -21,8 +23,7 @@ import {
   canEditActuals,
   canEditPlanned,
   computeDeliverableTotals,
-  jobStatusFromKey,
-  jobStatusToKey,
+  isKnownStatus,
   plannedLockReason,
   roundMoney,
   roundRate,
@@ -30,6 +31,7 @@ import {
 } from '@openerp/shared';
 import { prisma } from '../db/client.js';
 import type { Principal } from '../auth/principal.js';
+import { loadJobWorkflow } from './workflow.js';
 
 export class OperationsError extends Error {
   constructor(
@@ -102,9 +104,10 @@ export async function transitionJob(
 
   if (!job) throw new OperationsError(404, 'JOB_NOT_FOUND', `Job ${jobId} does not exist.`);
 
-  const from = jobStatusFromKey(job.status);
+  const workflow = await loadJobWorkflow();
+  const from = job.status;
 
-  const check = authoriseTransition(from, to, principal.permissions);
+  const check = authoriseTransition(workflow, from, to, principal.permissions);
 
   if (!check.allowed) {
     // Distinguish "you may not" from "that is not a thing", because the two need
@@ -123,7 +126,7 @@ export async function transitionJob(
 
   const updated = await prisma.job.update({
     where: { id: jobId },
-    data: { status: jobStatusToKey(to) as never },
+    data: { status: to },
     select: { status: true },
   });
 
@@ -146,6 +149,12 @@ export async function transitionJob(
  * lifecycle rather than by a user clicking a button, and it must bypass the
  * interactive capability check — the billing clerk's invoice action is the
  * authority, not a separate job transition.
+ *
+ * The two target keys are the one place the application names a status it did
+ * not read from the workflow: the invoice lifecycle needs somewhere to put the
+ * job, and "invoiced" is a fixed business fact. Since the catalogue is editable,
+ * the target is checked against it first so a deleted status fails with an
+ * explanation instead of a foreign-key error.
  */
 export async function markJobInvoiced(jobId: number, partially: boolean): Promise<void> {
   const target: JobStatus = partially ? '11. Partially Invoiced' : '10. Invoiced';
@@ -156,13 +165,21 @@ export async function markJobInvoiced(jobId: number, partially: boolean): Promis
   });
   if (!job) throw new OperationsError(404, 'JOB_NOT_FOUND', `Job ${jobId} does not exist.`);
 
-  const from = jobStatusFromKey(job.status);
-  if (from === target) return; // already in the desired state
+  if (job.status === target) return; // already in the desired state
 
-  // Billing must own invoicing, but an administrator may also drive this.
+  const workflow = await loadJobWorkflow();
+  if (!isKnownStatus(workflow, target)) {
+    throw new OperationsError(
+      409,
+      'JOB_STATUS_MISSING',
+      `The job workflow no longer contains "${target}", so job ${jobId} cannot be marked ` +
+        'invoiced. Restore the status in the admin workflow screen.',
+    );
+  }
+
   await prisma.job.update({
     where: { id: jobId },
-    data: { status: jobStatusToKey(target) as never },
+    data: { status: target },
   });
 }
 
@@ -193,23 +210,53 @@ export interface DeliverableView extends DeliverableTotals {
 }
 
 /**
- * Loads a job's deliverables with computed variance.
+ * A job's status plus the editability answers for it, read from the live
+ * workflow.
  *
- * `currentServiceCodeRate` is fetched purely so the UI can flag that a rate card
- * moved after scoping. It never participates in a subtotal.
+ * The three deliverable guards (planned, actuals, why-not) all reduce to the
+ * per-status flags, so they are computed together rather than each re-reading
+ * the job and the catalogue. One query for the status plus one cached read of
+ * the workflow, however many flags the caller inspects.
  */
-export async function listDeliverables(jobId: number): Promise<DeliverableView[]> {
+export interface JobEditability {
+  status: JobStatus;
+  canEditPlanned: boolean;
+  canEditActuals: boolean;
+  plannedLockReason: string | null;
+  actualsLockReason: string | null;
+}
+
+export async function jobEditability(jobId: number): Promise<JobEditability> {
+  const workflow = await loadJobWorkflow();
+
   const job = await prisma.job.findUnique({
     where: { id: jobId },
     select: { status: true },
   });
   if (!job) throw new OperationsError(404, 'JOB_NOT_FOUND', `Job ${jobId} does not exist.`);
 
-  const status = jobStatusFromKey(job.status);
-  const plannedLocked = !canEditPlanned(status);
-  const actualsLocked = !canEditActuals(status);
-  const plannedReason = plannedLockReason(status);
-  const actualsReason = actualsLockReason(status);
+  return {
+    status: job.status,
+    canEditPlanned: canEditPlanned(workflow, job.status),
+    canEditActuals: canEditActuals(workflow, job.status),
+    plannedLockReason: plannedLockReason(workflow, job.status),
+    actualsLockReason: actualsLockReason(workflow, job.status),
+  };
+}
+
+/**
+ * Loads a job's deliverables with computed variance.
+ *
+ * `currentServiceCodeRate` is fetched purely so the UI can flag that a rate card
+ * moved after scoping. It never participates in a subtotal.
+ */
+export async function listDeliverables(jobId: number): Promise<DeliverableView[]> {
+  const editability = await jobEditability(jobId);
+
+  const plannedLocked = !editability.canEditPlanned;
+  const actualsLocked = !editability.canEditActuals;
+  const plannedReason = editability.plannedLockReason;
+  const actualsReason = editability.actualsLockReason;
 
   const rows = await prisma.jobServiceCode.findMany({
     where: { jobId },
@@ -261,15 +308,6 @@ export async function jobVarianceSummary(jobId: number) {
   return aggregateTotals(deliverables);
 }
 
-async function loadJobStatus(jobId: number): Promise<JobStatus> {
-  const job = await prisma.job.findUnique({
-    where: { id: jobId },
-    select: { status: true },
-  });
-  if (!job) throw new OperationsError(404, 'JOB_NOT_FOUND', `Job ${jobId} does not exist.`);
-  return jobStatusFromKey(job.status);
-}
-
 /**
  * Attaches a service code to a job and snapshots its current unit rate.
  *
@@ -283,13 +321,13 @@ export async function addDeliverable(
   plannedQuantity: number,
   appliedRateOverride?: number,
 ): Promise<DeliverableView[]> {
-  const status = await loadJobStatus(jobId);
+  const editability = await jobEditability(jobId);
 
-  if (!canEditPlanned(status)) {
+  if (!editability.canEditPlanned) {
     throw new OperationsError(
       409,
       'SCOPE_FROZEN',
-      plannedLockReason(status) ?? 'Planned quantities are frozen for this job.',
+      editability.plannedLockReason ?? 'Planned quantities are frozen for this job.',
     );
   }
 
@@ -376,13 +414,13 @@ export async function updatePlannedQuantity(
     );
   }
 
-  const status = await loadJobStatus(existing.jobId);
+  const editability = await jobEditability(existing.jobId);
 
-  if (!canEditPlanned(status)) {
+  if (!editability.canEditPlanned) {
     throw new OperationsError(
       409,
       'SCOPE_FROZEN',
-      plannedLockReason(status) ?? 'Planned quantities are frozen for this job.',
+      editability.plannedLockReason ?? 'Planned quantities are frozen for this job.',
     );
   }
 
@@ -420,13 +458,13 @@ export async function updateActualQuantity(
     );
   }
 
-  const status = await loadJobStatus(existing.jobId);
+  const editability = await jobEditability(existing.jobId);
 
-  if (!canEditActuals(status)) {
+  if (!editability.canEditActuals) {
     throw new OperationsError(
       409,
       'ACTUALS_LOCKED',
-      actualsLockReason(status) ?? 'Actuals cannot be recorded at this stage.',
+      editability.actualsLockReason ?? 'Actuals cannot be recorded at this stage.',
     );
   }
 
@@ -455,12 +493,12 @@ export async function removeDeliverable(deliverableId: number): Promise<void> {
     );
   }
 
-  const status = await loadJobStatus(existing.jobId);
-  if (!canEditPlanned(status)) {
+  const editability = await jobEditability(existing.jobId);
+  if (!editability.canEditPlanned) {
     throw new OperationsError(
       409,
       'SCOPE_FROZEN',
-      plannedLockReason(status) ?? 'The scope of this job is frozen.',
+      editability.plannedLockReason ?? 'The scope of this job is frozen.',
     );
   }
 

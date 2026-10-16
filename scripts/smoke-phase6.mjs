@@ -195,14 +195,7 @@ async function main() {
   section('Gate 2: the authenticated area is closed without a cookie');
   // =====================================================================
 
-  for (const route of [
-    '/dashboard',
-    '/commercial',
-    '/operations',
-    '/billing',
-    '/field',
-    '/admin',
-  ]) {
+  for (const route of ['/dashboard', '/commercial', '/operations', '/billing', '/admin']) {
     const probeResult = await probe(`${WEB}${route}`);
     check(`GET ${route} without a session -> status`, probeResult.status, 302);
     checkThat(
@@ -359,7 +352,6 @@ async function main() {
     '/operations?view=board',
     '/operations?view=board&status=07.%20Pack%20Ready',
     '/billing',
-    '/field',
     '/admin?tab=users',
     '/admin?tab=roles',
     '/admin?tab=audit',
@@ -367,6 +359,12 @@ async function main() {
     const result = await probe(`${WEB}${route}`, adminCookie);
     check(`GET ${route} as administrator -> status`, result.status, 200);
   }
+
+  // The Field Measurements & Actuals page was removed in Phase 15: it modelled a
+  // workflow (walk the site, key in actuals) this business does not run. Its API
+  // endpoints stay; only the screen is gone, and it must stay gone.
+  const removedField = await probe(`${WEB}/field`, adminCookie);
+  check('GET /field (removed page) as administrator -> status', removedField.status, 404);
 
   // =====================================================================
   section('Gate 7: the theme catalogue and the stylesheet agree');

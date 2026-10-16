@@ -27,10 +27,10 @@ import {
   HardHat,
   ListChecks,
   Receipt,
-  Ruler,
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
+  UserRound,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -113,12 +113,6 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         icon: ListChecks,
         anyOf: ['job.read', 'job.read.assigned'],
       },
-      {
-        href: '/field',
-        label: 'Field Measurements & Actuals',
-        icon: Ruler,
-        anyOf: ['deliverable.read', 'job.read.assigned'],
-      },
     ],
   },
   {
@@ -196,6 +190,20 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         anyOf: ['admin.audit.read'],
       },
     ],
+  },
+  {
+    key: 'account',
+    label: 'Account',
+    icon: UserRound,
+    /**
+     * Never rendered in the sidebar: "My Profile" is reached from the user
+     * menu. An empty `anyOf` is what keeps it out - `visibleSections` filters
+     * on exactly the same rule as every other section, so this is not a hidden
+     * special case. The entry exists so `breadcrumbFor` can label the screen
+     * instead of falling back to a bare "OpenERP".
+     */
+    anyOf: [],
+    items: [{ href: '/profile', label: 'My Profile', icon: UserRound, anyOf: [] }],
   },
 ];
 

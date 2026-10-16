@@ -111,8 +111,6 @@ export interface MasterDataPanelProps<T extends object> {
   initialFilters?: Readonly<Record<string, string>>;
   /** Extra toolbar content beside the New button. */
   toolbarExtra?: React.ReactNode;
-  /** Grows the table to fill the viewport. Off for short panels. */
-  fill?: boolean;
 }
 
 /** Response shapes differ per resource; extract the array the panel needs. */
@@ -140,7 +138,6 @@ export function MasterDataPanel<T extends object>({
   renderExtraRowActions,
   initialFilters,
   toolbarExtra,
-  fill = false,
 }: MasterDataPanelProps<T>) {
   const queryClient = useQueryClient();
   const { permissions } = usePermissions();
@@ -300,7 +297,6 @@ export function MasterDataPanel<T extends object>({
         filters={tableFilters}
         caption={resource.plural}
         emptyMessage={`No ${resource.plural.toLowerCase()} match the current search and filters.`}
-        fill={fill}
         isLoading={list.isLoading}
         actions={
           <>

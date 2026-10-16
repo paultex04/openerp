@@ -313,7 +313,7 @@ export default function CommercialPage() {
 
       {/* ---- Contracts ---- */}
       {tab === 'contracts' && (
-        <section className="space-y-3">
+        <section className="flex min-h-0 flex-1 flex-col gap-3">
           {contracts.isLoading && (
             <p className="text-sm text-muted-foreground">Loading contracts…</p>
           )}
@@ -332,7 +332,6 @@ export default function CommercialPage() {
           */}
           <DataTable<ContractRow>
             caption="Contracts and their amendments"
-            fill
             data={contracts.data?.contracts ?? []}
             columns={contractColumns}
             rowKey={(contract) => contract.id}
@@ -456,7 +455,6 @@ export default function CommercialPage() {
           */}
           <DataTable<RateCardRow>
             caption="Rate card summary"
-            fill
             data={rates.data.rates}
             columns={rateCardColumns}
             rowKey={(rate) => rate.id}

@@ -54,6 +54,12 @@ const INVOICE_VARIANTS: Readonly<Record<string, LifecycleVariant>> = {
 /**
  * Badge variant for a job status. Falls back to `outline` so an unrecognised
  * label looks visibly unknown rather than silently healthy.
+ *
+ * Since Phase 15 the catalogue is administrator-editable, so an unfamiliar key
+ * is a normal occurrence rather than a bug: a status someone created renders
+ * neutral grey until a variant is declared for it here. The alternative -
+ * guessing a colour from the label's prefix - would repaint a relabelled stage
+ * silently, which is worse than admitting the colour is unknown.
  */
 export function statusVariant(status: string): LifecycleVariant {
   return JOB_VARIANTS[status as JobStatus] ?? 'outline';

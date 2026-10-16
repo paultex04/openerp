@@ -8,23 +8,11 @@
  */
 import { z } from 'zod';
 
-export const jobStatusValues = [
-  '00. Cancelled',
-  '01. Scoping',
-  '01A. Scoped',
-  '02. Awaiting PO',
-  '03. WNYS',
-  '04. WIP',
-  '05. Work Complete',
-  '06. Actuals in Progress',
-  '07. Pack Ready',
-  '08. Out for signature',
-  '09. Awaiting change order',
-  '10. Invoiced',
-  '11. Partially Invoiced',
-] as const;
-export const jobStatusSchema = z.enum(jobStatusValues);
-export type JobStatus = z.infer<typeof jobStatusSchema>;
+/*
+ * Job statuses are deliberately absent here. Since Phase 15 they are rows in
+ * `job_statuses`, validated against the live catalogue rather than a compile-time
+ * enum; see `../job-status.ts` for the types and the engine.
+ */
 
 export const jobPriorityValues = [
   'P1 - Emergency / Breakdown',

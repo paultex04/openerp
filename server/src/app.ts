@@ -1,8 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { authPlugin, HttpError } from './auth/plugin.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerProfileRoutes, AVATAR_MAX_BYTES } from './routes/profile.js';
 import { registerClientRoutes } from './routes/contracts.js';
 import { registerAmendmentRoutes } from './routes/amendments.js';
 import { registerRateMasterRoutes } from './routes/rates.js';
@@ -10,6 +12,7 @@ import { registerServiceCodeRoutes } from './routes/serviceCodes.js';
 import { registerOperationsRoutes } from './routes/operations.js';
 import { registerInvoiceRoutes } from './routes/invoices.js';
 import { registerAdminRoutes } from './routes/admin.js';
+import { registerAdminWorkflowRoutes } from './routes/admin-workflow.js';
 import { registerOrganisationRoutes } from './routes/organisation.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
@@ -43,6 +46,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   await app.register(authPlugin, { config });
 
+  // Multipart uploads (the profile avatar). The cap is enforced while the file
+  // streams, so an oversized upload is refused before it is buffered in memory.
+  await app.register(multipart, {
+    limits: { fileSize: AVATAR_MAX_BYTES, files: 1, fields: 8 },
+  });
+
   // ---- Liveness / readiness ---------------------------------------------
   app.get('/health', async () => ({ status: 'ok', version: APP_VERSION }));
 
@@ -61,6 +70,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Auth routes -------------------------------------------------------
   await registerAuthRoutes(app, config);
+  await registerProfileRoutes(app, config);
 
   // ---- Phase 2: commercial ----------------------------------------------
   await registerClientRoutes(app);
@@ -76,6 +86,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Phase 5: admin & audit -------------------------------------------
   await registerAdminRoutes(app);
+  // Phase 15: the job status workflow editor.
+  await registerAdminWorkflowRoutes(app);
 
   // ---- Phase 7: organisation master data --------------------------------
   await registerOrganisationRoutes(app);

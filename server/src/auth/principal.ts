@@ -17,12 +17,15 @@ export interface Principal {
   email: string;
   isActive: boolean;
   tokenVersion: number;
+  /** Avatar cache-buster; null when the account has no avatar. */
+  avatarUpdatedAt: Date | null;
   roleKeys: string[];
   permissions: Set<string>;
   employee: {
     id: number;
     name: string;
     surname: string;
+    mobile: string | null;
     email: string | null;
   };
 }
@@ -47,8 +50,9 @@ export async function resolvePrincipal(claims: TokenClaims): Promise<Principal> 
       email: true,
       isActive: true,
       tokenVersion: true,
+      avatarUpdatedAt: true,
       employee: {
-        select: { id: true, name: true, surname: true, email: true },
+        select: { id: true, name: true, surname: true, mobile: true, email: true },
       },
       roles: {
         select: {
@@ -91,6 +95,7 @@ export async function resolvePrincipal(claims: TokenClaims): Promise<Principal> 
     email: user.email,
     isActive: user.isActive,
     tokenVersion: user.tokenVersion,
+    avatarUpdatedAt: user.avatarUpdatedAt,
     roleKeys,
     permissions: new Set(
       user.roles.flatMap((r) => r.role.permissions.map((rp) => rp.permission.key)),

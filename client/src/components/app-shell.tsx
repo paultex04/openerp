@@ -18,11 +18,11 @@
  * take a `render` prop rather than Radix's `asChild`. See ADR-006.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Gauge } from 'lucide-react';
+import { ChevronDown, Gauge, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
 import { Suspense, useMemo } from 'react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -64,46 +64,10 @@ import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { api } from '@/lib/api';
+import { avatarImageUrl, avatarTint, initials } from '@/lib/avatar';
 import { breadcrumbFor, visibleSections, type NavSection } from '@/lib/nav';
 import { useCollapsedSections, useSidebarOpen } from '@/lib/shell-preferences';
 import { cn } from '@/lib/utils';
-
-/**
- * Avatar tint, chosen from the address so it is stable per user rather than
- * changing on every render or navigation.
- *
- * Built from theme tokens rather than literal colour ramps. The literals were a
- * fixed set of four colours that ignored the active theme entirely, so under
- * Midnight four dark-on-dark avatars rendered at near-zero contrast. A low-alpha
- * fill plus the solid token for the text lets the tint follow the palette and
- * keeps the lettering legible in every theme.
- */
-const ROLE_TINTS = [
-  'bg-info/15 text-info',
-  'bg-primary/15 text-primary',
-  'bg-warning/15 text-warning',
-  'bg-success/15 text-success',
-];
-
-/**
- * Derives avatar initials from either a person's name or an email address.
- *
- * Names split on whitespace ("Bongani Dlamini" -> "BD"); addresses fall back to
- * the local part with separators treated as word breaks ("david.m" -> "DM"), since
- * not every account has a linked employee record.
- */
-function initials(value: string | undefined): string {
-  if (!value) return '?';
-  if (value.includes('@')) {
-    const local = value.split('@')[0] ?? '';
-    const parts = local.split(/[._-]+/).filter(Boolean);
-    const letters = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '');
-    return letters.join('') || (local[0] ?? '?').toUpperCase();
-  }
-  const parts = value.trim().split(/\s+/).filter(Boolean);
-  const letters = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '');
-  return letters.join('') || (value[0] ?? '?').toUpperCase();
-}
 
 /** `commercial_qs` -> "Commercial QS"; acronyms stay uppercase. */
 function humanise(roles: readonly string[]): string {
@@ -240,6 +204,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               displayName={
                 user?.employee ? `${user.employee.name} ${user.employee.surname}`.trim() : undefined
               }
+              avatarUrl={avatarImageUrl(user?.user.avatarUpdatedAt)}
               roles={user?.roles.map((role) => role.key) ?? []}
               loggingOut={logout.isPending}
               onLogout={() => logout.mutate()}
@@ -546,17 +511,20 @@ function AppSidebar({
 function UserMenu({
   email,
   displayName,
+  avatarUrl,
   roles,
   loggingOut,
   onLogout,
 }: {
   email: string | undefined;
   displayName: string | undefined;
+  /** undefined renders the initials fallback - the account has no avatar. */
+  avatarUrl: string | undefined;
   roles: readonly string[];
   loggingOut: boolean;
   onLogout: () => void;
 }) {
-  const tint = ROLE_TINTS[(email ?? 'anon').length % ROLE_TINTS.length];
+  const tint = avatarTint(email);
   // Prefer the person's name; fall back to the address when no employee record is
   // linked. Never render both in the trigger - it is too long for the header.
   const label = displayName || email || 'Signed in';
@@ -567,6 +535,7 @@ function UserMenu({
         render={
           <Button variant="ghost" size="sm" className="h-9 gap-2 px-2">
             <Avatar className="size-7">
+              {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
               <AvatarFallback className={cn('text-[11px] font-semibold', tint)}>
                 {initials(displayName || email)}
               </AvatarFallback>
@@ -593,6 +562,10 @@ function UserMenu({
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        <DropdownMenuItem render={<Link href="/profile" />}>
+          <UserRound aria-hidden="true" />
+          My Profile
+        </DropdownMenuItem>
         <DropdownMenuItem variant="destructive" disabled={loggingOut} onClick={onLogout}>
           {loggingOut ? 'Signing out…' : 'Sign out'}
         </DropdownMenuItem>

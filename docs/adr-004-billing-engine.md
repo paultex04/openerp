@@ -81,7 +81,8 @@ is a data-completeness problem, not a reason to refuse to bill. The seeded clien
 is VAT-registered with **no VAT number on file**, so every new VAT-charging invoice
 raises a warning; the seeded invoice is VAT-exempt at 0%. The UI shows the warning
 block above the lines and the seeded document's amber banner is that warning firing
-correctly.
+correctly. (Phase 15: the seeded client's VAT fields are operator data now — the
+suites no longer write, null or assert them; the warning rule itself is unchanged.)
 
 The `effectiveTaxRate` is re-derived on read rather than trusted from storage, so a
 non-registered client always displays 0 even if the stored rate says otherwise.
