@@ -249,7 +249,7 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         throw new HttpError(
           422,
           'PROTECTED_PERMISSION',
-          'Administrator permissions cannot be granted to non-administrator roles.',
+          `Administrator permissions cannot be granted to non-administrator roles: ${forbidden.join(', ')}.`,
         );
       }
 
