@@ -136,3 +136,57 @@ export function useCollapsedSections(): [ReadonlySet<string>, (key: string) => v
 
   return [collapsed, toggle];
 }
+
+/** Where the chat dock's open/closed state lives between reloads. */
+export const CHAT_OPEN_KEY = 'openerp_chat_open';
+
+/** Where the chat dock's pinned state lives between reloads. */
+export const CHAT_PINNED_KEY = 'openerp_chat_pinned';
+
+function readFlag(key: string, fallback: boolean): boolean {
+  const stored = window.localStorage.getItem(key);
+  return stored === null ? fallback : stored === 'true';
+}
+
+function writeFlag(key: string, value: boolean): void {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Private-mode storage denial must not break the dock.
+  }
+  emit();
+}
+
+/**
+ * Whether the chat dock is open.
+ *
+ * Closed by default: a conversation panel that opened itself on every page load
+ * would be an interruption, and the unread badge on the toggle is what tells the
+ * user there is something to open. Booleans are primitives, so the snapshot is
+ * stable by value and needs none of the identity caching the section list does.
+ */
+export function useChatDockOpen(): [boolean, (open: boolean) => void] {
+  const open = useSyncExternalStore(
+    subscribe,
+    () => readFlag(CHAT_OPEN_KEY, false),
+    () => false,
+  );
+  const setOpen = useCallback((next: boolean) => writeFlag(CHAT_OPEN_KEY, next), []);
+  return [open, setOpen];
+}
+
+/**
+ * Whether the dock is pinned beside the content on wide screens.
+ *
+ * Off by default: pinning reflows every table, so it is a deliberate choice
+ * rather than something the app does on first run.
+ */
+export function useChatDockPinned(): [boolean, (pinned: boolean) => void] {
+  const pinned = useSyncExternalStore(
+    subscribe,
+    () => readFlag(CHAT_PINNED_KEY, false),
+    () => false,
+  );
+  const setPinned = useCallback((next: boolean) => writeFlag(CHAT_PINNED_KEY, next), []);
+  return [pinned, setPinned];
+}

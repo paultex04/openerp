@@ -770,3 +770,95 @@ export interface JobTimeEntries {
   entries: JobTimeEntry[];
   totals: { hours: number; billableHours: number; cost: number; unpricedLines: number };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 17: internal chat
+// ---------------------------------------------------------------------------
+
+/** Another account, as the chat directory and a conversation's peer present it. */
+export interface ChatUser {
+  id: number;
+  employeeId: number;
+  name: string;
+  email: string;
+  isActive: boolean;
+  avatarUpdatedAt: string | null;
+}
+
+/** An image on a message. Its bytes are fetched from `/api/chat/attachments/:id`. */
+export interface ChatAttachment {
+  id: number;
+  mime: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  originalName: string | null;
+}
+
+export interface ChatMessage {
+  id: number;
+  conversationId: number;
+  senderId: number;
+  senderName: string;
+  body: string;
+  createdAt: string;
+  editedAt: string | null;
+  deletedAt: string | null;
+  /** The image sent with the message, if any. `null` for a text-only message. */
+  attachment: ChatAttachment | null;
+}
+
+/** A conversation as the list needs it. Step 1 only creates direct ones. */
+export interface ChatConversation {
+  id: number;
+  kind: string;
+  /** The other member. */
+  peer: ChatUser;
+  lastMessage: ChatMessage | null;
+  lastMessageAt: string | null;
+  lastReadAt: string | null;
+  /** The peer's read watermark, used to render a "Seen" marker on own messages. */
+  peerLastReadAt: string | null;
+  unreadCount: number;
+}
+
+export interface ChatConversationsResponse {
+  conversations: ChatConversation[];
+}
+export interface ChatConversationResponse {
+  conversation: ChatConversation;
+}
+export interface ChatMessagesResponse {
+  messages: ChatMessage[];
+}
+export interface ChatMessageResponse {
+  message: ChatMessage;
+}
+export interface ChatUsersResponse {
+  users: ChatUser[];
+}
+
+/** A message found by search, with the conversation it belongs to. */
+export interface ChatSearchResult {
+  conversationId: number;
+  peer: ChatUser;
+  message: ChatMessage;
+}
+export interface ChatSearchResponse {
+  results: ChatSearchResult[];
+}
+
+/**
+ * Frames on `/api/chat/stream`. `ready` carries the initial online snapshot;
+ * the rest mirror the server's event bus. Mirrored by hand, like the other chat
+ * types, because the server's view types live in the server workspace.
+ */
+export type ChatStreamEvent =
+  | { type: 'ready'; selfId: number; online: number[] }
+  | { type: 'message'; conversationId: number; message: ChatMessage }
+  | { type: 'read'; conversationId: number; userId: number; lastReadAt: string }
+  | { type: 'typing'; conversationId: number; userId: number; isTyping: boolean }
+  | { type: 'presence'; userId: number; online: boolean };
+
+/** `connecting`/`open` while the stream is up; `closed` means polling takes over. */
+export type ChatStreamStatus = 'connecting' | 'open' | 'closed';

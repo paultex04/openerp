@@ -106,6 +106,17 @@ enum TimesheetStatus {
   @@map("timesheet_status_enum")
 }
 
+/// Phase 17. Only DM is created today; the others exist so job/project channels
+/// are additive later rather than a rewrite.
+enum ConversationKind {
+  DM      @map("DM")
+  JOB     @map("JOB")
+  PROJECT @map("PROJECT")
+  GROUP   @map("GROUP")
+
+  @@map("conversation_kind_enum")
+}
+
 // ---------------------------------------------------------------------------
 // Organisation
 // ---------------------------------------------------------------------------
@@ -685,6 +696,8 @@ model AppUser {
   auditEntries AuditLog[]
   timesheetsSubmitted Timesheet[] @relation("TimesheetSubmittedBy")
   timesheetsDecided   Timesheet[] @relation("TimesheetDecidedBy")
+  conversationMembers ConversationMember[]
+  messages            Message[]            @relation("MessageSender")
 
   @@index([isActive])
   @@map("app_user")
@@ -786,4 +799,91 @@ model RolePermission {
   @@id([roleId, permissionId])
   @@index([permissionId])
   @@map("role_permission")
+}
+
+// ---------------------------------------------------------------------------
+// Chat (Phase 17)
+//
+// Step 1 is person-to-person only. Membership is the read boundary: there is no
+// global "read all messages" permission, because visibility is a fact about the
+// row, not a capability. See ADR-013.
+// ---------------------------------------------------------------------------
+
+/// A conversation is a container. Only `DM` is created today; the other kinds
+/// exist so job/project channels are additive later rather than a rewrite.
+model Conversation {
+  id            Int              @id @default(autoincrement())
+  kind          ConversationKind @default(DM)
+  /// Stable dedupe key for a DM: the two account ids sorted, "min:max". NULL for
+  /// kinds that are not deduplicated this way.
+  dmKey         String?          @unique @map("dm_key") @db.VarChar(64)
+  title         String?          @db.VarChar(150)
+  /// Denormalised from the newest message so the list is one query, not an
+  /// aggregate per row.
+  lastMessageAt DateTime?        @map("last_message_at") @db.Timestamptz(3)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  members  ConversationMember[]
+  messages Message[]
+
+  @@index([lastMessageAt])
+  @@map("conversation")
+}
+
+model ConversationMember {
+  id             Int       @id @default(autoincrement())
+  conversationId Int       @map("conversation_id")
+  userId         Int       @map("user_id")
+  /// Everything up to here has been read; drives the unread badge. Null means
+  /// "nothing read yet".
+  lastReadAt     DateTime? @map("last_read_at") @db.Timestamptz(3)
+  joinedAt       DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         AppUser      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_member")
+}
+
+model Message {
+  id             Int       @id @default(autoincrement())
+  conversationId Int       @map("conversation_id")
+  senderId       Int       @map("sender_id")
+  body           String
+  /// Idempotency key: a retried send returns the original, not a duplicate.
+  clientToken    String?   @map("client_token") @db.VarChar(64)
+  /// Reserved for a later edit/delete step; edit and delete are not in v1.
+  editedAt       DateTime? @map("edited_at") @db.Timestamptz(3)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       AppUser            @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  attachment   MessageAttachment?
+
+  @@unique([conversationId, clientToken])
+  @@index([conversationId, createdAt, id])
+  @@map("message")
+}
+
+/// An image on a message (Phase 17, step 3). One per message for v1. The bytes
+/// are processed by `sharp` on upload and stored here, following the avatar
+/// precedent, because the API container has no persistent volume.
+model MessageAttachment {
+  id           Int      @id @default(autoincrement())
+  messageId    Int      @unique @map("message_id")
+  bytes        Bytes
+  mime         String   @db.VarChar(64)
+  originalName String?  @map("original_name") @db.VarChar(255)
+  width        Int
+  height       Int
+  sizeBytes    Int      @map("size_bytes")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@map("message_attachment")
 }

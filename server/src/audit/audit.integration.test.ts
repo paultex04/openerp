@@ -508,7 +508,7 @@ describe('Gate 4: the admin suite', () => {
       expect(updatedRole.permissionsCustomized).toBe(true);
     } finally {
       const permissionRows = await prisma.permission.findMany({
-        where: { key: { in: [...originalKeys, 'admin.role.write'] } },
+        where: { key: { in: originalKeys } },
         select: { id: true },
       });
       await prisma.$transaction([

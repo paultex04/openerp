@@ -7,7 +7,11 @@
  * Database note: the baseline schema predates this test harness and has no
  * fixture loader, so integration tests run against the configured database and
  * clean up every row they create (see `createTestUser`). They only ever touch
- * `employee` and `app_user`, never baseline commercial or operational data.
+ * `employee` and `app_user`, plus temporary `role_permission` edits that each
+ * test restores in a `finally`, never baseline commercial or operational data.
+ *
+ * Note `loadEnvFile()` reads the workspace `.env`, so these tests share the dev
+ * database: a `finally` that restores the wrong grant set leaks into real data.
  */
 import { loadEnvFile } from '../lib/env.js';
 

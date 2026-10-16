@@ -78,6 +78,7 @@ export const PERMISSION_CATEGORIES = [
   'actuals',
   'invoice',
   'timesheet',
+  'chat',
   'organisation',
   'admin',
 ] as const;
@@ -166,6 +167,13 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   P('timesheet.approve', 'timesheet', 'Approve, reject and reopen submitted timesheets.'),
   P('timesheet.override', 'timesheet', 'Enter a manual cost-rate override on a timesheet line.'),
 
+  // --- Chat (Phase 17) -----------------------------------------------------
+  // Chat is cross-cutting, so every role that can sign in holds these. There is
+  // deliberately no "read everyone's messages" key: visibility is conversation
+  // membership, which is a fact about the row, not a capability a role grants.
+  P('chat.read', 'chat', 'Use chat: list your conversations and read their messages.'),
+  P('chat.write', 'chat', 'Send messages and start conversations.'),
+
   // --- Organisation (Phase 7) ---------------------------------------------
   // Clients deliberately ride on `contract.*` rather than having their own keys,
   // so that a client read/write/delete shows under Commercial in the permission
@@ -216,9 +224,16 @@ export const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 const keysOf = (...prefixes: string[]): string[] =>
   PERMISSION_KEYS.filter((k) => prefixes.some((p) => k.startsWith(p)));
 
+/**
+ * Chat is cross-cutting: every role that can sign in gets it, so it lives in one
+ * place rather than being repeated (and one day forgotten) in each grant list.
+ */
+const CHAT_GRANTS: string[] = ['chat.read', 'chat.write'];
+
 /** Everything the commercial side of the business may touch. */
 const COMMERCIAL_GRANTS: string[] = [
   ...keysOf('contract.', 'amendment.', 'costparameter.', 'ratemaster.', 'servicecode.', 'recipe.'),
+  ...CHAT_GRANTS,
   'project.read',
   'job.read',
   'deliverable.read',
@@ -234,6 +249,7 @@ const COMMERCIAL_GRANTS: string[] = [
 
 /** The PM owns scoping but has no commercial rate authority. */
 const PROJECT_MANAGER_GRANTS: string[] = [
+  ...CHAT_GRANTS,
   'project.read',
   'project.write',
   'job.read',
@@ -257,6 +273,7 @@ const PROJECT_MANAGER_GRANTS: string[] = [
 
 /** Field supervisors are restricted to their assigned jobs and to actuals. */
 const SITE_SUPERVISOR_GRANTS: string[] = [
+  ...CHAT_GRANTS,
   'job.read.assigned',
   'deliverable.read',
   'deliverable.write.actual',
@@ -269,6 +286,7 @@ const SITE_SUPERVISOR_GRANTS: string[] = [
 
 /** Billing clerks read operations but own everything from pack-ready onward. */
 const BILLING_CLERK_GRANTS: string[] = [
+  ...CHAT_GRANTS,
   'job.read',
   'deliverable.read',
   'invoice.read',
