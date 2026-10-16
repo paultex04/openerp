@@ -96,11 +96,11 @@ Every built-in role holds both — chat is cross-cutting — so the grant lives 
 
 ## Phasing
 
-| Step | Scope | State |
-| ---- | ----- | ----- |
-| 1 | Schema + migration + RBAC + REST + dock/page UI on polling | **shipped** |
-| 2 | `GET /api/chat/stream` (SSE), typing and presence, per-message receipts | planned |
-| 3 | Attachments (image-first, via `sharp`), notifications, server-side search | planned |
+| Step | Scope                                                                     | State       |
+| ---- | ------------------------------------------------------------------------- | ----------- |
+| 1    | Schema + migration + RBAC + REST + dock/page UI on polling                | **shipped** |
+| 2    | `GET /api/chat/stream` (SSE), typing and presence, per-message receipts   | planned     |
+| 3    | Attachments (image-first, via `sharp`), notifications, server-side search | planned     |
 
 ## Consequences
 
