@@ -359,6 +359,7 @@ function UserDialog({
   const [employeeMode, setEmployeeMode] = useState<'existing' | 'new'>('existing');
   const [employeeId, setEmployeeId] = useState('');
   const [contractTypeId, setContractTypeId] = useState('');
+  const [employeeRate, setEmployeeRate] = useState('');
   const [password, setPassword] = useState('');
   const [roleKeys, setRoleKeys] = useState<string[]>([]);
 
@@ -398,6 +399,7 @@ function UserDialog({
                   surname: surname.trim(),
                   startDate,
                   contractTypeId: Number(contractTypeId || createOptions?.contractTypes[0]?.id),
+                  rate: Number(employeeRate),
                 },
         });
       }
@@ -438,6 +440,7 @@ function UserDialog({
         : name.trim().length > 0 &&
           surname.trim().length > 0 &&
           startDate.length > 0 &&
+          Number(employeeRate) > 0 &&
           (createOptions?.contractTypes.length ?? 0) > 0)
     : roleKeys.length > 0;
 
@@ -568,6 +571,21 @@ function UserDialog({
                 ) : (
                   <FieldDescription>No active contract types are available.</FieldDescription>
                 )}
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="new-rate">Cost rate (ZAR/hour)</FieldLabel>
+                <Input
+                  id="new-rate"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={employeeRate}
+                  onChange={(event) => setEmployeeRate(event.target.value)}
+                />
+                <FieldDescription>
+                  Timesheets price this employee's hours at this rate, so it is required.
+                </FieldDescription>
               </Field>
             </>
           )}

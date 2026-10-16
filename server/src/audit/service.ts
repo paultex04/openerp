@@ -53,6 +53,8 @@ const MODEL_LABELS: Record<string, string> = {
   AppUser: 'user account',
   AppRole: 'role',
   RolePermission: 'role permission grant',
+  Timesheet: 'timesheet',
+  TimesheetEntry: 'timesheet line',
 };
 
 export function modelLabel(model: string): string {

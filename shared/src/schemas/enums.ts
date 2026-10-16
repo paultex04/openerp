@@ -74,3 +74,12 @@ export const invoiceStatusValues = [
 ] as const;
 export const invoiceStatusSchema = z.enum(invoiceStatusValues);
 export type InvoiceStatus = z.infer<typeof invoiceStatusSchema>;
+
+/*
+ * Timesheet states are internal plumbing (draft/submitted/approved/rejected),
+ * not a business-owned pipeline, so they stay a fixed enum rather than the
+ * admin-editable catalogue that job statuses became in Phase 15.
+ */
+export const timesheetStatusValues = ['Draft', 'Submitted', 'Approved', 'Rejected'] as const;
+export const timesheetStatusSchema = z.enum(timesheetStatusValues);
+export type TimesheetStatus = z.infer<typeof timesheetStatusSchema>;

@@ -560,6 +560,7 @@ async function main() {
         startDate: '2026-01-01',
         contractTypeId: typeId,
         brokerId,
+        rate: 150,
       },
     });
     check('POST /api/employees', empRes.status, 201);
@@ -646,7 +647,13 @@ async function main() {
   const badRef = await request('/api/employees', {
     method: 'POST',
     cookie: A,
-    body: { name: 'Bad', surname: 'Ref', startDate: '2026-01-01', contractTypeId: 99999999 },
+    body: {
+      name: 'Bad',
+      surname: 'Ref',
+      startDate: '2026-01-01',
+      contractTypeId: 99999999,
+      rate: 150,
+    },
   });
   check('an unknown contract type is a 400', badRef.status, 400);
   checkThat(

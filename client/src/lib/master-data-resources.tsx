@@ -403,7 +403,14 @@ export const EMPLOYEES: ResourceDef<EmployeeRow> = {
     { name: 'contractTypeId', label: 'Contract type', kind: 'select', required: true },
     { name: 'brokerId', label: 'Broker', kind: 'select', nullable: true },
     { name: 'managerId', label: 'Manager', kind: 'select', nullable: true },
-    { name: 'rate', label: 'Rate (ZAR/hr)', kind: 'money', nullable: true, placeholder: '0.00' },
+    {
+      name: 'rate',
+      label: 'Rate (ZAR/hr)',
+      kind: 'money',
+      required: true,
+      placeholder: '0.00',
+      hint: 'The hourly cost rate timesheets price this employee at. Required.',
+    },
   ],
   filters: [
     {

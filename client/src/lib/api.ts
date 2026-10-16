@@ -604,3 +604,139 @@ export interface InvoiceTransitionOption {
   reason: string;
   requiredPermission?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 16: timesheets & job costing
+// ---------------------------------------------------------------------------
+
+/** The shift code as the API speaks it (a label), not Prisma's key. */
+export type ShiftType = 'NT' | 'OT1.5' | 'DT2.0' | 'NS' | 'ST';
+export type TimesheetStatus = 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
+
+export interface TimesheetEntryView {
+  id: number;
+  jobId: number;
+  job: {
+    id: number;
+    workOrder: string | null;
+    area: string | null;
+    description: string | null;
+  } | null;
+  jobServiceCodeId: number | null;
+  workDate: string;
+  labourType: string;
+  shiftType: ShiftType;
+  hours: number;
+  isBillable: boolean;
+  notes: string | null;
+  costRateOverride: number | null;
+  overrideReason: string | null;
+  /** Frozen at approval; null while the week is still editable. */
+  costRate: number | null;
+  costAmount: number | null;
+  /** What approval would freeze right now — the grid's live figure. */
+  preview: {
+    costRate: number;
+    costAmount: number;
+    source: 'override' | 'service_master_rate' | 'employee_rate' | 'unpriced';
+    priced: boolean;
+  };
+}
+
+export interface TimesheetView {
+  id: number;
+  employeeId: number;
+  employee: { id: number; name: string; surname: string };
+  periodStart: string;
+  periodEnd: string;
+  status: TimesheetStatus;
+  notes: string | null;
+  submittedAt: string | null;
+  submittedBy: { id: number; email: string } | null;
+  decidedAt: string | null;
+  decidedBy: { id: number; email: string } | null;
+  decisionNote: string | null;
+  canEdit: boolean;
+  /** An approved week this approver may correct in place. */
+  canAmend: boolean;
+  canApprove: boolean;
+  totals: { hours: number; cost: number; unpricedLines: number };
+  entries: TimesheetEntryView[];
+}
+
+export interface TimesheetSummary {
+  id: number;
+  employeeId: number;
+  employee: { id: number; name: string; surname: string };
+  periodStart: string;
+  periodEnd: string;
+  status: TimesheetStatus;
+  totalHours: number;
+  approvedCost: number;
+  entryCount: number;
+  canApprove: boolean;
+}
+
+export interface LoggableJob {
+  id: number;
+  workOrder: string | null;
+  area: string | null;
+  description: string | null;
+  status: string;
+  projectCode: string;
+  clientName: string;
+}
+
+/** An employee the current user may record time for, as the picker needs them. */
+export interface TimesheetEmployee {
+  id: number;
+  name: string;
+  surname: string;
+  rate: number | null;
+  hasRate: boolean;
+  isSelf: boolean;
+}
+
+export interface RateCardResponse {
+  jobId: number;
+  amendmentId: number;
+  rates: Array<{ labourType: string; shiftType: ShiftType; costRate: number }>;
+}
+
+export interface LabourGroupRow {
+  labourType: string;
+  shiftType: string;
+  hoursPlanned: number;
+  hoursActual: number;
+  costPlanned: number;
+  costActual: number;
+  costVariance: number;
+}
+
+/** One job's cost-vs-revenue, as `GET /api/costing/jobs/:jobId` returns it. */
+export interface JobCosting {
+  jobId: number;
+  job: {
+    id: number;
+    workOrder: string | null;
+    area: string | null;
+    description: string | null;
+    status: string;
+    projectCode: string;
+    contractNumber: string;
+    clientName: string;
+  };
+  revenueActual: number;
+  revenueInvoiced: number;
+  hoursPlanned: number;
+  costPlanned: number;
+  hoursActual: number;
+  labourCostActual: number;
+  materialCostActual: number;
+  costActual: number;
+  grossMargin: number;
+  grossMarginPct: number;
+  hoursVariance: number;
+  costVariance: number;
+  byLabourType: LabourGroupRow[];
+}

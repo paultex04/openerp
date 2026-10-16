@@ -132,3 +132,39 @@ describe('multi-role union', () => {
     expect(effectivePermissions([]).size).toBe(0);
   });
 });
+
+describe('timesheet permissions (Phase 16)', () => {
+  it('lets a supervisor log their own hours but not approve or see others', () => {
+    expect(hasPermission([ROLE_SITE_SUPERVISOR], 'timesheet.write.own')).toBe(true);
+    expect(hasPermission([ROLE_SITE_SUPERVISOR], 'timesheet.read.own')).toBe(true);
+    expect(hasPermission([ROLE_SITE_SUPERVISOR], 'timesheet.approve')).toBe(false);
+    expect(hasPermission([ROLE_SITE_SUPERVISOR], 'timesheet.read')).toBe(false);
+  });
+
+  it('lets a PM enter on behalf, approve and see costing', () => {
+    expect(hasPermission([ROLE_PROJECT_MANAGER], 'timesheet.write')).toBe(true);
+    expect(hasPermission([ROLE_PROJECT_MANAGER], 'timesheet.approve')).toBe(true);
+    expect(hasPermission([ROLE_PROJECT_MANAGER], 'timesheet.read')).toBe(true);
+  });
+
+  it('gives QS and billing read-only costing access', () => {
+    expect(hasPermission([ROLE_COMMERCIAL_QS], 'timesheet.read')).toBe(true);
+    expect(hasPermission([ROLE_BILLING_CLERK], 'timesheet.read')).toBe(true);
+    expect(hasPermission([ROLE_BILLING_CLERK], 'timesheet.write')).toBe(false);
+  });
+
+  it('lets the commercial desk approve hours but not enter them', () => {
+    expect(hasPermission([ROLE_COMMERCIAL_QS], 'timesheet.approve')).toBe(true);
+    expect(hasPermission([ROLE_COMMERCIAL_QS], 'timesheet.write')).toBe(false);
+    expect(hasPermission([ROLE_COMMERCIAL_QS], 'timesheet.write.own')).toBe(false);
+  });
+
+  it('does not let billing approve hours', () => {
+    expect(hasPermission([ROLE_BILLING_CLERK], 'timesheet.approve')).toBe(false);
+  });
+
+  it('reserves cost-rate overrides for administrators', () => {
+    expect(hasPermission([ROLE_ADMINISTRATOR], 'timesheet.override')).toBe(true);
+    expect(hasPermission([ROLE_PROJECT_MANAGER], 'timesheet.override')).toBe(false);
+  });
+});

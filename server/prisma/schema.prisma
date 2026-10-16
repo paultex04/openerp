@@ -94,6 +94,18 @@ enum InvoiceStatus {
   @@map("invoice_status_enum")
 }
 
+/// Phase 16. Internal workflow states, not a business-owned pipeline, so this
+/// stays an enum rather than the admin-editable catalogue that job statuses
+/// became in Phase 15.
+enum TimesheetStatus {
+  DRAFT     @map("Draft")
+  SUBMITTED @map("Submitted")
+  APPROVED  @map("Approved")
+  REJECTED  @map("Rejected")
+
+  @@map("timesheet_status_enum")
+}
+
 // ---------------------------------------------------------------------------
 // Organisation
 // ---------------------------------------------------------------------------
@@ -140,6 +152,7 @@ model Employee {
 
   supervisedJobs Job[]           @relation("JobSupervisor")
   jobAssignments JobAssignment[]
+  timesheets     Timesheet[]
   appUser        AppUser?
 
   @@index([brokerId])
@@ -448,6 +461,7 @@ model Job {
   serviceCodes  JobServiceCode[]
   assignments   JobAssignment[]
   invoices      Invoice[]
+  timesheetEntries TimesheetEntry[]
 
   @@index([projectId])
   @@index([amendmentId])
@@ -475,6 +489,7 @@ model JobServiceCode {
 
   job         Job         @relation(fields: [jobId], references: [id])
   serviceCode ServiceCode @relation(fields: [serviceCodeId], references: [id])
+  timesheetEntries TimesheetEntry[]
 
   @@unique([jobId, serviceCodeId])
   @@index([jobId])
@@ -555,6 +570,90 @@ model InvoiceItem {
 }
 
 // ---------------------------------------------------------------------------
+// Timesheets (Phase 16)
+//
+// The cost side of a job. Entirely separate from operations and billing: hours
+// are never quantities, and nothing here writes `job_service_code`, actuals or
+// invoices. Job and finance screens read the result; the module only supplies
+// the cost input.
+// ---------------------------------------------------------------------------
+
+/// One employee's week. The union `(employee, week)` is the natural key, and
+/// the row is the unit of approval: approving it freezes every line's cost.
+model Timesheet {
+  id          Int             @id @default(autoincrement())
+  employeeId  Int             @map("employee_id")
+  /// Monday. `period_end` is the following Sunday, derived by the server.
+  periodStart DateTime        @map("period_start") @db.Date
+  periodEnd   DateTime        @map("period_end") @db.Date
+  status      TimesheetStatus @default(DRAFT)
+  notes       String?
+
+  submittedAt   DateTime? @map("submitted_at") @db.Timestamptz(3)
+  submittedById Int?      @map("submitted_by_id")
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(3)
+  decidedById   Int?      @map("decided_by_id")
+  decisionNote  String?   @map("decision_note")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  employee    Employee         @relation(fields: [employeeId], references: [id])
+  submittedBy AppUser?         @relation("TimesheetSubmittedBy", fields: [submittedById], references: [id])
+  decidedBy   AppUser?         @relation("TimesheetDecidedBy", fields: [decidedById], references: [id])
+  entries     TimesheetEntry[]
+
+  @@unique([employeeId, periodStart])
+  @@index([status])
+  @@index([employeeId])
+  @@map("timesheet")
+}
+
+/// One line: hours on one job, on one day, of one labour type and shift.
+///
+/// `cost_rate` / `cost_amount` / `rate_snapshot` are null while DRAFT and are
+/// frozen at approval, so a later rate-card edit cannot rewrite an approved
+/// week. See ADR-012.
+model TimesheetEntry {
+  id               Int       @id @default(autoincrement())
+  timesheetId      Int       @map("timesheet_id")
+  jobId            Int       @map("job_id")
+  /// Optional deliverable link: lets hours attribute to a specific line of the
+  /// job, and pre-fills the labour type from that deliverable's recipe.
+  jobServiceCodeId Int?      @map("job_service_code_id")
+  workDate         DateTime  @map("work_date") @db.Date
+  labourType       String    @map("labour_type") @db.VarChar(100)
+  shiftType        ShiftType @default(NT) @map("shift_type")
+  hours            Decimal   @db.Decimal(6, 2)
+  isBillable       Boolean   @default(true) @map("is_billable")
+  notes            String?
+
+  /// A manual cost-rate override and its justification (requires
+  /// `timesheet.override`). Stored so the override survives edits and is applied
+  /// when approval freezes the line.
+  costRateOverride Decimal? @map("cost_rate_override") @db.Decimal(12, 4)
+  overrideReason   String?  @map("override_reason")
+
+  /// Frozen at approval: the resolved rate snapshot (`{ capturedAt, source,
+  /// costRate, employeeId }`) and the derived cost rate/amount. Null while the
+  /// line is editable.
+  rateSnapshot Json?    @map("rate_snapshot") @db.JsonB
+  costRate     Decimal? @map("cost_rate") @db.Decimal(12, 4)
+  costAmount   Decimal? @map("cost_amount") @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  timesheet      Timesheet       @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  job            Job             @relation(fields: [jobId], references: [id])
+  jobServiceCode JobServiceCode? @relation(fields: [jobServiceCodeId], references: [id])
+
+  @@index([timesheetId])
+  @@index([jobId, workDate])
+  @@map("timesheet_entry")
+}
+
+// ---------------------------------------------------------------------------
 // Authentication & RBAC (introduced in Phase 1)
 // ---------------------------------------------------------------------------
 
@@ -584,6 +683,8 @@ model AppUser {
   employee Employee      @relation(fields: [employeeId], references: [id])
   roles    AppUserRole[]
   auditEntries AuditLog[]
+  timesheetsSubmitted Timesheet[] @relation("TimesheetSubmittedBy")
+  timesheetsDecided   Timesheet[] @relation("TimesheetDecidedBy")
 
   @@index([isActive])
   @@map("app_user")

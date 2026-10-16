@@ -220,6 +220,7 @@ after its automated tests and verification gates pass:
 | `phase/13-workflow-and-operations-ux` | `v2.1.0` | Amendments, RBAC editing, invoice register popup, job detail route         |
 | `phase/14-hardening-and-automation`   | `v2.1.1` | Proxy rename, Turbopack default, version source, admin locking, oxlint, CI |
 | `phase/15-job-management-and-ux`      | `v2.2.0` | Job workflow editor, invoices from the register, My Profile, DataTable fit |
+| `phase/16-timesheets`                 | `v2.3.0` | Timesheets, week approval, employee-rate labour costing, job margin        |
 
 Phases 7 and 8 shipped together in `v1.3.0`: Phase 7 is
 [ADR-007](docs/adr-007-master-data-crud.md) — the API supported creating contracts,
@@ -264,6 +265,16 @@ from the register, the job detail summary follows the agreed mock, the Field
 Measurements page is retired (its API stays), every DataTable fits its screen,
 and a My Profile screen adds avatar upload — see
 [phase-15-job-management-and-ux.md](docs/phase-15-job-management-and-ux.md).
+Phase 16 (`v2.3.0`) adds the Timesheets module: a separate top-level section where
+hours are recorded against jobs on a week grid, for a **selected employee**, and
+approved whole-week by any project manager, commercial or administrator — including
+their own week. Each hour costs that **employee's own rate**, frozen when the week is
+approved; an approved week can be corrected by reopening it or, by an approver,
+amending a line in place. That cost, with materials and the job's work-done revenue,
+feeds a profit-per-job register and a Labour & margin panel on the job — computed on
+read, with no cache to go stale. Hours never write a deliverable, an actual or an
+invoice; see [ADR-012](docs/adr-012-timesheets-and-costing.md) and
+[phase-16-timesheets.md](docs/phase-16-timesheets.md).
 
 **Migrations.** `prisma migrate deploy` cannot be used here — the baseline predates
 Prisma, so it fails P3005 — and `prisma migrate diff --from-url` emits a

@@ -41,6 +41,7 @@ import { DataTable, type DataTableFilter } from '@/components/data-table/data-ta
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { JobSummaryPanel } from '@/components/job-management/JobSummaryPanel';
 import { JobServiceCodeTable } from '@/components/job-management/JobServiceCodeTable';
+import { LabourMarginPanel } from '@/components/timesheets/labour-margin-panel';
 import { useJobWorkflow } from '@/hooks/use-job-workflow';
 import { useDebounced } from '@/hooks/use-debounced';
 
@@ -347,6 +348,8 @@ export function SelectedJob({ jobId, onClose }: { jobId: number; onClose: () => 
         permissions={permissions}
         onChanged={refreshAll}
       />
+
+      <LabourMarginPanel jobId={job.id} />
     </div>
   );
 }

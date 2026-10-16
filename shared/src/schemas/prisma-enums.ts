@@ -27,7 +27,10 @@ import {
   jobPriorityValues,
   serviceCodeCategoryValues,
   shiftTypeValues,
+  timesheetStatusValues,
   type InvoiceStatus,
+  type ShiftType,
+  type TimesheetStatus,
 } from './enums';
 
 /** Compile-time exhaustiveness guard. */
@@ -141,6 +144,13 @@ export const INVOICE_STATUS = buildMapping(invoiceStatusValues, [
   'CANCELLED',
 ]);
 
+export const TIMESHEET_STATUS = buildMapping(timesheetStatusValues, [
+  'DRAFT',
+  'SUBMITTED',
+  'APPROVED',
+  'REJECTED',
+]);
+
 // ---------------------------------------------------------------------------
 // Convenience typed accessors for the most frequently converted fields.
 // ---------------------------------------------------------------------------
@@ -192,10 +202,27 @@ export function invoiceStatusFromKey(key: string): InvoiceStatus {
   return INVOICE_STATUS.toLabel(key) as InvoiceStatus;
 }
 
+export type PrismaTimesheetStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+
+/** Business label ('Rejected') -> Prisma enum key ('REJECTED'). */
+export function timesheetStatusToKey(label: string): PrismaTimesheetStatus {
+  return TIMESHEET_STATUS.toKey(label) as PrismaTimesheetStatus;
+}
+
+/** Prisma enum key ('APPROVED') -> business label ('Approved'). */
+export function timesheetStatusFromKey(key: string): TimesheetStatus {
+  return TIMESHEET_STATUS.toLabel(key) as TimesheetStatus;
+}
+
 export type PrismaShiftType = 'NT' | 'OT' | 'DT' | 'NS' | 'ST';
 
 export function shiftTypeToKey(label: string): PrismaShiftType {
   return SHIFT_TYPE.toKey(label) as PrismaShiftType;
+}
+
+/** Prisma enum key ('OT') -> business label ('OT1.5'). */
+export function shiftTypeFromKey(key: string): ShiftType {
+  return SHIFT_TYPE.toLabel(key) as ShiftType;
 }
 
 export type PrismaAmendmentType =
