@@ -594,4 +594,86 @@ describe('chat attachments and search (Phase 17, step 3)', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json().error).toBe('VALIDATION_FAILED');
   });
+
+  function del(user: TestUser, conversationId: number) {
+    return app.inject({
+      method: 'DELETE',
+      url: `/api/chat/conversations/${conversationId}`,
+      headers: { cookie: user.cookie },
+    });
+  }
+
+  it('deletes the conversation for both members', async () => {
+    const dm = await openDm(alice, bob.id);
+    await send(alice, dm, { body: 'about to be gone' });
+
+    const deleted = await del(alice, dm);
+    expect(deleted.statusCode).toBe(204);
+
+    // Gone for the person who deleted it...
+    const aliceAgain = await app.inject({
+      method: 'GET',
+      url: `/api/chat/conversations/${dm}/messages`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(aliceAgain.statusCode).toBe(404);
+
+    // ...and for the other member too.
+    const bobAgain = await app.inject({
+      method: 'GET',
+      url: `/api/chat/conversations/${dm}/messages`,
+      headers: { cookie: bob.cookie },
+    });
+    expect(bobAgain.statusCode).toBe(404);
+
+    // And neither can see it in their list.
+    const aliceList = (await listConversations(alice)).json().conversations;
+    const bobList = (await listConversations(bob)).json().conversations;
+    expect(aliceList.some((c: { id: number }) => c.id === dm)).toBe(false);
+    expect(bobList.some((c: { id: number }) => c.id === dm)).toBe(false);
+  });
+
+  it('frees the dm key, so re-messaging starts a fresh thread', async () => {
+    const dm = await openDm(alice, bob.id);
+    await send(alice, dm, { body: 'gone' });
+    await del(alice, dm);
+
+    const fresh = await openDm(alice, bob.id);
+    expect(fresh).not.toBe(dm);
+
+    const history = await app.inject({
+      method: 'GET',
+      url: `/api/chat/conversations/${fresh}/messages`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(history.json().messages).toEqual([]);
+  });
+
+  it('refuses a delete from a non-member behind a 404', async () => {
+    const dm = await openDm(alice, bob.id);
+    const response = await del(carol, dm);
+    expect(response.statusCode).toBe(404);
+    // And it is still there.
+    const stillThere = await app.inject({
+      method: 'GET',
+      url: `/api/chat/conversations/${dm}/messages`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(stillThere.statusCode).toBe(200);
+  });
+
+  it('publishes a deleted event to the members of the deleted conversation', async () => {
+    const dm = await openDm(alice, bob.id);
+    const events: ChatServerEvent[] = [];
+    const unsubscribe = subscribe(bob.id, (event) => events.push(event));
+    try {
+      const deleted = await del(alice, dm);
+      expect(deleted.statusCode).toBe(204);
+      expect(events.some((event) => event.type === 'deleted' && event.conversationId === dm)).toBe(
+        true,
+      );
+    } finally {
+      unsubscribe();
+    }
+  });
 });

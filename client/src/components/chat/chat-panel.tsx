@@ -22,7 +22,24 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import { ArrowLeft, ImagePlus, MessageSquarePlus, Search, SendHorizontal } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  ArrowLeft,
+  ImagePlus,
+  MessageSquarePlus,
+  Search,
+  SendHorizontal,
+  Trash2,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -403,6 +420,7 @@ function Thread({ onBack }: { onBack?: () => void }) {
   const chat = useChat();
   const conversation = chat.activeConversation;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Jump to the newest message whenever the conversation changes or grows. The
   // container is its own scroll region, so this scrolls the thread, not the app.
@@ -424,6 +442,11 @@ function Thread({ onBack }: { onBack?: () => void }) {
       break;
     }
   }
+
+  const handleDelete = () => {
+    setConfirmDelete(false);
+    void chat.deleteConversation(conversation.id);
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -457,6 +480,17 @@ function Thread({ onBack }: { onBack?: () => void }) {
           <p className="truncate text-[11px] text-muted-foreground">
             {chat.isTyping(conversation.id) ? 'typing…' : conversation.peer.email}
           </p>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Delete this conversation"
+            disabled={chat.deletingConversation}
+            onClick={() => setConfirmDelete(true)}
+          >
+            {chat.deletingConversation ? <Spinner className="size-3.5" /> : <Trash2 aria-hidden />}
+          </Button>
         </div>
       </div>
 
@@ -505,6 +539,24 @@ function Thread({ onBack }: { onBack?: () => void }) {
       </div>
 
       <Composer />
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete the conversation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The whole thread goes for both people — every message and any image attached to it —
+              and it cannot be recovered. Messaging this person again starts an empty conversation.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={chat.deletingConversation}>
+              {chat.deletingConversation ? 'Deleting…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

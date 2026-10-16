@@ -6,24 +6,25 @@
  *                directory you may open a conversation with, the live stream,
  *                download an image, search
  *   chat.write   open a conversation, send a message, signal typing, upload an
- *                image
+ *                image, delete a conversation
  *
  * Membership is enforced in the service, not here, because it depends on the row
  * rather than the endpoint — and a non-member gets a 404, not a 403, so a
  * guessed conversation id reveals nothing.
  *
  * Step 1 was request/response only. Step 2 added the live channel, step 3 images
- * and search:
+ * and search, and a follow-up added deletion:
  *
- *   GET  /api/chat/stream                        server-sent events (SSE)
- *   POST /api/chat/conversations/:id/typing      ephemeral typing signal
- *   POST /api/chat/conversations/:id/attachments send an image
- *   GET  /api/chat/attachments/:id               fetch an image's bytes
- *   GET  /api/chat/search                        message search
+ *   GET    /api/chat/stream                        server-sent events (SSE)
+ *   POST   /api/chat/conversations/:id/typing      ephemeral typing signal
+ *   POST   /api/chat/conversations/:id/attachments send an image
+ *   GET    /api/chat/attachments/:id               fetch an image's bytes
+ *   GET    /api/chat/search                        message search
+ *   DELETE /api/chat/conversations/:id             delete the whole conversation
  *
- * Message and read events are published from here, *after* the service call, so
- * the service stays transport-agnostic. Polling is kept in the client as the
- * fallback: a dropped stream costs latency, never data.
+ * Message, read and deleted events are published from here, *after* the service
+ * call, so the service stays transport-agnostic. Polling is kept in the client as
+ * the fallback: a dropped stream costs latency, never data.
  */
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
@@ -45,6 +46,7 @@ import {
   assertMember,
   conversationMemberIds,
   createAttachmentMessage,
+  deleteConversation,
   getAttachment,
   listChatUsers,
   listConversations,
@@ -151,6 +153,25 @@ export async function registerChatRoutes(app: FastifyInstance, config: Config): 
         isTyping: isTyping ?? true,
       });
       return { ok: true };
+    },
+  );
+
+  /**
+   * Deletes the whole conversation, for both members.
+   *
+   * Destructive and final, so the client asks first; the server simply does it for
+   * a member. The other member's open stream is told to drop the row, because
+   * waiting for their next poll would leave a conversation they can no longer open
+   * sitting in their list.
+   */
+  app.delete(
+    '/api/chat/conversations/:id',
+    { preHandler: [app.authenticate, app.requirePermission('chat.write')] },
+    async (request, reply) => {
+      const { id } = idParam.parse(request.params);
+      const { memberIds } = await deleteConversation(request.principal!, id);
+      publishTo(memberIds, { type: 'deleted', conversationId: id });
+      return reply.code(204).send();
     },
   );
 
