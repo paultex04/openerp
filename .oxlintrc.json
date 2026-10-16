@@ -18,7 +18,8 @@
     "**/src/generated/**",
     "client/next-env.d.ts",
     "client/src/components/ui/**",
-    "client/src/hooks/use-mobile.ts"
+    "client/src/hooks/use-mobile.ts",
+    ".opencode/skills/**"
   ],
   "rules": {
     "unicorn/no-array-sort": "off",

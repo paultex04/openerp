@@ -71,6 +71,10 @@ export default [
       // Ships with shadcn and seeds state inside an effect, which is the
       // documented way to synchronise with a media query.
       'client/src/hooks/use-mobile.ts',
+      // Third-party agent skills vendored verbatim under .opencode/skills (see
+      // its README). They come from external repositories with their own
+      // conventions, so they are excluded from lint rather than rewritten.
+      '.opencode/skills/**',
     ],
   },
   js.configs.recommended,

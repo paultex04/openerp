@@ -11,3 +11,9 @@ build/
 .next/
 coverage/
 package-lock.json
+
+# Third-party agent skills vendored verbatim under .opencode/skills. They are
+# copied byte-for-byte from upstream (see .opencode/skills/README.md), so
+# reformatting them would break the "matches upstream" guarantee and be undone
+# by the next refresh.
+.opencode/skills/
