@@ -1,6 +1,6 @@
 # ADR-013: Chat is a dock; membership is its boundary, and delivery starts as polling
 
-- **Status:** accepted (steps 1–2 of 3 implemented — see _Phasing_ below)
+- **Status:** accepted (steps 1–3 of 3 implemented — see _Phasing_ below)
 - **Date:** 2026-10-16
 - **Supersedes:** nothing. Stands beside [ADR-006](adr-006-enterprise-ui-overhaul.md)
   (the shell this hangs off) and follows the RBAC conventions of
@@ -96,10 +96,36 @@ Three tables: `conversation`, `conversation_member`, `message`.
 
 ### RBAC: two keys, granted to every role
 
-`chat.read` (list conversations, read history, mark read, the account directory)
-and `chat.write` (open a conversation, send a message), in the `chat` category.
-Every built-in role holds both — chat is cross-cutting — so the grant lives in one
-`CHAT_GRANTS` constant rather than being repeated, and forgotten, in five lists.
+`chat.read` (list conversations, read history, mark read, the account directory,
+download an image, search) and `chat.write` (open a conversation, send a message,
+signal typing, upload an image), in the `chat` category. Every built-in role holds
+both — chat is cross-cutting — so the grant lives in one `CHAT_GRANTS` constant
+rather than being repeated, and forgotten, in five lists.
+
+### Attachments, search and notifications (step 3)
+
+- **Images live in the database.** A `message_attachment` row holds the bytes
+  (`bytea`), the processed dimensions and the mime. The API container has no
+  persistent volume, and the profile avatar already set the precedent: upload,
+  decode and re-encode with `sharp`, store the result. One attachment per message
+  in v1 (`message_id` is unique), but it is a table, so "more than one" is a later
+  change of constraint rather than a reshape of `message`.
+- **The image is never stored as sent.** `sharp` applies EXIF orientation, scales
+  the image to fit inside 1600px without enlarging it, and writes WebP. The stored
+  width and height travel with the message so the thread can reserve the right
+  aspect ratio before the bytes arrive, which is what stops it jumping as images
+  load. Bytes are fetched from `GET /api/chat/attachments/:id`, membership-checked
+  against the message's conversation and served `immutable` — the bytes never
+  change under an id.
+- **Search is `ILIKE`.** `GET /api/chat/search` matches message bodies across the
+  caller's own conversations only — membership is the boundary here too. A
+  leading-wildcard match cannot use a btree index; at this size that is the honest
+  trade, and full-text search is a later change with its own column and migration.
+- **Notifications are the browser's.** When a `message` frame arrives for a
+  conversation the user is not looking at, and the tab is hidden or elsewhere, the
+  client raises a desktop `Notification`. Permission is asked on the gesture that
+  opens the dock, because the browser will not prompt without one, and the in-app
+  unread badge is the fallback when it is declined.
 
 ## Phasing
 
@@ -107,7 +133,7 @@ Every built-in role holds both — chat is cross-cutting — so the grant lives 
 | ---- | ------------------------------------------------------------------------- | ----------- |
 | 1    | Schema + migration + RBAC + REST + dock/page UI on polling                | **shipped** |
 | 2    | `GET /api/chat/stream` (SSE), typing and presence, per-message receipts   | **shipped** |
-| 3    | Attachments (image-first, via `sharp`), notifications, server-side search | planned     |
+| 3    | Attachments (image-first, via `sharp`), notifications, server-side search | **shipped** |
 
 ## Consequences
 
@@ -126,6 +152,10 @@ Every built-in role holds both — chat is cross-cutting — so the grant lives 
   message published on one instance would not reach a browser on the other. That is
   a deliberate single-instance assumption, recorded here and in the deployment
   guide, and the one module that has to change if that ever stops being true.
+- A chat image is a `bytea` row, so the database grows with image volume rather
+  than an object store. Bounded (5 MB in, WebP out, one per message) and honest at
+  this scale; moving bytes to object storage is the change if volume ever makes the
+  database the wrong place for them.
 
 ## Rejected alternatives
 

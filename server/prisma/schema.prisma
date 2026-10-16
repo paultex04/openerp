@@ -855,15 +855,35 @@ model Message {
   body           String
   /// Idempotency key: a retried send returns the original, not a duplicate.
   clientToken    String?   @map("client_token") @db.VarChar(64)
-  /// Present but unused in step 1, so later edit/delete needs no ALTER.
+  /// Reserved for a later edit/delete step; edit and delete are not in v1.
   editedAt       DateTime? @map("edited_at") @db.Timestamptz(3)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(3)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender       AppUser      @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  conversation Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       AppUser            @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  attachment   MessageAttachment?
 
   @@unique([conversationId, clientToken])
   @@index([conversationId, createdAt, id])
   @@map("message")
+}
+
+/// An image on a message (Phase 17, step 3). One per message for v1. The bytes
+/// are processed by `sharp` on upload and stored here, following the avatar
+/// precedent, because the API container has no persistent volume.
+model MessageAttachment {
+  id           Int      @id @default(autoincrement())
+  messageId    Int      @unique @map("message_id")
+  bytes        Bytes
+  mime         String   @db.VarChar(64)
+  originalName String?  @map("original_name") @db.VarChar(255)
+  width        Int
+  height       Int
+  sizeBytes    Int      @map("size_bytes")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@map("message_attachment")
 }

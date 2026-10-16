@@ -7,11 +7,12 @@
  * shows one pane at a time (a list, then a thread with a back button), while
  * `/messages` shows both side by side. The pieces are the same pieces.
  *
- * The list is filtered on the client. Step 1 searches only the conversations and
- * accounts already loaded, which is honest about what it does: server-side
- * message search arrives with the attachment step, and a box that silently
- * searched nothing would be worse than a box that filters a visible list.
+ * The list is filtered on the client and, from step 3, the box also asks the
+ * server to search message bodies. Both are shown: conversation names match
+ * instantly from the loaded list because that costs nothing, and matching
+ * messages arrive a moment later from `/api/chat/search`.
  */
+import { useQuery } from '@tanstack/react-query';
 import {
   Fragment,
   useEffect,
@@ -21,7 +22,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import { ArrowLeft, MessageSquarePlus, Search, SendHorizontal } from 'lucide-react';
+import { ArrowLeft, ImagePlus, MessageSquarePlus, Search, SendHorizontal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,7 +37,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ChatAvatar } from '@/components/chat/chat-avatar';
 import { useChat } from '@/components/chat/chat-provider';
 import { cn } from '@/lib/utils';
-import type { ChatConversation, ChatMessage } from '@/lib/api';
+import { api, type ChatConversation, type ChatMessage, type ChatSearchResponse } from '@/lib/api';
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 const dayFormat = new Intl.DateTimeFormat(undefined, {
@@ -148,9 +149,90 @@ function ListPane({
             }}
           />
         ) : (
-          <ConversationRows search={search} />
+          <>
+            <MessageMatches search={search} onPick={chat.selectConversation} />
+            <ConversationRows search={search} />
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A short input delay so a fast typist issues one search, not one per key. */
+function useDebounced(value: string, delay: number): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+/**
+ * Message search results, from the server, above the conversation list.
+ *
+ * Two characters is the floor the API enforces, and it doubles as the point at
+ * which the box stops being "filter the list" and starts being "search".
+ */
+function MessageMatches({
+  search,
+  onPick,
+}: {
+  search: string;
+  onPick: (conversationId: number) => void;
+}) {
+  const term = useDebounced(search.trim(), 250);
+  const enabled = term.length >= 2;
+  const query = useQuery({
+    queryKey: ['chat', 'search', term],
+    queryFn: () => api.get<ChatSearchResponse>('/api/chat/search', { q: term }),
+    enabled,
+    // A search is a lookup, not a subscription; the answer is worth a minute.
+    staleTime: 60_000,
+  });
+
+  if (!enabled) return null;
+  const results = query.data?.results ?? [];
+
+  return (
+    <div className="border-b">
+      <p className="px-3 pt-2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+        Messages
+      </p>
+      {query.isLoading ? (
+        <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+          <Spinner className="size-3.5" />
+          Searching…
+        </div>
+      ) : results.length === 0 ? (
+        <p className="p-3 text-xs text-muted-foreground">No matching messages.</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5 p-1">
+          {results.map((result) => (
+            <li key={result.message.id}>
+              <button
+                type="button"
+                onClick={() => onPick(result.conversationId)}
+                className={cn(
+                  'flex w-full flex-col rounded-lg p-2 text-left',
+                  'hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                )}
+              >
+                <span className="flex w-full items-baseline gap-2">
+                  <span className="truncate text-xs font-medium">{result.peer.name}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                    {shortTime(result.message.createdAt)}
+                  </span>
+                </span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">
+                  {result.message.body || (result.message.attachment ? 'Image' : '')}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -214,8 +296,9 @@ function ConversationRow({
   online: boolean;
   onSelect: () => void;
 }) {
-  const preview = conversation.lastMessage
-    ? `${own ? 'You: ' : ''}${conversation.lastMessage.body}`
+  const last = conversation.lastMessage;
+  const preview = last
+    ? `${own ? 'You: ' : ''}${last.body || (last.attachment ? 'Image' : '')}`
     : 'No messages yet';
 
   return (
@@ -455,7 +538,20 @@ function MessageBubble({
           own ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground',
         )}
       >
-        <p className="break-words whitespace-pre-wrap">{message.body}</p>
+        {message.attachment && (
+          // A plain <img>: these bytes come from our own session-scoped route, so
+          // the Next image optimiser cannot fetch them (no cookie) and must not
+          // be asked to.
+          <img
+            src={`/api/chat/attachments/${message.attachment.id}`}
+            alt={message.attachment.originalName ?? 'Attached image'}
+            width={message.attachment.width}
+            height={message.attachment.height}
+            loading="lazy"
+            className="mb-1 max-h-72 rounded-lg"
+          />
+        )}
+        {message.body && <p className="break-words whitespace-pre-wrap">{message.body}</p>}
         <p
           className={cn(
             'mt-0.5 text-right text-[10px]',
@@ -473,8 +569,10 @@ function MessageBubble({
 function Composer() {
   const chat = useChat();
   const [value, setValue] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
   const body = value.trim();
-  const canSend = body.length > 0 && !chat.sending;
+  const busy = chat.sending || chat.sendingAttachment;
+  const canSend = body.length > 0 && !busy;
 
   const submit = () => {
     if (!canSend) return;
@@ -482,6 +580,14 @@ function Composer() {
     // text hostage until the round-trip finishes makes typing feel laggy.
     setValue('');
     void chat.send(body);
+  };
+
+  const pickImage = (file: File) => {
+    // The typed text rides along as the caption, so an image with a note is one
+    // message rather than two.
+    const caption = value.trim();
+    setValue('');
+    void chat.sendAttachment(file, caption);
   };
 
   return (
@@ -492,6 +598,28 @@ function Composer() {
         submit();
       }}
     >
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          // Reset so choosing the same file again still fires a change event.
+          event.target.value = '';
+          if (file) pickImage(file);
+        }}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label="Attach an image"
+        disabled={chat.sendingAttachment}
+        onClick={() => fileRef.current?.click()}
+      >
+        {chat.sendingAttachment ? <Spinner className="size-4" /> : <ImagePlus aria-hidden />}
+      </Button>
       <textarea
         value={value}
         onChange={(event) => {

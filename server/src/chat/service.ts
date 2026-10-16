@@ -1,6 +1,6 @@
 /**
- * Chat service (Phase 17, step 1): direct conversations, their messages and
- * their read state.
+ * Chat service (Phase 17): direct conversations, their messages, read state,
+ * images and search.
  *
  * ## Membership is the boundary
  *
@@ -46,6 +46,30 @@ const MESSAGE_SELECT = {
   editedAt: true,
   deletedAt: true,
   sender: { select: { employee: { select: { name: true, surname: true } } } },
+  attachment: {
+    select: {
+      id: true,
+      mime: true,
+      width: true,
+      height: true,
+      sizeBytes: true,
+      originalName: true,
+    },
+  },
+} satisfies Prisma.MessageSelect;
+
+/**
+ * A message plus enough of its conversation to name the other person, for search
+ * results. Separate from `MESSAGE_SELECT` so history does not pay for the join.
+ */
+const SEARCH_MESSAGE_SELECT = {
+  ...MESSAGE_SELECT,
+  conversation: {
+    select: {
+      id: true,
+      members: { select: { userId: true, user: { select: USER_SELECT } } },
+    },
+  },
 } satisfies Prisma.MessageSelect;
 
 const CONVERSATION_SELECT = {
@@ -79,6 +103,16 @@ export interface ChatUserView {
   avatarUpdatedAt: string | null;
 }
 
+/** An image on a message, as the client needs it. The bytes are fetched by id. */
+export interface ChatAttachmentView {
+  id: number;
+  mime: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  originalName: string | null;
+}
+
 export interface ChatMessageView {
   id: number;
   conversationId: number;
@@ -88,6 +122,8 @@ export interface ChatMessageView {
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
+  /** The image sent with the message, if any. `null` for a text-only message. */
+  attachment: ChatAttachmentView | null;
 }
 
 export interface ChatConversationView {
@@ -124,6 +160,16 @@ function toMessageView(row: MessageRow): ChatMessageView {
     createdAt: row.createdAt.toISOString(),
     editedAt: row.editedAt?.toISOString() ?? null,
     deletedAt: row.deletedAt?.toISOString() ?? null,
+    attachment: row.attachment
+      ? {
+          id: row.attachment.id,
+          mime: row.attachment.mime,
+          width: row.attachment.width,
+          height: row.attachment.height,
+          sizeBytes: row.attachment.sizeBytes,
+          originalName: row.attachment.originalName,
+        }
+      : null,
   };
 }
 
@@ -327,4 +373,122 @@ export async function markRead(
     data: { lastReadAt },
   });
   return { lastReadAt: lastReadAt.toISOString() };
+}
+
+/**
+ * Posts a message carrying an already-processed image.
+ *
+ * The body may be empty (an image on its own is a complete message); the route
+ * allows that, while the text-only send still requires words. The bytes arrive
+ * here having been decoded and re-encoded by `sharp` in the route, so the service
+ * stores a bounded WebP rather than whatever the browser uploaded.
+ */
+export async function createAttachmentMessage(
+  principal: Principal,
+  conversationId: number,
+  input: {
+    body: string;
+    bytes: Uint8Array;
+    mime: string;
+    originalName: string | null;
+    width: number;
+    height: number;
+  },
+): Promise<ChatMessageView> {
+  await assertMember(conversationId, principal.userId);
+
+  const created = await prisma.$transaction(async (tx) => {
+    const message = await tx.message.create({
+      data: {
+        conversationId,
+        senderId: principal.userId,
+        body: input.body,
+        attachment: {
+          create: {
+            bytes: new Uint8Array(input.bytes),
+            mime: input.mime,
+            originalName: input.originalName,
+            width: input.width,
+            height: input.height,
+            sizeBytes: input.bytes.byteLength,
+          },
+        },
+      },
+      select: MESSAGE_SELECT,
+    });
+    await tx.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: message.createdAt },
+    });
+    return message;
+  });
+
+  return toMessageView(created);
+}
+
+/**
+ * The bytes for one attachment, or a 404 for a non-member.
+ *
+ * Membership rides on the message's conversation, so a guessed attachment id is
+ * as opaque as a guessed conversation id: the same 404, and no way to tell a real
+ * attachment from an imaginary one.
+ */
+export async function getAttachment(
+  principal: Principal,
+  attachmentId: number,
+): Promise<{ bytes: Buffer; mime: string }> {
+  const attachment = await prisma.messageAttachment.findUnique({
+    where: { id: attachmentId },
+    select: { bytes: true, mime: true, message: { select: { conversationId: true } } },
+  });
+  if (!attachment) {
+    throw new HttpError(404, 'ATTACHMENT_NOT_FOUND', `Attachment ${attachmentId} not found.`);
+  }
+  await assertMember(attachment.message.conversationId, principal.userId);
+  return { bytes: Buffer.from(attachment.bytes), mime: attachment.mime };
+}
+
+export interface ChatSearchResult {
+  conversationId: number;
+  /** The other member, so a result reads as a conversation, not a bare message. */
+  peer: ChatUserView;
+  message: ChatMessageView;
+}
+
+/**
+ * Message search across the conversations the caller belongs to.
+ *
+ * `contains` with `mode: 'insensitive'` is Postgres `ILIKE '%term%'`. There is no
+ * index that helps a leading-wildcard match, which is the honest trade at this
+ * size: full-text `tsvector` ranks better but needs a column, a trigger and a
+ * migration. Membership is the boundary here too, so a search can only ever reach
+ * threads the caller is already in.
+ */
+export async function searchMessages(
+  principal: Principal,
+  term: string,
+  limit = 20,
+): Promise<ChatSearchResult[]> {
+  const rows = await prisma.message.findMany({
+    where: {
+      deletedAt: null,
+      body: { contains: term, mode: 'insensitive' },
+      conversation: { members: { some: { userId: principal.userId } } },
+    },
+    orderBy: { id: 'desc' },
+    take: Math.min(limit, 50),
+    select: SEARCH_MESSAGE_SELECT,
+  });
+
+  const results: ChatSearchResult[] = [];
+  for (const row of rows) {
+    const peer = row.conversation.members.find((member) => member.userId !== principal.userId);
+    if (!peer) continue;
+    results.push({
+      conversationId: row.conversation.id,
+      peer: toUserView(peer.user),
+      message: toMessageView(row),
+    });
+  }
+  return results;
 }

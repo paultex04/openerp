@@ -40,6 +40,7 @@ import {
 } from 'react';
 import {
   api,
+  apiUpload,
   type ChatConversation,
   type ChatConversationResponse,
   type ChatConversationsResponse,
@@ -53,6 +54,7 @@ import {
 } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
 import { useChatStream } from '@/components/chat/chat-stream';
+import { useChatDockOpen } from '@/lib/shell-preferences';
 
 /** How often the conversation list (and so the badge) refreshes while polling. */
 const LIST_POLL_MS = 8000;
@@ -94,6 +96,10 @@ interface ChatContextValue {
   loadOlder: () => void;
   sending: boolean;
   send: (body: string) => Promise<void>;
+  /** Uploads an image, with an optional caption, to the active conversation. */
+  sendAttachment: (file: File, body: string) => Promise<void>;
+  /** True while an image upload is in flight. */
+  sendingAttachment: boolean;
   openWith: (userId: number) => void;
   opening: boolean;
   directory: ChatUser[];
@@ -149,6 +155,43 @@ export function ChatProvider({
   const lastTypingSentRef = useRef(0);
   const typingStopRef = useRef<number | null>(null);
 
+  // The open conversation, readable from the stream callback without making the
+  // callback depend on `activeId` (which would rebuild the stream on every switch).
+  const activeIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  // Opening the dock supplies the user gesture the browser wants before it will
+  // ask about notifications, so the click that opens chat is what asks.
+  const [, setDockOpen] = useChatDockOpen();
+
+  /**
+   * A desktop notification for a message that arrived while the user was looking
+   * somewhere else. Silent when the tab is already showing that very
+   * conversation, which is the case the in-app thread covers.
+   */
+  const notifyIncoming = useCallback(
+    (message: ChatMessage) => {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      if (message.senderId === selfId) return;
+      const focusedHere =
+        document.visibilityState === 'visible' && activeIdRef.current === message.conversationId;
+      if (focusedHere) return;
+      const notification = new Notification(message.senderName, {
+        body: message.body || (message.attachment ? 'Sent an image' : 'New message'),
+        tag: `chat-${message.conversationId}`,
+      });
+      notification.addEventListener('click', () => {
+        window.focus();
+        setDockOpen(true);
+        setActiveId(message.conversationId);
+        notification.close();
+      });
+    },
+    [selfId, setDockOpen],
+  );
+
   const handleStreamEvent = useCallback(
     (event: ChatStreamEvent) => {
       switch (event.type) {
@@ -178,6 +221,7 @@ export function ChatProvider({
             },
           );
           void queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+          notifyIncoming(event.message);
           break;
         case 'read':
           // The peer's watermark moved; the list carries `peerLastReadAt`, so a
@@ -211,7 +255,7 @@ export function ChatProvider({
         }
       }
     },
-    [queryClient],
+    [queryClient, notifyIncoming],
   );
 
   const streamStatus = useChatStream(enabled, handleStreamEvent);
@@ -378,6 +422,59 @@ export function ChatProvider({
     [activeId, sendMutation, stopTyping],
   );
 
+  const attachmentMutation = useMutation({
+    mutationFn: ({
+      conversationId,
+      file,
+      body,
+    }: {
+      conversationId: number;
+      file: File;
+      body: string;
+    }) => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      if (body) form.append('body', body);
+      return apiUpload<ChatMessageResponse>(
+        `/api/chat/conversations/${conversationId}/attachments`,
+        form,
+      );
+    },
+    onSuccess: (data, variables) => {
+      // Same append-and-dedupe as a text send: show it now, and let the stream or
+      // a poll recognise the same id rather than adding a second bubble.
+      queryClient.setQueryData<ChatMessagesResponse>(
+        ['chat', 'messages', variables.conversationId],
+        (previous) => {
+          const existing = previous?.messages ?? [];
+          if (existing.some((m) => m.id === data.message.id))
+            return previous ?? { messages: existing };
+          return { messages: [...existing, data.message] };
+        },
+      );
+      void queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+    },
+    onError: (error) =>
+      toast.add({
+        title: 'Image not sent',
+        description: messageOf(error, 'Try again.'),
+        type: 'error',
+      }),
+  });
+
+  const sendAttachment = useCallback(
+    async (file: File, body: string) => {
+      if (activeId === null) return;
+      try {
+        await attachmentMutation.mutateAsync({ conversationId: activeId, file, body });
+      } catch {
+        // Surfaced by `onError`.
+      }
+      stopTyping();
+    },
+    [activeId, attachmentMutation, stopTyping],
+  );
+
   const openMutation = useMutation({
     mutationFn: (userId: number) =>
       api.post<ChatConversationResponse>('/api/chat/conversations', { userId }),
@@ -447,6 +544,8 @@ export function ChatProvider({
       loadOlder,
       sending: sendMutation.isPending,
       send,
+      sendAttachment,
+      sendingAttachment: attachmentMutation.isPending,
       openWith: (userId: number) => openMutation.mutate(userId),
       opening: openMutation.isPending,
       directory: directoryQuery.data?.users ?? EMPTY_USERS,
@@ -470,6 +569,8 @@ export function ChatProvider({
       loadOlder,
       sendMutation.isPending,
       send,
+      sendAttachment,
+      attachmentMutation.isPending,
       openMutation,
       directoryQuery.data,
       directoryQuery.isLoading,

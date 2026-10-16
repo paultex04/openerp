@@ -14,6 +14,7 @@
  * it is a real column that pushes the content; unpinned it is `fixed`, so it
  * leaves the layout untouched.
  */
+import { useEffect } from 'react';
 import { MessageSquare, Pin, PinOff, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChatPanel } from '@/components/chat/chat-panel';
@@ -67,6 +68,14 @@ export function ChatDock() {
   const [pinned, setPinned] = useChatDockPinned();
   const isWide = useMediaQuery(PIN_BREAKPOINT);
   const { canAny } = usePermissions();
+
+  // Ask once, on the gesture that opens chat: the browser will not prompt
+  // without one. Declining is fine - the in-app unread badge still works.
+  useEffect(() => {
+    if (open && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
+  }, [open]);
 
   if (!canAny('chat.read') || !open) return null;
 

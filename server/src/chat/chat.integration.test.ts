@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import sharp from 'sharp';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { prisma } from '../db/client.js';
@@ -92,6 +93,72 @@ function listConversations(user: TestUser) {
     method: 'GET',
     url: '/api/chat/conversations',
     headers: { cookie: user.cookie },
+  });
+}
+
+/**
+ * A multipart body carrying an optional caption and one image, shaped like the
+ * browser's upload. Field parts come first so the server sees them regardless of
+ * how the iterator orders things.
+ */
+function imageUpload(
+  filename: string,
+  mime: string,
+  bytes: Buffer,
+  fields: Record<string, string> = {},
+) {
+  const boundary = `----openerp-chat-${randomUUID()}`;
+  const parts: Buffer[] = Object.entries(fields).map(([name, value]) =>
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+    ),
+  );
+  parts.push(
+    Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+        `Content-Type: ${mime}\r\n\r\n`,
+    ),
+    bytes,
+    Buffer.from('\r\n'),
+  );
+  parts.push(Buffer.from(`--${boundary}--\r\n`));
+  return {
+    payload: Buffer.concat(parts),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+/** A multipart body carrying fields but no file, to exercise "nothing attached". */
+function fieldsOnly(fields: Record<string, string>) {
+  const boundary = `----openerp-chat-${randomUUID()}`;
+  const parts: Buffer[] = Object.entries(fields).map(([name, value]) =>
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+    ),
+  );
+  parts.push(Buffer.from(`--${boundary}--\r\n`));
+  return {
+    payload: Buffer.concat(parts),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  };
+}
+
+/** A real image, so the upload path runs `sharp` over actual pixels. */
+async function pngSource(width = 64, height = 40): Promise<Buffer> {
+  return sharp({
+    create: { width, height, channels: 3, background: { r: 20, g: 120, b: 200 } },
+  })
+    .png()
+    .toBuffer();
+}
+
+function postImage(user: TestUser, conversationId: number, upload: ReturnType<typeof imageUpload>) {
+  return app.inject({
+    method: 'POST',
+    url: `/api/chat/conversations/${conversationId}/attachments`,
+    headers: { cookie: user.cookie, 'content-type': upload.contentType },
+    payload: upload.payload,
   });
 }
 
@@ -379,5 +446,152 @@ describe('chat (Phase 17, step 1)', () => {
     } finally {
       controller.abort();
     }
+  });
+});
+
+/**
+ * Phase 17, step 3: images and message search.
+ *
+ *   1. An image is stored processed (WebP, aspect preserved) and a member can
+ *      fetch its bytes; the caption rides along on the same message.
+ *   2. Membership gates the bytes too: a non-member gets a 404 on both upload and
+ *      fetch, exactly as they do for the thread itself.
+ *   3. A file that is not an image is refused rather than stored broken.
+ *   4. Search reaches only the caller's own conversations, and is
+ *      case-insensitive (`ILIKE`).
+ */
+describe('chat attachments and search (Phase 17, step 3)', () => {
+  let alice: TestUser;
+  let bob: TestUser;
+  let carol: TestUser;
+
+  beforeAll(async () => {
+    alice = await makeUser(['administrator']);
+    bob = await makeUser(['administrator']);
+    carol = await makeUser(['administrator']);
+  });
+
+  it('stores an image with its caption and serves the bytes to a member', async () => {
+    const dm = await openDm(alice, bob.id);
+    const upload = imageUpload('site.png', 'image/png', await pngSource(64, 40), {
+      body: 'The panel',
+    });
+
+    const response = await postImage(alice, dm, upload);
+    expect(response.statusCode).toBe(201);
+    const message = response.json().message;
+    expect(message.body).toBe('The panel');
+    expect(message.attachment.mime).toBe('image/webp');
+    // The processed image keeps the source aspect ratio.
+    expect(message.attachment.width).toBe(64);
+    expect(message.attachment.height).toBe(40);
+
+    const fetched = await app.inject({
+      method: 'GET',
+      url: `/api/chat/attachments/${message.attachment.id}`,
+      headers: { cookie: bob.cookie },
+    });
+    expect(fetched.statusCode).toBe(200);
+    expect(fetched.headers['content-type']).toBe('image/webp');
+    const metadata = await sharp(fetched.rawPayload).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(metadata.width).toBe(64);
+    expect(metadata.height).toBe(40);
+  });
+
+  it('accepts an image with no caption', async () => {
+    const dm = await openDm(alice, bob.id);
+    const response = await postImage(
+      alice,
+      dm,
+      imageUpload('bare.png', 'image/png', await pngSource()),
+    );
+    expect(response.statusCode).toBe(201);
+    expect(response.json().message.body).toBe('');
+    expect(response.json().message.attachment).not.toBeNull();
+  });
+
+  it('hides an image from a non-member behind a 404, on upload and on fetch', async () => {
+    const dm = await openDm(alice, bob.id);
+    const sent = await postImage(
+      alice,
+      dm,
+      imageUpload('private.png', 'image/png', await pngSource()),
+    );
+    expect(sent.statusCode).toBe(201);
+    const attachmentId = sent.json().message.attachment.id as number;
+
+    const fetch = await app.inject({
+      method: 'GET',
+      url: `/api/chat/attachments/${attachmentId}`,
+      headers: { cookie: carol.cookie },
+    });
+    expect(fetch.statusCode).toBe(404);
+
+    const upload = await postImage(
+      carol,
+      dm,
+      imageUpload('intruder.png', 'image/png', await pngSource()),
+    );
+    expect(upload.statusCode).toBe(404);
+  });
+
+  it('refuses a file that is not an image, and a request with no file', async () => {
+    const dm = await openDm(alice, bob.id);
+
+    const notAnImage = await postImage(
+      alice,
+      dm,
+      imageUpload('notes.txt', 'text/plain', Buffer.from('these are only words')),
+    );
+    expect(notAnImage.statusCode).toBe(400);
+    expect(notAnImage.json().error).toBe('ATTACHMENT_UNREADABLE');
+
+    const nothingAttached = fieldsOnly({ body: 'no file here' });
+    const missing = await app.inject({
+      method: 'POST',
+      url: `/api/chat/conversations/${dm}/attachments`,
+      headers: { cookie: alice.cookie, 'content-type': nothingAttached.contentType },
+      payload: nothingAttached.payload,
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().error).toBe('ATTACHMENT_REQUIRED');
+  });
+
+  it('finds messages by body, case-insensitively, only in the caller’s conversations', async () => {
+    const dm = await openDm(alice, bob.id);
+    const token = `zebra${randomUUID().slice(0, 6)}`;
+    const sent = await send(alice, dm, { body: `the ${token} escaped` });
+    expect(sent.statusCode).toBe(201);
+
+    const hit = await app.inject({
+      method: 'GET',
+      url: `/api/chat/search?q=${token.toUpperCase()}`,
+      headers: { cookie: bob.cookie },
+    });
+    expect(hit.statusCode).toBe(200);
+    expect(hit.json().results).toHaveLength(1);
+    expect(hit.json().results[0].conversationId).toBe(dm);
+    expect(hit.json().results[0].peer.id).toBe(alice.id);
+    expect(hit.json().results[0].message.body).toContain(token);
+
+    // Carol is not a member, so the same search reaches nothing of theirs.
+    const outsider = await app.inject({
+      method: 'GET',
+      url: `/api/chat/search?q=${token}`,
+      headers: { cookie: carol.cookie },
+    });
+    expect(outsider.statusCode).toBe(200);
+    expect(outsider.json().results).toHaveLength(0);
+  });
+
+  it('refuses a search term that is too short', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/chat/search?q=a',
+      headers: { cookie: alice.cookie },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('VALIDATION_FAILED');
   });
 });

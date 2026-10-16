@@ -19,6 +19,7 @@ import { registerChatRoutes } from './routes/chat.js';
 import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 import { APP_VERSION } from './version.js';
+import { CHAT_ATTACHMENT_MAX_BYTES } from '@openerp/shared';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -48,10 +49,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   await app.register(authPlugin, { config });
 
-  // Multipart uploads (the profile avatar). The cap is enforced while the file
-  // streams, so an oversized upload is refused before it is buffered in memory.
+  // Multipart uploads: the profile avatar and a chat image. The cap is enforced
+  // while the file streams, so an oversized upload is refused before it is
+  // buffered in memory. One limit covers both, so it is the larger of the two.
   await app.register(multipart, {
-    limits: { fileSize: AVATAR_MAX_BYTES, files: 1, fields: 8 },
+    limits: {
+      fileSize: Math.max(AVATAR_MAX_BYTES, CHAT_ATTACHMENT_MAX_BYTES),
+      files: 1,
+      fields: 8,
+    },
   });
 
   // ---- Liveness / readiness ---------------------------------------------
@@ -98,7 +104,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await registerTimesheetRoutes(app);
 
   // ---- Phase 17: internal chat ------------------------------------------
-  await registerChatRoutes(app);
+  await registerChatRoutes(app, config);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

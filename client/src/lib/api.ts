@@ -785,6 +785,16 @@ export interface ChatUser {
   avatarUpdatedAt: string | null;
 }
 
+/** An image on a message. Its bytes are fetched from `/api/chat/attachments/:id`. */
+export interface ChatAttachment {
+  id: number;
+  mime: string;
+  width: number;
+  height: number;
+  sizeBytes: number;
+  originalName: string | null;
+}
+
 export interface ChatMessage {
   id: number;
   conversationId: number;
@@ -794,6 +804,8 @@ export interface ChatMessage {
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
+  /** The image sent with the message, if any. `null` for a text-only message. */
+  attachment: ChatAttachment | null;
 }
 
 /** A conversation as the list needs it. Step 1 only creates direct ones. */
@@ -824,6 +836,16 @@ export interface ChatMessageResponse {
 }
 export interface ChatUsersResponse {
   users: ChatUser[];
+}
+
+/** A message found by search, with the conversation it belongs to. */
+export interface ChatSearchResult {
+  conversationId: number;
+  peer: ChatUser;
+  message: ChatMessage;
+}
+export interface ChatSearchResponse {
+  results: ChatSearchResult[];
 }
 
 /**

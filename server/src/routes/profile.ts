@@ -93,7 +93,7 @@ const profileUpdateSchema = z.object({
 });
 
 /** The multipart plugin's "file exceeded limits.fileSize" signal. */
-function fileTooLarge(error: unknown): boolean {
+export function fileTooLarge(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&

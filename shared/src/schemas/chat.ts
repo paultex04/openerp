@@ -1,5 +1,5 @@
 /**
- * Request/response schemas for internal chat (Phase 17, step 1).
+ * Request/response schemas for internal chat (Phase 17).
  *
  * Shared so the composer and the API validate identically, like every other
  * `schemas/*` module. Chat here is person-to-person: a conversation is between
@@ -10,6 +10,19 @@ import { z } from 'zod';
 
 /** The longest single message. Long enough for a paragraph, bounded for the DB. */
 export const CHAT_MESSAGE_MAX = 4000;
+
+/**
+ * Largest image accepted as a chat attachment, in bytes. Shared with the
+ * multipart registration so an oversized upload is refused while it streams.
+ */
+export const CHAT_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+
+/**
+ * The processed image is scaled to fit inside this box with its aspect ratio
+ * preserved (and never enlarged), so a phone photo is bounded without being
+ * cropped or distorted.
+ */
+export const CHAT_ATTACHMENT_MAX_DIMENSION = 1600;
 
 export const chatMessageCreateSchema = z.object({
   body: z.string().trim().min(1, 'Write a message first.').max(CHAT_MESSAGE_MAX),
@@ -44,3 +57,14 @@ export const chatMessageListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).optional(),
 });
 export type ChatMessageListQuery = z.infer<typeof chatMessageListQuerySchema>;
+
+/**
+ * Message search across the caller's own conversations. Two characters minimum:
+ * a single letter matches almost everything and would be a full table scan for
+ * no useful result.
+ */
+export const chatSearchQuerySchema = z.object({
+  q: z.string().trim().min(2, 'Type at least two characters.').max(100),
+  limit: z.coerce.number().int().positive().max(50).optional(),
+});
+export type ChatSearchQuery = z.infer<typeof chatSearchQuerySchema>;
