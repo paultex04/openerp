@@ -10,13 +10,15 @@
  * conversation in the dock and then visiting the page neither refetches nor,
  * worse, disagrees about what is unread.
  *
- * ## Polling first, streaming later
+ * ## Live stream, polling as the fallback
  *
- * Step 1 delivers new messages by refetching on an interval. That is deliberate:
- * it works through the existing same-origin proxy with no new failure modes, and
- * it is exactly what the SSE step falls back *to*. The interval is short while a
- * conversation is open - someone is waiting for a reply - and long otherwise,
- * because the badge only needs to be roughly right.
+ * Step 1 delivered new messages by refetching on an interval. Step 2 opens an SSE
+ * stream (`/api/chat/stream`) and lets it drive updates: a `message` event appends
+ * to the open thread and refreshes the list, `read` refreshes the "Seen" state,
+ * `typing` and `presence` are held here. The intervals are *not* removed — they are
+ * the fallback the design always promised. While the stream is open they stretch
+ * to a slow safety net (a frame could be missed across a proxy restart); the
+ * moment it closes they snap back to the step-1 cadence.
  *
  * ## Unread is derived
  *
@@ -44,17 +46,30 @@ import {
   type ChatMessage,
   type ChatMessageResponse,
   type ChatMessagesResponse,
+  type ChatStreamEvent,
+  type ChatStreamStatus,
   type ChatUser,
   type ChatUsersResponse,
 } from '@/lib/api';
 import { toast } from '@/components/ui/toast';
+import { useChatStream } from '@/components/chat/chat-stream';
 
-/** How often the conversation list (and so the badge) refreshes. */
+/** How often the conversation list (and so the badge) refreshes while polling. */
 const LIST_POLL_MS = 8000;
-/** How often an open thread refreshes. Shorter: a reply is expected. */
+/** How often an open thread refreshes while polling. Shorter: a reply is expected. */
 const THREAD_POLL_MS = 4000;
+/**
+ * The same intervals once the stream is open: a slow safety net, not the primary
+ * mechanism. A missed frame costs at most this long of staleness.
+ */
+const STREAM_LIST_POLL_MS = 30_000;
+const STREAM_THREAD_POLL_MS = 20_000;
 /** Messages per page. Also the batch size for "load earlier". */
 const PAGE_SIZE = 50;
+/** At most one typing ping per window, so a fast typist is not a request flood. */
+const TYPING_THROTTLE_MS = 2000;
+/** How long a "typing" signal is shown before it is assumed stale. */
+const TYPING_TTL_MS = 4000;
 
 // Module-level constants so an empty list keeps a stable identity. A fresh `[]`
 // every render would be a changed dependency on every pass.
@@ -83,6 +98,13 @@ interface ChatContextValue {
   opening: boolean;
   directory: ChatUser[];
   directoryLoading: boolean;
+  /** Whether the SSE channel is up. `closed` means the list/thread are polling. */
+  streamStatus: ChatStreamStatus;
+  isOnline: (userId: number) => boolean;
+  /** Whether the other member is typing in this conversation. */
+  isTyping: (conversationId: number) => boolean;
+  /** Call on each keystroke; throttled and self-stopping, so it is safe to spam. */
+  notifyTyping: () => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -112,17 +134,94 @@ export function ChatProvider({
   const [older, setOlder] = useState<ChatMessage[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(false);
+  const [online, setOnline] = useState<Set<number>>(() => new Set());
+  const [typing, setTyping] = useState<Record<number, number>>({});
 
   // The newest message we have already told the server we read, per conversation.
   // Without it the "mark read" effect would fire on every poll while the server's
   // answer was still in flight.
   const lastMarkedRef = useRef<{ conversationId: number; messageId: number } | null>(null);
 
+  // Per-conversation timers that expire a stale "typing" signal if the sender's
+  // explicit stop never arrives (they closed the tab mid-sentence).
+  const typingTimers = useRef<Map<number, number>>(new Map());
+  // Throttle and idle-stop for the outbound typing signal.
+  const lastTypingSentRef = useRef(0);
+  const typingStopRef = useRef<number | null>(null);
+
+  const handleStreamEvent = useCallback(
+    (event: ChatStreamEvent) => {
+      switch (event.type) {
+        case 'ready':
+          setOnline(new Set(event.online));
+          break;
+        case 'presence':
+          setOnline((current) => {
+            const next = new Set(current);
+            if (event.online) next.add(event.userId);
+            else next.delete(event.userId);
+            return next;
+          });
+          break;
+        case 'message':
+          // Append only to a thread we already hold. Creating an entry here would
+          // seed a one-message history that react-query would then treat as fresh,
+          // so opening the conversation would show a single bubble.
+          queryClient.setQueryData<ChatMessagesResponse>(
+            ['chat', 'messages', event.conversationId],
+            (previous) => {
+              if (!previous) return previous;
+              if (previous.messages.some((message) => message.id === event.message.id)) {
+                return previous;
+              }
+              return { messages: [...previous.messages, event.message] };
+            },
+          );
+          void queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+          break;
+        case 'read':
+          // The peer's watermark moved; the list carries `peerLastReadAt`, so a
+          // refetch is enough to turn the newest own message into "Seen".
+          void queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+          break;
+        case 'typing': {
+          const { conversationId, userId, isTyping } = event;
+          const existingTimer = typingTimers.current.get(conversationId);
+          if (existingTimer !== undefined) window.clearTimeout(existingTimer);
+          setTyping((current) => {
+            const next = { ...current };
+            if (isTyping) next[conversationId] = userId;
+            else delete next[conversationId];
+            return next;
+          });
+          if (isTyping) {
+            const timer = window.setTimeout(() => {
+              typingTimers.current.delete(conversationId);
+              setTyping((current) => {
+                const next = { ...current };
+                delete next[conversationId];
+                return next;
+              });
+            }, TYPING_TTL_MS);
+            typingTimers.current.set(conversationId, timer);
+          } else {
+            typingTimers.current.delete(conversationId);
+          }
+          break;
+        }
+      }
+    },
+    [queryClient],
+  );
+
+  const streamStatus = useChatStream(enabled, handleStreamEvent);
+  const streaming = streamStatus === 'open';
+
   const conversationsQuery = useQuery({
     queryKey: ['chat', 'conversations'],
     queryFn: () => api.get<ChatConversationsResponse>('/api/chat/conversations'),
     enabled,
-    refetchInterval: enabled ? LIST_POLL_MS : false,
+    refetchInterval: enabled ? (streaming ? STREAM_LIST_POLL_MS : LIST_POLL_MS) : false,
     // Coming back to the tab should show the badge immediately, not in 8s.
     refetchOnWindowFocus: true,
   });
@@ -136,7 +235,8 @@ export function ChatProvider({
         limit: PAGE_SIZE,
       }),
     enabled: enabled && activeId !== null,
-    refetchInterval: enabled && activeId !== null ? THREAD_POLL_MS : false,
+    refetchInterval:
+      enabled && activeId !== null ? (streaming ? STREAM_THREAD_POLL_MS : THREAD_POLL_MS) : false,
   });
 
   const latest = messagesQuery.data?.messages ?? EMPTY_MESSAGES;
@@ -150,12 +250,27 @@ export function ChatProvider({
     staleTime: 5 * 60 * 1000,
   });
 
-  // A new conversation starts a fresh page history.
+  // A new conversation starts a fresh page history and forgets any typing timer.
   useEffect(() => {
     setOlder([]);
     setHasOlder(false);
     lastMarkedRef.current = null;
+    lastTypingSentRef.current = 0;
+    if (typingStopRef.current !== null) {
+      window.clearTimeout(typingStopRef.current);
+      typingStopRef.current = null;
+    }
   }, [activeId]);
+
+  // Drop every timer on unmount so a late callback cannot set state on a gone tree.
+  useEffect(() => {
+    const timers = typingTimers.current;
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer);
+      timers.clear();
+      if (typingStopRef.current !== null) window.clearTimeout(typingStopRef.current);
+    };
+  }, []);
 
   // Whether there is more history to the left is read off the page the server
   // just returned: a full page implies there may be older messages.
@@ -187,6 +302,37 @@ export function ChatProvider({
         // arrives. A failed mark-read is not worth an interruption.
       });
   }, [activeId, conversations, queryClient]);
+
+  const stopTyping = useCallback(() => {
+    if (activeId === null) return;
+    if (typingStopRef.current !== null) {
+      window.clearTimeout(typingStopRef.current);
+      typingStopRef.current = null;
+    }
+    lastTypingSentRef.current = 0;
+    void api
+      .post(`/api/chat/conversations/${activeId}/typing`, { isTyping: false })
+      .catch(() => undefined);
+  }, [activeId]);
+
+  const notifyTyping = useCallback(() => {
+    if (activeId === null) return;
+    const now = Date.now();
+    if (now - lastTypingSentRef.current >= TYPING_THROTTLE_MS) {
+      lastTypingSentRef.current = now;
+      void api
+        .post(`/api/chat/conversations/${activeId}/typing`, { isTyping: true })
+        .catch(() => undefined);
+    }
+    // Restart the idle countdown: if no keystroke follows, say we stopped.
+    if (typingStopRef.current !== null) window.clearTimeout(typingStopRef.current);
+    typingStopRef.current = window.setTimeout(() => {
+      lastTypingSentRef.current = 0;
+      void api
+        .post(`/api/chat/conversations/${activeId}/typing`, { isTyping: false })
+        .catch(() => undefined);
+    }, TYPING_TTL_MS);
+  }, [activeId]);
 
   const sendMutation = useMutation({
     mutationFn: ({ conversationId, body }: { conversationId: number; body: string }) =>
@@ -226,8 +372,10 @@ export function ChatProvider({
         // Already surfaced by `onError`; the composer keeps the text so it is not
         // lost. Nothing to do here.
       }
+      // Sending ends the typing state, whatever the outcome.
+      stopTyping();
     },
-    [activeId, sendMutation],
+    [activeId, sendMutation, stopTyping],
   );
 
   const openMutation = useMutation({
@@ -277,6 +425,12 @@ export function ChatProvider({
     [conversations],
   );
 
+  const isOnline = useCallback((userId: number) => online.has(userId), [online]);
+  const isTyping = useCallback(
+    (conversationId: number) => typing[conversationId] !== undefined,
+    [typing],
+  );
+
   const value = useMemo<ChatContextValue>(
     () => ({
       selfId,
@@ -297,6 +451,10 @@ export function ChatProvider({
       opening: openMutation.isPending,
       directory: directoryQuery.data?.users ?? EMPTY_USERS,
       directoryLoading: directoryQuery.isLoading,
+      streamStatus,
+      isOnline,
+      isTyping,
+      notifyTyping,
     }),
     [
       selfId,
@@ -315,6 +473,10 @@ export function ChatProvider({
       openMutation,
       directoryQuery.data,
       directoryQuery.isLoading,
+      streamStatus,
+      isOnline,
+      isTyping,
+      notifyTyping,
     ],
   );
 

@@ -805,6 +805,8 @@ export interface ChatConversation {
   lastMessage: ChatMessage | null;
   lastMessageAt: string | null;
   lastReadAt: string | null;
+  /** The peer's read watermark, used to render a "Seen" marker on own messages. */
+  peerLastReadAt: string | null;
   unreadCount: number;
 }
 
@@ -823,3 +825,18 @@ export interface ChatMessageResponse {
 export interface ChatUsersResponse {
   users: ChatUser[];
 }
+
+/**
+ * Frames on `/api/chat/stream`. `ready` carries the initial online snapshot;
+ * the rest mirror the server's event bus. Mirrored by hand, like the other chat
+ * types, because the server's view types live in the server workspace.
+ */
+export type ChatStreamEvent =
+  | { type: 'ready'; selfId: number; online: number[] }
+  | { type: 'message'; conversationId: number; message: ChatMessage }
+  | { type: 'read'; conversationId: number; userId: number; lastReadAt: string }
+  | { type: 'typing'; conversationId: number; userId: number; isTyping: boolean }
+  | { type: 'presence'; userId: number; online: boolean };
+
+/** `connecting`/`open` while the stream is up; `closed` means polling takes over. */
+export type ChatStreamStatus = 'connecting' | 'open' | 'closed';

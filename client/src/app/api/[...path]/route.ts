@@ -35,7 +35,12 @@ const FORWARD_REQUEST_HEADERS = ['cookie', 'content-type', 'accept', 'accept-lan
  * Headers returned downstream. `set-cookie` is the important one: without it the
  * login response cannot establish a session in the browser.
  */
-const FORWARD_RESPONSE_HEADERS = ['content-type', 'set-cookie', 'cache-control'];
+const FORWARD_RESPONSE_HEADERS = [
+  'content-type',
+  'set-cookie',
+  'cache-control',
+  'x-accel-buffering',
+];
 
 async function proxy(request: Request, path: string[]): Promise<Response> {
   const url = new URL(request.url);

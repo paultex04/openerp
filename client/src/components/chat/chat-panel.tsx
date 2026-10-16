@@ -192,6 +192,7 @@ function ConversationRows({ search }: { search: string }) {
             conversation={conversation}
             active={chat.activeId === conversation.id}
             own={conversation.lastMessage?.senderId === chat.selfId}
+            online={chat.isOnline(conversation.peer.id)}
             onSelect={() => chat.selectConversation(conversation.id)}
           />
         </li>
@@ -204,11 +205,13 @@ function ConversationRow({
   conversation,
   active,
   own,
+  online,
   onSelect,
 }: {
   conversation: ChatConversation;
   active: boolean;
   own: boolean;
+  online: boolean;
   onSelect: () => void;
 }) {
   const preview = conversation.lastMessage
@@ -233,7 +236,16 @@ function ConversationRow({
       />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{conversation.peer.name}</span>
+          <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+            {conversation.peer.name}
+            {online && (
+              <span
+                className="size-1.5 shrink-0 rounded-full bg-positive"
+                role="img"
+                aria-label="Online"
+              />
+            )}
+          </span>
           {conversation.lastMessageAt && (
             <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
               {shortTime(conversation.lastMessageAt)}
@@ -318,6 +330,18 @@ function Thread({ onBack }: { onBack?: () => void }) {
 
   if (!conversation) return null;
 
+  // The newest own message is the only one that can carry a "Seen" marker; the
+  // peer's watermark is a point in time, so anything at or before it is read.
+  const peerReadAt = conversation.peerLastReadAt;
+  let lastOwnId: number | null = null;
+  for (let index = chat.messages.length - 1; index >= 0; index -= 1) {
+    const candidate = chat.messages[index];
+    if (candidate && candidate.senderId === chat.selfId) {
+      lastOwnId = candidate.id;
+      break;
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b p-3">
@@ -337,8 +361,19 @@ function Thread({ onBack }: { onBack?: () => void }) {
           avatarUpdatedAt={conversation.peer.avatarUpdatedAt}
         />
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">{conversation.peer.name}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{conversation.peer.email}</p>
+          <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+            {conversation.peer.name}
+            {chat.isOnline(conversation.peer.id) && (
+              <span
+                className="size-2 shrink-0 rounded-full bg-positive"
+                role="img"
+                aria-label="Online"
+              />
+            )}
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {chat.isTyping(conversation.id) ? 'typing…' : conversation.peer.email}
+          </p>
         </div>
       </div>
 
@@ -370,7 +405,15 @@ function Thread({ onBack }: { onBack?: () => void }) {
               return (
                 <Fragment key={message.id}>
                   {showDay && <DaySeparator iso={message.createdAt} />}
-                  <MessageBubble message={message} own={message.senderId === chat.selfId} />
+                  <MessageBubble
+                    message={message}
+                    own={message.senderId === chat.selfId}
+                    seen={
+                      message.id === lastOwnId &&
+                      peerReadAt !== null &&
+                      message.createdAt <= peerReadAt
+                    }
+                  />
                 </Fragment>
               );
             })}
@@ -393,7 +436,16 @@ function DaySeparator({ iso }: { iso: string }) {
   );
 }
 
-function MessageBubble({ message, own }: { message: ChatMessage; own: boolean }) {
+function MessageBubble({
+  message,
+  own,
+  seen,
+}: {
+  message: ChatMessage;
+  own: boolean;
+  /** The peer has read up to at least this message, and it is the newest own one. */
+  seen?: boolean;
+}) {
   return (
     <li className={cn('flex items-end gap-2', own ? 'flex-row-reverse' : 'flex-row')}>
       {!own && <ChatAvatar name={message.senderName} className="size-6" />}
@@ -411,6 +463,7 @@ function MessageBubble({ message, own }: { message: ChatMessage; own: boolean })
           )}
         >
           {longTime(message.createdAt)}
+          {seen && <span className="ml-1 font-medium">· Seen</span>}
         </p>
       </div>
     </li>
@@ -441,7 +494,10 @@ function Composer() {
     >
       <textarea
         value={value}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          if (event.target.value.trim().length > 0) chat.notifyTyping();
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();

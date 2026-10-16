@@ -1,6 +1,6 @@
 # ADR-013: Chat is a dock; membership is its boundary, and delivery starts as polling
 
-- **Status:** accepted (step 1 of 3 implemented — see _Phasing_ below)
+- **Status:** accepted (steps 1–2 of 3 implemented — see _Phasing_ below)
 - **Date:** 2026-10-16
 - **Supersedes:** nothing. Stands beside [ADR-006](adr-006-enterprise-ui-overhaul.md)
   (the shell this hangs off) and follows the RBAC conventions of
@@ -43,8 +43,13 @@ Step 1 nonetheless ships **polling**, deliberately:
   (8s, and paused when the tab is hidden) is indistinguishable from live for the
   volume this app will see.
 
-The SSE step adds `GET /api/chat/stream` beside these endpoints and keeps the
-poll as the reconnect path.
+Step 2 adds `GET /api/chat/stream` beside these endpoints — server-sent events
+written straight onto the hijacked socket — and keeps the poll as the reconnect
+path. While the stream is open the client stretches the intervals to a slow safety
+net rather than removing them; the moment it drops, the step-1 cadence returns.
+Frames are fanned out from a single in-process event bus
+(`server/src/chat/events.ts`), which is sound precisely because Coolify runs one
+API instance.
 
 ### Scope: 1:1 direct conversations only, in v1
 
@@ -84,8 +89,10 @@ Three tables: `conversation`, `conversation_member`, `message`.
   arrives, so there is no counter to drift across tabs or devices.
 - `client_token` makes a send idempotent: a retry after a dropped connection
   returns the original message rather than posting a duplicate.
-- `edited_at` and `deleted_at` exist but are unwritten in step 1, so edit and
-  delete need no `ALTER` later.
+- `edited_at` and `deleted_at` exist but are unwritten: edit and delete are
+  explicitly **not** in v1 — decided with step 2 — because an edit only earns its
+  keep once it broadcasts over the stream, and that is a later concern. The
+  columns mean the feature needs no `ALTER` when it lands.
 
 ### RBAC: two keys, granted to every role
 
@@ -99,7 +106,7 @@ Every built-in role holds both — chat is cross-cutting — so the grant lives 
 | Step | Scope                                                                     | State       |
 | ---- | ------------------------------------------------------------------------- | ----------- |
 | 1    | Schema + migration + RBAC + REST + dock/page UI on polling                | **shipped** |
-| 2    | `GET /api/chat/stream` (SSE), typing and presence, per-message receipts   | planned     |
+| 2    | `GET /api/chat/stream` (SSE), typing and presence, per-message receipts   | **shipped** |
 | 3    | Attachments (image-first, via `sharp`), notifications, server-side search | planned     |
 
 ## Consequences
@@ -108,12 +115,17 @@ Every built-in role holds both — chat is cross-cutting — so the grant lives 
   tab is cheap.
 - A pinned dock narrows every page by 22rem at `lg` and above. That is a real
   cost, which is why it is opt-in and persisted rather than a default.
-- Because delivery is polling in step 1, a message can take up to 4s to appear
-  when the sender is the other person. Step 2 removes that window.
-- Step 2's SSE route must stream through the Route Handler proxy, so it needs
-  `Cache-Control: no-cache` and `X-Accel-Buffering: no`, must not be buffered by
-  Coolify's Traefik, and needs a rate-limit exemption. That is noted on the
-  deployment guide with step 2.
+- Step 1 delivered on polling, so a message could take up to 4s to appear when the
+  sender was the other person. Step 2 removes that window: a frame arrives as it is
+  published, so the delay is the network, not an interval.
+- The SSE route streams through the Route Handler proxy, which forwards the body
+  unwrapped, so it sets `Cache-Control: no-cache` and `X-Accel-Buffering: no` and
+  the proxy forwards the latter. It needed **no** rate-limit exemption: there is no
+  global limiter, only per-route caps on the credential endpoints.
+- The event bus is process-local, so a second API instance would split it — a
+  message published on one instance would not reach a browser on the other. That is
+  a deliberate single-instance assumption, recorded here and in the deployment
+  guide, and the one module that has to change if that ever stops being true.
 
 ## Rejected alternatives
 

@@ -98,6 +98,8 @@ export interface ChatConversationView {
   lastMessage: ChatMessageView | null;
   lastMessageAt: string | null;
   lastReadAt: string | null;
+  /** The peer's read watermark, so the sender can show a "Seen" marker. */
+  peerLastReadAt: string | null;
   unreadCount: number;
 }
 
@@ -131,7 +133,7 @@ function toMessageView(row: MessageRow): ChatMessageView {
  * The 404 (not 403) is deliberate: a non-member should not be able to learn that
  * a conversation id exists.
  */
-async function assertMember(conversationId: number, userId: number) {
+export async function assertMember(conversationId: number, userId: number) {
   const member = await prisma.conversationMember.findUnique({
     where: { conversationId_userId: { conversationId, userId } },
   });
@@ -139,6 +141,18 @@ async function assertMember(conversationId: number, userId: number) {
     throw new HttpError(404, 'CONVERSATION_NOT_FOUND', `Conversation ${conversationId} not found.`);
   }
   return member;
+}
+
+/**
+ * The account ids that make up a conversation, for fanning an event out. Kept in
+ * the service so the routes never reach for `prisma` themselves.
+ */
+export async function conversationMemberIds(conversationId: number): Promise<number[]> {
+  const rows = await prisma.conversationMember.findMany({
+    where: { conversationId },
+    select: { userId: true },
+  });
+  return rows.map((row) => row.userId);
 }
 
 /** Account directory: everyone active except the caller. */
@@ -184,6 +198,7 @@ async function toConversationView(
     lastMessage: last ? toMessageView(last) : null,
     lastMessageAt: row.lastMessageAt?.toISOString() ?? null,
     lastReadAt: me?.lastReadAt?.toISOString() ?? null,
+    peerLastReadAt: peer.lastReadAt?.toISOString() ?? null,
     unreadCount,
   };
 }

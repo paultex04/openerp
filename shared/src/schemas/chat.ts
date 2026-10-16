@@ -28,6 +28,16 @@ export const chatConversationOpenSchema = z.object({
 });
 export type ChatConversationOpenInput = z.infer<typeof chatConversationOpenSchema>;
 
+/**
+ * A typing signal. Ephemeral: nothing is stored, it is fanned out to the other
+ * members of the conversation and dropped. `isTyping` defaults to true, so a
+ * bare post means "I am typing" and `false` is the explicit stop.
+ */
+export const chatTypingSchema = z.object({
+  isTyping: z.boolean().optional(),
+});
+export type ChatTypingInput = z.infer<typeof chatTypingSchema>;
+
 /** Keyset pagination for a conversation's history. `before` is the oldest id held. */
 export const chatMessageListQuerySchema = z.object({
   before: z.coerce.number().int().positive().optional(),

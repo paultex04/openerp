@@ -14,12 +14,13 @@
  * Fixtures are created and torn down within the suite; nothing else is touched.
  */
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { prisma } from '../db/client.js';
 import { TEST_PASSWORD, createTestUser, destroyTestUser, login } from '../test/fixtures.js';
+import { resetChatBus, subscribe, type ChatServerEvent } from './events.js';
 
 let app: FastifyInstance;
 
@@ -117,6 +118,10 @@ afterAll(async () => {
   await app.close();
   await prisma.$disconnect();
 });
+
+// The bus is module-level state; a leaked subscriber would bleed into the next
+// test. Tests that need one remove it themselves and this is the backstop.
+afterEach(() => resetChatBus());
 
 describe('chat (Phase 17, step 1)', () => {
   let alice: TestUser;
@@ -275,5 +280,104 @@ describe('chat (Phase 17, step 1)', () => {
   it('refuses chat without the permission', async () => {
     const response = await listConversations(nobody);
     expect(response.statusCode).toBe(403);
+  });
+
+  it('publishes message, typing and read events, and exposes the peer read watermark', async () => {
+    // Bob <-> Carol is a fresh thread: every Alice <-> Bob DM is the same deduped
+    // row, already marked read by earlier tests, so it cannot show a null watermark.
+    const dm = await openDm(bob, carol.id);
+    const events: ChatServerEvent[] = [];
+    const unsubscribe = subscribe(carol.id, (event) => events.push(event));
+    try {
+      const sent = await send(bob, dm, { body: 'ping' });
+      expect(sent.statusCode).toBe(201);
+      expect(events.some((event) => event.type === 'message')).toBe(true);
+
+      const typing = await app.inject({
+        method: 'POST',
+        url: `/api/chat/conversations/${dm}/typing`,
+        headers: { cookie: bob.cookie },
+        payload: { isTyping: true },
+      });
+      expect(typing.statusCode).toBe(200);
+      expect(
+        events.some(
+          (event) => event.type === 'typing' && event.userId === bob.id && event.isTyping,
+        ),
+      ).toBe(true);
+
+      // Until Carol reads, Bob's view of Carol's watermark is empty.
+      const before = (await listConversations(bob))
+        .json()
+        .conversations.find((c: { id: number }) => c.id === dm);
+      expect(before.peerLastReadAt).toBeNull();
+
+      const read = await app.inject({
+        method: 'POST',
+        url: `/api/chat/conversations/${dm}/read`,
+        headers: { cookie: carol.cookie },
+      });
+      expect(read.statusCode).toBe(200);
+
+      const after = (await listConversations(bob))
+        .json()
+        .conversations.find((c: { id: number }) => c.id === dm);
+      expect(after.peerLastReadAt).not.toBeNull();
+      expect(events.some((event) => event.type === 'read' && event.userId === carol.id)).toBe(true);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('hides a typing signal from a non-member behind a 404', async () => {
+    const dm = await openDm(alice, bob.id);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/chat/conversations/${dm}/typing`,
+      headers: { cookie: carol.cookie },
+      payload: { isTyping: true },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('streams SSE frames, including a live message, to the authenticated account', async () => {
+    const dm = await openDm(alice, bob.id);
+    // A real socket: `inject` buffers, and a stream that never ends would hang it.
+    const address = await app.listen({ port: 0, host: '127.0.0.1' });
+    const controller = new AbortController();
+    try {
+      const response = await fetch(`${address}/api/chat/stream`, {
+        headers: { cookie: alice.cookie },
+        signal: controller.signal,
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/event-stream');
+
+      const body = response.body;
+      if (!body) throw new Error('stream response had no body');
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const readUntil = async (predicate: (text: string) => boolean): Promise<string> => {
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          if (predicate(buffer)) return buffer;
+        }
+        throw new Error(`stream did not produce the expected frame; saw: ${buffer}`);
+      };
+
+      expect(await readUntil((text) => text.includes('event: ready'))).toContain('"selfId"');
+
+      await send(bob, dm, { body: 'live hello' });
+      expect(await readUntil((text) => text.includes('event: message'))).toContain(
+        '"body":"live hello"',
+      );
+    } finally {
+      controller.abort();
+    }
   });
 });

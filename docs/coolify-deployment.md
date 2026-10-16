@@ -283,6 +283,21 @@ alpine is the usual cause.
 Something is starting migrations automatically. It must be a deliberate single
 action — see step 4.
 
+**Chat live updates stop, or arrive in bursts.**
+Chat streams over `GET /api/chat/stream` (server-sent events), which must not be
+buffered between the browser and the API. The API sends `Cache-Control:
+no-cache, no-transform` and `X-Accel-Buffering: no`, and the Next proxy forwards
+both. If updates batch up, look for a proxy in front of Coolify that buffers
+responses — Coolify's own Traefik does not, but an external WAF, CDN or nginx
+would. SSE needs **no** rate-limit exemption: there is no global limiter, only
+per-route caps on the credential endpoints (`routes/auth.ts`).
+
+The stream is fanned out **in-process**, so the API must run as a single instance.
+Two API replicas would each hold only the streams that reached them, and a message
+published on one would not reach a browser connected to the other. If a second
+instance is ever wanted, the fan-out in `server/src/chat/events.ts` is the one
+place that has to move to a shared channel.
+
 ---
 
 ## Verifying a deploy
