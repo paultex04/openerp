@@ -21,19 +21,34 @@ label you will see in the dashboard.
 
 ---
 
-## Why two applications, not Docker Compose or Nixpacks
+## Dockerfile applications, or the Compose build pack?
+
+Both work. They are different shapes and the choice changes almost every step below,
+so pick one before you start.
+
+**Two Applications — the rest of this page.** A managed Postgres, an API Application
+and a web Application, each on the **Dockerfile** build pack. Coolify clones the
+repository for each, so build contexts are the ordinary ones and every service gets
+its own logs, terminal, health check and rollback.
+
+**The Compose build pack.** One resource, built from
+[`docker-compose.coolify.yml`](../docker-compose.coolify.yml) — note that it is _not_
+`docker-compose.yml`. Three rules apply, and the third is why a first attempt
+normally fails:
+
+1. **No `caddy` service.** Coolify's proxy already owns ports 80 and 443 on the
+   host; a second process binding them fails and rolls the deploy back.
+2. **No published ports.** A published host port bypasses Coolify's proxy routing.
+3. **`Preserve repository during deployment` must be switched on**, or the build
+   context contains no repository and the build dies with
+   `failed to read dockerfile: open Dockerfile.api: no such file or directory`.
+
+Full instructions: [the Compose build pack](#8-alternative-the-compose-build-pack).
 
 **Not Nixpacks.** Nixpacks guesses monorepo workspace layout. This repository is
 three workspaces sharing one hoisted `node_modules`, with a build step that must run
 `prisma generate` before the bundle, and a migration runner that is not Prisma's.
 The Dockerfiles state all of that explicitly.
-
-**Not Docker Compose.** `docker-compose.yml` exists for **local parity only**.
-Coolify treats a Compose file as one Application and builds every service under one
-workspace, which does not match the runtime-variable table below — Coolify would
-inject variables at build time and the API would crash-loop on
-`Invalid environment configuration`. Create **two separate Applications**, each on
-the **Dockerfile** build pack.
 
 ---
 
@@ -425,6 +440,93 @@ import tool from a checkout (`npm run import:template`, then
 `npm run import:data -- --file import/OpenERP-import-template.xlsx`) against a
 `DATABASE_URL` pointed at a temporarily-public database. Only once that baseline
 exists do the published acceptance values (job 1 at R 26 784,45, etc.) apply.
+
+---
+
+## 8. Alternative: the Compose build pack
+
+One resource instead of three. The file is
+[`docker-compose.coolify.yml`](../docker-compose.coolify.yml), and it differs from the
+standalone stack in exactly three ways — no Caddy, no published ports, no one-off
+migrate/seed services — each because of a Coolify rule rather than a preference.
+
+### Why it is not `docker-compose.yml`
+
+`docker-compose.yml` runs the app on one host and brings its own TLS with a Caddy
+container. Under Coolify that is wrong three times over:
+
+- **Caddy cannot bind.** Coolify runs its own proxy on the host and it already holds
+  ports 80 and 443. A second process binding them fails and takes the deploy down with
+  it.
+- **Published ports bypass the proxy.** Coolify's own documentation: _"Do not publish
+  a service with `ports:` unless it must be reachable directly on a server interface.
+  A published host port bypasses domain-based proxy routing and can expose an internal
+  service."_
+- **`migrate` and `seed` are one-off.** A Compose resource models long-running
+  services. Both are already inside the API image, so they run from its Terminal
+  instead.
+
+### Create it
+
+**New Resource → Application → the same repository → `Docker Compose`** as the build
+strategy, then:
+
+| Field                                     | Value                             |
+| ----------------------------------------- | --------------------------------- |
+| **Base Directory**                        | `/`                               |
+| **Docker Compose Location**               | `/docker-compose.coolify.yml`     |
+| **Preserve repository during deployment** | **on** — General → Build pipeline |
+
+That last row is not optional. Coolify runs `docker compose` from
+`/data/coolify/services/<uuid>/`, and the repository is not kept there unless the
+toggle is on. With it off, `build: context: .` resolves to a directory holding only
+the compose file, and the build fails with:
+
+```
+failed to read dockerfile: open Dockerfile.api: no such file or directory
+```
+
+The `transferring dockerfile: 2B` line just above it in the log is BuildKit reporting
+that it read an empty file — the same fact, stated less clearly.
+
+### Domain and variables
+
+In **Domains**, add the address and choose **`web`** as the receiving service. Include
+the container port, because it is not 80:
+
+```
+https://erp.example.co.za:3000
+```
+
+The public request is still ordinary HTTPS; the `:3000` suffix only tells the proxy
+which container port to route to.
+
+Then set, under **Environment Variables**:
+
+| Variable            | Value                                                               |
+| ------------------- | ------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD` | anything strong                                                     |
+| `AUTH_JWT_SECRET`   | 32+ characters (`openssl rand -base64 48`)                          |
+| `SITE_ADDRESS`      | the hostname from the domain above, no scheme — `erp.example.co.za` |
+
+`CLIENT_ORIGIN` is derived from `SITE_ADDRESS`, so set it to the same host you gave the
+domain or the API will reject the browser's origin.
+
+The `${VAR:?}` syntax in the compose file is Coolify's "required" marker: it creates
+the variable and blocks the deployment until it has a value. That is why the two
+secrets must be filled in rather than left to a default.
+
+### Schema and first administrator
+
+Open the **`api`** container's **Terminal** and run both, in this order:
+
+```bash
+node server/scripts/apply-migrations.mjs
+node server/dist/seed.js
+```
+
+Then deploy and open the domain. Steps **5** and **6** above explain what each does and
+why neither is a boot step.
 
 ---
 

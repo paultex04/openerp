@@ -488,6 +488,66 @@ check(
 );
 
 // ---------------------------------------------------------------------------
+section('Coolify compose file');
+// ---------------------------------------------------------------------------
+
+// Coolify runs its own proxy on the host and routes by domain, so this file must
+// not bring a proxy of its own or publish anything. Both were real failures: a
+// `caddy` service cannot bind 80/443 next to Coolify's proxy, and a published
+// port bypasses proxy routing entirely (Coolify's docs say so directly).
+const coolifyCompose = readFileSync(resolve(root, 'docker-compose.coolify.yml'), 'utf8');
+
+check('coolify compose has no tab characters', !coolifyCompose.includes('\t'));
+check(
+  'coolify compose has no caddy service',
+  !/^ {2}caddy:\s*$/m.test(coolifyCompose),
+  "Coolify's proxy already owns 80/443; a second proxy fails to bind",
+);
+check(
+  'coolify compose publishes no port',
+  !/^\s+ports:/m.test(coolifyCompose),
+  'a published host port bypasses domain-based proxy routing',
+);
+check(
+  'coolify compose has no one-off migrate/seed services',
+  !/^ {2}(migrate|seed):\s*$/m.test(coolifyCompose),
+  'services that run once and exit are not modelled by a Coolify Compose resource',
+);
+for (const name of ['db', 'api', 'web']) {
+  check(
+    `coolify compose defines "${name}"`,
+    new RegExp(`^ {2}${name}:\\s*$`, 'm').test(coolifyCompose),
+  );
+}
+check(
+  'coolify compose builds api from Dockerfile.api',
+  /dockerfile: Dockerfile\.api/.test(coolifyCompose),
+);
+check(
+  'coolify compose builds web from Dockerfile.web',
+  /dockerfile: Dockerfile\.web/.test(coolifyCompose),
+);
+check(
+  'coolify compose requires the same two secrets as the standalone stack',
+  coolifyCompose.includes('POSTGRES_PASSWORD:?') && coolifyCompose.includes('AUTH_JWT_SECRET:?'),
+);
+// The same two invariants as the standalone file, for the same two reasons.
+check(
+  'coolify compose hard-sets AUTH_COOKIE_SECURE to true',
+  /AUTH_COOKIE_SECURE:\s*['"]true['"]/.test(coolifyCompose),
+  'loadConfig() refuses production without it, and Caddy is not here to be blamed',
+);
+check(
+  'coolify compose derives CLIENT_ORIGIN from the address Coolify serves',
+  coolifyCompose.includes('CLIENT_ORIGIN: https://${SITE_ADDRESS:-localhost}'),
+  'the domain is set in the Coolify UI, so the origin must follow SITE_ADDRESS',
+);
+check(
+  'coolify compose points web at the api service',
+  coolifyCompose.includes('API_ORIGIN: http://api:4000'),
+);
+
+// ---------------------------------------------------------------------------
 section('self-host bootstrap');
 // ---------------------------------------------------------------------------
 
