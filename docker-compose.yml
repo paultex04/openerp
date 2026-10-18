@@ -8,7 +8,8 @@
 # would in Coolify, against a real database. Development remains `npm run dev`.
 #
 #   docker compose up --build
-#   docker compose run --rm migrate     # apply migrations
+#   docker compose --profile tools run --rm migrate   # apply migrations
+#   docker compose --profile tools run --rm seed      # first administrator
 #   open http://localhost:3000
 #
 # ## Why the API has no published port
@@ -123,17 +124,33 @@ services:
     command: ['node', 'server/scripts/apply-migrations.mjs']
 
   # -----------------------------------------------------------------------------
-  # Seed — also one-off, and refuses to run in production
+  # Seed — also one-off, and refuses to create demo accounts in production
   # -----------------------------------------------------------------------------
   #
-  # The seed needs `tsx` (it is TypeScript) and devDependencies, neither of which
-  # is in the runtime image. It is therefore NOT run from the API image. Options:
-  #   - `docker compose run --rm --profile tools seed` against a dev build, or
-  #   - run it from a checkout with DATABASE_URL pointed at the container.
+  # Run explicitly: `docker compose --profile tools run --rm seed`
   #
-  # Note the guard: the seed refuses to create demo accounts when
-  # NODE_ENV=production, which is why this cannot be a boot step either.
+  # The seed is bundled into the API image as `server/dist/seed.js` — see
+  # `server/build.mjs` — so it runs here without `tsx` or devDependencies, exactly
+  # as it is run from a deployed container's Terminal. The bundle inlines
+  # `NODE_ENV=production`, so the demo-account guard always applies here; set
+  # `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in the host environment to create
+  # the first administrator. Without the password only the RBAC catalogue is
+  # provisioned.
   # -----------------------------------------------------------------------------
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    profiles: ['tools']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://openerp:${POSTGRES_PASSWORD}@db:5432/openerp?schema=public
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@contractor.co.za}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+    command: ['node', 'server/dist/seed.js']
 
   # -----------------------------------------------------------------------------
   # Web

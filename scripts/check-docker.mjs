@@ -276,6 +276,23 @@ check(
   'Dockerfile.api: runtime copies the migration runner',
   apiDockerfileText.includes('COPY server/scripts'),
 );
+// The runner imports `../../scripts/lib/env.mjs`, which from `/app/server/scripts`
+// resolves to `/app/scripts/lib/env.mjs`. Copying only `server/scripts` produces an
+// image whose migration command dies with ERR_MODULE_NOT_FOUND at the exact moment
+// it is needed. This is the "does the runtime have everything it reads?" question
+// that a syntax check cannot see, so it is asserted here.
+check(
+  'Dockerfile.api: runtime copies the env loader the migration runner imports',
+  apiDockerfileText.includes('COPY scripts/lib'),
+  'apply-migrations.mjs imports ../../scripts/lib/env.mjs — copy scripts/lib or it cannot run',
+);
+// `server/dist` holds two entry points: index.js (the API) and seed.js (the
+// one-off bootstrap). The build stage asserts both exist before the image is
+// produced, so a second entry point that silently stops being built fails here.
+check(
+  'Dockerfile.api: build asserts the seed bundle exists',
+  /test -f server\/dist\/seed\.js/.test(apiDockerfileText),
+);
 check(
   'Dockerfile.web: runtime copies the build output',
   /COPY --from=build .*client\/\.next/.test(webDockerfileText),
@@ -364,7 +381,7 @@ const compose = readFileSync(resolve(root, 'docker-compose.yml'), 'utf8');
 check('no tab characters', !compose.includes('\t'));
 
 const serviceNames = [...compose.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]);
-const expected = ['db', 'api', 'migrate', 'web'];
+const expected = ['db', 'api', 'migrate', 'seed', 'web'];
 for (const name of expected) {
   check(`service "${name}" defined`, serviceNames.includes(name));
 }

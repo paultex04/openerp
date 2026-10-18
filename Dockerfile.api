@@ -79,10 +79,10 @@ RUN npx prisma generate --schema server/prisma/schema.prisma
 # silently ships.
 RUN npm run build --workspace server
 
-# Fail the build rather than the deploy if the artefact is missing. Without this,
+# Fail the build rather than the deploy if an artefact is missing. Without this,
 # a typo in the bundle script produces an image that starts and immediately
 # crashes on `node dist/index.js`, which reads as an application bug.
-RUN test -f server/dist/index.js
+RUN test -f server/dist/index.js && test -f server/dist/seed.js
 
 # -----------------------------------------------------------------------------
 # Stage 3 — runtime
@@ -139,7 +139,17 @@ RUN npx prisma generate --schema server/prisma/schema.prisma
 # laptop — see docs/coolify-deployment.md.
 COPY server/scripts ./server/scripts
 
+# `apply-migrations.mjs` imports `../../scripts/lib/env.mjs`, which from
+# `/app/server/scripts` resolves to `/app/scripts/lib/env.mjs`. Without this COPY
+# the runner throws ERR_MODULE_NOT_FOUND the moment it is invoked — so the
+# migration path this image exists to provide would be broken in exactly the
+# environment it was built for. The API bundle does not need it: esbuild inlines
+# the server's own copy of the loader.
+COPY scripts/lib ./scripts/lib
+
 # The bundle. Application code only; no TypeScript source reaches production.
+# `dist/` holds both entry points: `index.js` (the API) and `seed.js` (the
+# one-off bootstrap seed), so both can be run from Coolify's Terminal.
 COPY --from=build /app/server/dist ./server/dist
 
 # `shared` is bundled in by esbuild, so no runtime copy is needed. The manifests

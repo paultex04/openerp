@@ -1,5 +1,5 @@
 /**
- * Bundles the API into a single runnable ESM file.
+ * Bundles the API and the bootstrap seed into runnable ESM files.
  *
  * WHY THIS EXISTS
  *
@@ -78,8 +78,22 @@ const rootVersion = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8
 
 /** @type {import('esbuild').BuildOptions} */
 const options = {
-  entryPoints: [resolve(root, 'server/src/index.ts')],
-  outfile: resolve(root, 'server/dist/index.js'),
+  // Two entry points, one output file each:
+  //
+  //   index.js  the API server
+  //   seed.js   the one-off bootstrap seed
+  //
+  // The seed is bundled for the same reason the API is: it is TypeScript, and the
+  // runtime image installs `--omit=dev` and carries no `tsx`. Bundling it lets the
+  // production image provision the first administrator and the RBAC catalogue as
+  // `node server/dist/seed.js`, from the container, with no dev dependencies and
+  // without exposing the database to a laptop. See docs/coolify-deployment.md.
+  entryPoints: {
+    index: resolve(root, 'server/src/index.ts'),
+    seed: resolve(root, 'server/src/db/seed.ts'),
+  },
+  outdir: resolve(root, 'server/dist'),
+  entryNames: '[name]',
   bundle: true,
   platform: 'node',
   target: 'node20',
