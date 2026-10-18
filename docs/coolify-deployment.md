@@ -33,15 +33,17 @@ its own logs, terminal, health check and rollback.
 
 **The Compose build pack.** One resource, built from
 [`docker-compose.coolify.yml`](../docker-compose.coolify.yml) — note that it is _not_
-`docker-compose.yml`. Three rules apply, and the third is why a first attempt
+`docker-compose.yml`. Four rules apply, and the last two are why a first attempt
 normally fails:
 
-1. **No `caddy` service.** Coolify's proxy already owns ports 80 and 443 on the
+1. **It must be a Git-based Application, not a pasted definition.** Coolify's
+   "Docker Compose Empty" path creates a Service that "has no Git source", so
+   `build:` can never resolve. See [step 8](#8-alternative-the-compose-build-pack).
+2. **No `caddy` service.** Coolify's proxy already owns ports 80 and 443 on the
    host; a second process binding them fails and rolls the deploy back.
-2. **No published ports.** A published host port bypasses Coolify's proxy routing.
-3. **`Preserve repository during deployment` must be switched on**, or the build
-   context contains no repository and the build dies with
-   `failed to read dockerfile: open Dockerfile.api: no such file or directory`.
+3. **No published ports.** A published host port bypasses Coolify's proxy routing.
+4. **`Preserve repository during deployment` should be on**, so the repository is
+   present in the deployment directory at build time.
 
 Full instructions: [the Compose build pack](#8-alternative-the-compose-build-pack).
 
@@ -466,10 +468,41 @@ container. Under Coolify that is wrong three times over:
   services. Both are already inside the API image, so they run from its Terminal
   instead.
 
+### It must be a Git-based Application
+
+The resource type matters more than any field below, and it is the difference between
+building and failing. Coolify has two Compose paths and only one of them can build
+this repository:
+
+| Path in Coolify                           | Creates            | Has the repository?              |
+| ----------------------------------------- | ------------------ | -------------------------------- |
+| Repository + **Compose** build strategy   | An **Application** | Yes — cloned on the Coolify host |
+| **Docker Compose Empty** (paste the YAML) | A **Service**      | **No** — "has no Git source"     |
+
+Pasting the definition cannot work here. `build: context: .` needs a build context to
+exist on the Coolify host, and a pasted Service has none, so BuildKit is handed an
+empty Dockerfile:
+
+```
+#2 [api internal] load build definition from Dockerfile.api
+#2 transferring dockerfile: 2B done
+...
+target api: failed to solve: failed to read dockerfile: open Dockerfile.api: no such file or directory
+```
+
+`2B` is the empty file, and `Saved configuration files to
+/data/coolify/services/<uuid>` at the top of the log is that path's storage directory —
+Services, not Applications.
+
+**Coolify never needs the files on your workstation.** It clones the repository from
+Git on the LXC and builds there. The only requirements are that the repository is
+**pushed** and that the LXC can reach the Git remote. That is why the app is pushed to
+a remote rather than left local.
+
 ### Create it
 
-**New Resource → Application → the same repository → `Docker Compose`** as the build
-strategy, then:
+**New Resource → the project → choose the repository → `Compose` as the build
+strategy**, then:
 
 | Field                                     | Value                             |
 | ----------------------------------------- | --------------------------------- |
@@ -477,17 +510,18 @@ strategy, then:
 | **Docker Compose Location**               | `/docker-compose.coolify.yml`     |
 | **Preserve repository during deployment** | **on** — General → Build pipeline |
 
-That last row is not optional. Coolify runs `docker compose` from
-`/data/coolify/services/<uuid>/`, and the repository is not kept there unless the
-toggle is on. With it off, `build: context: .` resolves to a directory holding only
-the compose file, and the build fails with:
+Base Directory and Docker Compose Location are combined when Coolify locates the file,
+so the pair above means "the file at the repository root".
 
-```
-failed to read dockerfile: open Dockerfile.api: no such file or directory
-```
+The private repository needs a credential: add a **Deploy Key** to the Forgejo
+repository (Coolify generates the keypair; paste the public half into the repository's
+Settings → Deploy Keys), or use an HTTPS URL with a Forgejo access token. If Forgejo's
+SSH runs on a non-standard port the clone URL must carry it —
+`ssh://git@forgejo.example.com:2222/owner/repo.git`.
 
-The `transferring dockerfile: 2B` line just above it in the log is BuildKit reporting
-that it read an empty file — the same fact, stated less clearly.
+The last row is belt and braces: it guarantees the checkout is still present when
+Compose resolves `build: context: .`. Leave it off and the build depends on Coolify
+retaining the checkout for the whole build, which is not something to rely on.
 
 ### Domain and variables
 
