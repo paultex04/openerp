@@ -82,13 +82,15 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 | Command                      | Purpose                                                                      |
 | ---------------------------- | ---------------------------------------------------------------------------- |
 | `npm run db:check`           | Verify TCP + authenticated DB connectivity                                   |
-| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + test                           |
+| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + schema check + test            |
 | `npm run verify:ci`          | `verify` minus the suites that need the seeded business baseline (CI gate)   |
 | `npm run test`               | Run all workspace test suites                                                |
 | `npm run db:generate`        | Regenerate the Prisma client                                                 |
 | `npm run db:push`            | Apply schema changes to the database                                         |
 | `npm run db:studio`          | Open Prisma Studio against the configured database                           |
-| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                   |
+| `npm run db:migrate`         | Apply the hand-written SQL migrations — building an empty database first     |
+| `npm run db:schema:write`    | Regenerate `server/prisma/schema.sql` from `schema.prisma`                   |
+| `npm run db:schema:check`    | Prove `schema.sql` has not drifted from `schema.prisma`                      |
 | `npm run db:restore-fixture` | Restore the seeded fixture rows the suites mutate (the seeded invoice)       |
 | `npm run seed`               | Provision default roles + super admin                                        |
 | `npm run smoke:phase2`       | HTTP smoke test against a running API                                        |
@@ -286,12 +288,26 @@ order, once each, one transaction per migration, with a ledger and change
 detection. See ADR-008 D3. In a container this must be a deliberate one-off, never a
 boot step — two replicas migrating concurrently leaves a half-applied schema.
 
+**Two kinds of database, and only one of them can run those migrations.** The
+original database carries a baseline this repository does not create, and
+`0001_auth_rbac` extends it — `app_user.employee_id` is a foreign key to `employee`.
+On an empty database the first migration therefore fails with `relation "employee"
+does not exist`, which reads like a broken migration rather than a database that has
+not been built yet. A new database is built from `schema.prisma`, the same diff
+`prisma db push` applies in CI, and the migrations are then recorded as _already
+present_, because that schema already contains them. `npm run db:migrate` does both
+in one transaction and refuses to touch a database that already has a schema;
+`node server/scripts/apply-migrations.mjs --init` asks for that explicitly.
+
+The DDL it applies is committed as `server/prisma/schema.sql`, generated from
+`schema.prisma`. Committed rather than generated during the image build, because the
+API runtime image installs with `--omit=dev` and has no Prisma CLI to generate it
+with. `npm run db:schema:check` — part of `verify` — fails if the two drift apart, and
+`npm run db:schema:write` regenerates the file after a schema change.
+
 The schema in `server/prisma/schema.prisma` is the source of truth, but the
-migrations are hand-written and additive-only. `prisma migrate deploy` refuses
-this database because the baseline predates Prisma, and
-`prisma migrate diff --from-url` emits a destructive migration against it. Apply
-a new migration's SQL and then `prisma generate`; see
-[ADR-001](docs/adr-001-baseline-findings.md).
+migrations are hand-written and additive-only. Apply a new migration's SQL and then
+`prisma generate`; see [ADR-001](docs/adr-001-baseline-findings.md).
 
 Commits follow Conventional Commits: `<type>(<scope>): <summary>`.
 

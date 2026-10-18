@@ -1,6 +1,11 @@
 # Prisma schema files have no Prettier parser; `prisma format` owns them.
 server/prisma/**/*.prisma
 
+# The generated DDL has no Prettier parser either, and reformatting it would make
+# `db:schema:check` fail: the file has to stay byte-identical to what
+# `prisma migrate diff` emits.
+server/prisma/schema.sql
+
 # The Caddyfile has no Prettier parser either; `caddy fmt` owns it.
 Caddyfile
 

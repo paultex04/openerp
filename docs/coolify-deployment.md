@@ -375,6 +375,14 @@ database's baseline predates Prisma, and `migrate diff` is destructive against i
 (ADR-001). The runner applies each migration in its own transaction and records it in
 `schema_migration_ledger`, so re-running is a no-op and safe.
 
+On a database Coolify has just created, that run is the **new-database** case: the
+command builds the entire schema from the DDL the image ships
+(`server/prisma/schema.sql`) and records the hand-written migrations as already
+present, because they extend a baseline that predates this repository and so cannot
+run from nothing — `0001_auth_rbac` creates `app_user` with a foreign key to
+`employee`, a table no migration creates. It refuses to do that to a database that
+already has a schema, so these two commands are correct whichever database they meet.
+
 If you would rather run it from a checkout against the same database, temporarily
 give `openerp-db` a public port (**Public access → Access → Public through TCP
 proxy**), point `DATABASE_URL` at the public URL, run `npm run db:migrate`, then turn

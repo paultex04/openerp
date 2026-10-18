@@ -36,8 +36,11 @@
  *     ledger is the truth and an unrun file must not be able to claim otherwise.
  *
  * Usage:
- *   npm run db:migrate                    apply anything outstanding
+ *   npm run db:migrate                    apply anything outstanding, building an
+ *                                         empty database first if that is what it is
  *   npm run db:migrate -- --dry           list what would apply, and what is recorded
+ *   npm run db:migrate -- --init          require an empty database, and build it
+ *                                         from server/prisma/schema.sql
  *   npm run db:migrate -- --baseline      record already-present migrations as
  *                                         applied, WITHOUT running them
  *
@@ -52,6 +55,29 @@
  * a one-time adoption step for an existing database, and it verifies nothing: the
  * printed warning says so, because a tool that let you claim a migration ran
  * without checking would be worse than no tool at all.
+ *
+ * ## Two kinds of database, and only one of them can run these migrations
+ *
+ *   1. **A database carrying the baseline** - the original EC&I one. The
+ *      migrations extend it, so they run, in order, once each.
+ *
+ *   2. **A new, empty database.** The migrations cannot run on it at all:
+ *      `0001_auth_rbac` creates `app_user` with a foreign key to `employee`, and
+ *      no migration creates `employee`, because that table is part of a baseline
+ *      predating this repository (ADR-001). The first migration fails with
+ *      `relation "employee" does not exist` - which reads like a broken migration
+ *      rather than a database that has not been built yet.
+ *
+ * A new database is built from `server/prisma/schema.sql`: the generated DDL for
+ * `schema.prisma`, which is the same diff `prisma db push` applies in CI. The
+ * ledger is then *baselined* rather than run, because 0001-0010 are already
+ * reflected in that schema. One command does both, transactionally, and refuses to
+ * touch a database that already has a schema.
+ *
+ * `--init` asks for that explicitly. Without it, an empty database with an empty
+ * ledger is *taken* to mean a new deployment, which is the only reading available
+ * when there is nothing else in it. A database that has the baseline tables is
+ * never initialised, whatever the flags say.
  */
 
 import { createHash } from 'node:crypto';
@@ -64,8 +90,12 @@ import { loadEnvFile } from '../../scripts/lib/env.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 // This script lives in server/scripts, and the migrations in server/prisma.
 const migrationsDir = resolve(here, '..', 'prisma', 'migrations');
+// The generated DDL for a database that does not exist yet. `scripts/schema-sql.mjs`
+// owns its contents; see its header for why it is a committed file.
+const schemaSqlPath = resolve(here, '..', 'prisma', 'schema.sql');
 const dry = process.argv.includes('--dry');
 const baseline = process.argv.includes('--baseline');
+const init = process.argv.includes('--init');
 
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
@@ -143,6 +173,56 @@ async function applyMigration(migration) {
   }
 }
 
+/**
+ * Is there an application schema here at all?
+ *
+ * `employee` is the right probe: it is a baseline table (ADR-001), so every
+ * database this application can use has it, and nothing in this repository
+ * creates it. `to_regclass` asks the catalogue directly and returns NULL rather
+ * than raising when the table is absent, so this is safe on an empty database.
+ */
+async function hasApplicationSchema() {
+  const { rows } = await pool.query(`SELECT to_regclass('public.employee') IS NOT NULL AS present`);
+  return rows[0].present === true;
+}
+
+/**
+ * Builds a new database from `schema.prisma`, then baselines the ledger.
+ *
+ * Both halves are one transaction. A schema without the ledger rows would be
+ * re-attempted by the next run and fail on `CREATE TABLE "app_user"` for a table
+ * that already exists, so applying one without the other is worse than doing
+ * nothing: it turns a clear "this is new" into an unclear "this is broken".
+ */
+async function initialise(migrations) {
+  if (!existsSync(schemaSqlPath)) {
+    throw new Error(
+      `No schema SQL at ${schemaSqlPath}. Regenerate it with \`npm run db:schema:write\`, ` +
+        'or build the schema with `npm run db:push` and then record the migrations ' +
+        'with `npm run db:migrate -- --baseline`.',
+    );
+  }
+
+  const sql = readFileSync(schemaSqlPath, 'utf8');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(sql);
+    for (const migration of migrations) {
+      await client.query('INSERT INTO schema_migration_ledger (name, checksum) VALUES ($1, $2)', [
+        migration.name,
+        migration.checksum,
+      ]);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function main() {
   console.log(dim(`\nOpenERP migrations from ${migrationsDir}\n`));
   await ensureLedger();
@@ -154,6 +234,66 @@ async function main() {
 
   const migrations = discover();
   const outstanding = migrations.filter((m) => !byName.has(m.name));
+
+  // ---------------------------------------------------------------------------
+  // A database with no application schema. Two opposite situations arrive here,
+  // and the ledger is what tells them apart.
+  // ---------------------------------------------------------------------------
+  if (!(await hasApplicationSchema())) {
+    if (applied.length > 0) {
+      // No schema, but a ledger that says migrations ran. Something outside this
+      // script removed the tables, and guessing which of the two is right would
+      // either resurrect a database nobody wants or overwrite one they do.
+      console.error(
+        red('\nThe ledger records applied migrations, but the database has no schema.\n'),
+      );
+      console.error(
+        dim(
+          'Refusing to guess which of the two is correct. Restore the database, or\n' +
+            `drop ${LEDGER} to build a new one from schema.sql.\n`,
+        ),
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    console.log(
+      `${yellow('This database is empty.')}\n` +
+        dim(
+          '  Building it from server/prisma/schema.sql, then recording the\n' +
+            '  migrations as already present - that schema already contains them,\n' +
+            '  so running them would collide with the tables it creates.\n',
+        ),
+    );
+
+    if (dry) {
+      console.log(`  ${yellow('would init')}  the whole schema from ${dim(schemaSqlPath)}`);
+      console.log(`  ${yellow('would record')} ${migrations.length} migration(s) as applied`);
+      console.log(
+        `\n${yellow('Dry run. Nothing was written.')} ${dim('Re-run without --dry to do it.')}\n`,
+      );
+      return;
+    }
+
+    await initialise(migrations);
+    console.log(
+      `\n${green(`Initialised from schema.sql; recorded ${migrations.length} migration(s).`)}`,
+    );
+    console.log(dim('Next: node server/dist/seed.js, or `npm run seed` from a checkout.\n'));
+    return;
+  }
+
+  if (init) {
+    console.error(red('\n--init refused: this database already has an application schema.\n'));
+    console.error(
+      dim(
+        'Initialising is not additive - it would collide with the tables already\n' +
+          'there. To converge an existing schema, use `npm run db:push`.\n',
+      ),
+    );
+    process.exitCode = 1;
+    return;
+  }
 
   for (const migration of migrations) {
     const record = byName.get(migration.name);
@@ -236,6 +376,18 @@ main()
     console.error(red(`\nMigration failed: ${error.message}\n`));
     if (error.position !== undefined) {
       console.error(dim(`  at position ${error.position} in the failing statement`));
+    }
+    // 42P01 is undefined_table. On a new database this is the baseline that
+    // predates this repository, and it is the most confusing way for a deployment
+    // to fail: it names a table that no file in the repository creates.
+    if (error.code === '42P01') {
+      console.error(
+        dim(
+          '  a relation is missing. These migrations extend a baseline that predates\n' +
+            '  this repository (ADR-001), so an empty database cannot run them. See the\n' +
+            '  top of this file: re-run with --init to build it from schema.sql.',
+        ),
+      );
     }
     console.error(dim('  the transaction was rolled back - the schema is unchanged\n'));
     process.exitCode = 1;

@@ -52,7 +52,7 @@ section('Files exist');
 // ---------------------------------------------------------------------------
 
 const DOCKERFILES = ['Dockerfile.api', 'Dockerfile.web'];
-const OTHER = ['.dockerignore', 'docker-compose.yml'];
+const OTHER = ['.dockerignore', 'docker-compose.yml', 'server/prisma/schema.sql'];
 
 for (const f of [...DOCKERFILES, ...OTHER]) {
   check(`${f} present`, existsSync(resolve(root, f)));
@@ -545,6 +545,60 @@ check(
 check(
   'coolify compose points web at the api service',
   coolifyCompose.includes('API_ORIGIN: http://api:4000'),
+);
+
+// ---------------------------------------------------------------------------
+section('fresh database DDL');
+// ---------------------------------------------------------------------------
+//
+// A new database is built from `schema.prisma`, not from the migrations: no
+// migration creates `employee`, and `0001_auth_rbac` needs it. The DDL that does
+// it is committed and ships in the API image, because the runtime image installs
+// with `--omit=dev` and therefore has no Prisma CLI to generate it.
+
+const schemaSql = readFileSync(resolve(root, 'server', 'prisma', 'schema.sql'), 'utf8');
+const migrationRunner = readFileSync(
+  resolve(root, 'server', 'scripts', 'apply-migrations.mjs'),
+  'utf8',
+);
+
+check('schema.sql is more than the empty schema', schemaSql.length > 10_000);
+for (const table of ['employee', 'app_user', 'conversation', 'message', 'timesheet']) {
+  check(
+    `schema.sql creates "${table}"`,
+    schemaSql.includes(`CREATE TABLE "${table}"`),
+    'a table the migrations or the application require',
+  );
+}
+check(
+  'schema.sql does not create the migration ledger',
+  !schemaSql.includes('schema_migration_ledger'),
+  'the runner owns that table; two creators is how the two disagree',
+);
+check(
+  'schema.sql is not regenerated during the image build',
+  !/migrate\s+diff/.test(apiDockerfile),
+  'the runtime image has no Prisma CLI, so a build-time generation would fail',
+);
+check(
+  'the API runtime stage copies server/prisma',
+  /^COPY server\/prisma \.\/server\/prisma$/m.test(apiDockerfile),
+  'which is what puts schema.sql in the image',
+);
+check(
+  'the migration runner reads schema.sql',
+  migrationRunner.includes("'prisma', 'schema.sql'"),
+  'so an empty database is built rather than failed',
+);
+check(
+  'the runner probes for a baseline table',
+  migrationRunner.includes("to_regclass('public.employee')"),
+  '`employee` is the probe: nothing in this repository creates it',
+);
+check(
+  'db:schema:check is part of verify',
+  /"verify": "[^"]*db:schema:check/.test(readFileSync(resolve(root, 'package.json'), 'utf8')),
+  'otherwise schema.sql can drift from schema.prisma unnoticed',
 );
 
 // ---------------------------------------------------------------------------

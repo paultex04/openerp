@@ -89,6 +89,14 @@ remember. Skip the migration and the app fails on the first login with a Prisma
 "relation does not exist" error; skip the seed and there is no account to sign in
 with. Both steps are idempotent, so re-running is always safe.
 
+On a database that does not exist yet, `migrate` builds the whole schema from
+`server/prisma/schema.sql` and records the hand-written migrations as already
+present. That is not a shortcut: the migrations extend a baseline which predates this
+repository (ADR-001), so on an empty database the first one fails with
+`relation "employee" does not exist`. It refuses to do any of that to a database
+that already has a schema, so the command is the same either way — the first run
+creates, later runs apply whatever is outstanding.
+
 By hand, if you prefer:
 
 ```bash
@@ -173,6 +181,14 @@ has no confirmation prompt.
 names the field. `AUTH_JWT_SECRET` must be 32+ characters. If the message is about
 `AUTH_COOKIE_SECURE`, something has overridden the pinned `'true'` — the stack sets
 it as a literal precisely so a development `.env` cannot.
+
+**`Migration failed: relation "employee" does not exist`.** The database has no
+baseline schema, and these migrations cannot run without one — they extend a schema
+that predates this repository (ADR-001). A current build notices an empty database and
+creates it from `server/prisma/schema.sql` instead, so seeing this means either the
+image predates that behaviour, or the database is neither empty nor initialised.
+`docker compose --profile tools run --rm migrate` from an up-to-date checkout is the
+answer to the first; the second is a database worth looking at before touching.
 
 **The page loads but signing in does nothing; the next request is unauthenticated.**
 You are on `http://`, not `https://`. The cookie is `Secure`, so the browser drops
