@@ -1,0 +1,44 @@
+# =============================================================================
+# Caddy — TLS termination, and the stack's only published port
+# =============================================================================
+# Caddy sits in front of `web` and terminates TLS. `web` is deliberately NOT
+# published: the session cookie is Secure, so a browser keeps it only over
+# HTTPS, and every request has to arrive through here rather than beside it.
+#
+# ## Automatic HTTPS — nothing to configure here
+#
+# The address comes from SITE_ADDRESS (see docker-compose.yml). Caddy picks the
+# right certificate for whichever kind of name it is:
+#
+#   1. A public domain — `erp.example.co.za` — gets a Let's Encrypt certificate
+#      and renews it, provided DNS points at this host and ports 80/443 reach it.
+#   2. `localhost` (the default) is served from Caddy's own local CA, so the
+#      stack works on a laptop with no DNS and no certificate authority.
+#   3. A LAN-only name is also served from the local CA, but only if it is a
+#      public-suffix that can never hold a real certificate — `*.internal`,
+#      `*.local`, `*.home.arpa`. Use `erp.internal`, not a made-up TLD like
+#      `erp.homelab`: Caddy would try to get a publicly-trusted certificate for
+#      that, fail, and serve an error instead of the app.
+#
+# Whichever it is, http:// is redirected to https:// automatically. That is not
+# cosmetic — the API sets a Secure session cookie, so a browser silently drops
+# it over plain HTTP, which reads as "login does nothing".
+#
+# A client that has not trusted Caddy's local root CA shows a certificate
+# warning (cases 2 and 3). docs/self-hosting.md shows how to fetch and trust it.
+#
+# ## Server-sent events
+#
+# The chat stream is `GET /api/chat/stream` and Caddy flushes
+# `Content-Type: text/event-stream` immediately — it ignores `flush_interval`
+# for exactly that type, so the stream passes through live with no tuning.
+# `encode` is skipped for the same path on purpose: compressing a stream that
+# exists to arrive in pieces would defeat it, and this removes any doubt.
+# =============================================================================
+
+{$SITE_ADDRESS:localhost} {
+	@notstream not path /api/chat/stream
+	encode @notstream zstd gzip
+
+	reverse_proxy web:3000
+}

@@ -381,7 +381,7 @@ const compose = readFileSync(resolve(root, 'docker-compose.yml'), 'utf8');
 check('no tab characters', !compose.includes('\t'));
 
 const serviceNames = [...compose.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((m) => m[1]);
-const expected = ['db', 'api', 'migrate', 'seed', 'web'];
+const expected = ['db', 'api', 'migrate', 'seed', 'web', 'caddy'];
 for (const name of expected) {
   check(`service "${name}" defined`, serviceNames.includes(name));
 }
@@ -408,12 +408,22 @@ const apiBlock = serviceBlock('api');
 const dbBlock = serviceBlock('db');
 const webBlock = serviceBlock('web');
 const migrateBlock = serviceBlock('migrate');
+const caddyBlock = serviceBlock('caddy');
 
 // Quote style is Prettier's business, not this script's: it rewrote `""` to `''`
-// and `- "3000:3000"` to `- '3000:3000'` on the first run, which made two checks
-// fail for a formatting change rather than a configuration error. Matching the
+// and `- "80:80"` to `- '80:80'` on the first run, which made two checks fail
+// for a formatting change rather than a configuration error. Matching the
 // content instead of the quotes keeps this test about intent.
-check('web publishes 3000', /ports:[\s\S]*?3000:3000/.test(webBlock));
+//
+// Caddy is the only service allowed to publish a port. `web` and `api` are both
+// unpublished on purpose: `web` sits behind Caddy so TLS is not bypassable, and
+// `api` is reached only through `web`'s `/api/*` proxy.
+check('caddy publishes 80', /ports:[\s\S]*?80:80/.test(caddyBlock));
+check('caddy publishes 443', /ports:[\s\S]*?443:443/.test(caddyBlock));
+check('caddy mounts the Caddyfile', caddyBlock.includes('./Caddyfile:/etc/caddy/Caddyfile'));
+check('caddy waits for the web service', /depends_on:[\s\S]*?web/.test(caddyBlock));
+check('caddy pins a certificate store', caddyBlock.includes('caddy-data:/data'));
+check('web publishes no port', !/^\s+ports:/m.test(webBlock));
 check('api publishes no port', !/^\s+ports:/m.test(apiBlock));
 check('db publishes no port', !/^\s+ports:/m.test(dbBlock));
 check('migrate publishes no port', !/^\s+ports:/m.test(migrateBlock));
@@ -426,8 +436,23 @@ check(
   'migrate uses the transactional runner',
   compose.includes('server/scripts/apply-migrations.mjs'),
 );
+check('seed is behind a tools profile', serviceBlock('seed').includes('profiles:'));
 check('AUTH_JWT_SECRET is required, not defaulted', compose.includes('AUTH_JWT_SECRET:?'));
 check('POSTGRES_PASSWORD is required, not defaulted', compose.includes('POSTGRES_PASSWORD:?'));
+// `loadConfig()` throws when NODE_ENV=production and AUTH_COOKIE_SECURE is not
+// true, so this must be a literal rather than interpolated from `.env` — the
+// development `.env` sets it to `false` and would crash-loop the API on boot.
+// Caddy terminates TLS on every path, which is what makes `true` correct.
+check(
+  'compose hard-sets AUTH_COOKIE_SECURE to true',
+  /AUTH_COOKIE_SECURE:\s*['"]true['"]/.test(apiBlock),
+  'interpolating it from the shared .env imports the development `false` and crash-loops the API',
+);
+check(
+  'compose derives CLIENT_ORIGIN from the address Caddy serves',
+  compose.includes('CLIENT_ORIGIN: https://${SITE_ADDRESS:-localhost}'),
+  'a fixed origin drifts from SITE_ADDRESS and breaks origin checks',
+);
 check(
   'demo login is disabled in compose',
   /NEXT_PUBLIC_DEMO_LOGIN:\s*(''|"")$/m.test(compose),
@@ -437,6 +462,54 @@ check(
   'demo passwords are empty in compose',
   /NEXT_PUBLIC_DEMO_PASSWORD:\s*(''|"")$/m.test(compose) &&
     /NEXT_PUBLIC_DEMO_ADMIN_PASSWORD:\s*(''|"")$/m.test(compose),
+);
+
+// ---------------------------------------------------------------------------
+section('Caddyfile');
+// ---------------------------------------------------------------------------
+
+const caddyfile = readFileSync(resolve(root, 'Caddyfile'), 'utf8');
+
+check('Caddyfile proxies to the web service', caddyfile.includes('reverse_proxy web:3000'));
+check(
+  'Caddyfile takes its address from the environment',
+  caddyfile.includes('{$SITE_ADDRESS:'),
+  'the site address must be settable without editing the file',
+);
+check(
+  'Caddyfile does not disable automatic HTTPS',
+  !/auto_https\s+off/.test(caddyfile),
+  'HTTP-only cannot work: the Secure session cookie is discarded by the browser',
+);
+check(
+  'Caddyfile does not buffer or compress the event stream',
+  /@notstream not path \/api\/chat\/stream/.test(caddyfile),
+  'a compressed or buffered SSE response would defeat live messaging',
+);
+
+// ---------------------------------------------------------------------------
+section('self-host bootstrap');
+// ---------------------------------------------------------------------------
+
+const selfHost = readFileSync(resolve(root, 'scripts/self-host.mjs'), 'utf8');
+
+// Order is the whole point of the script: containers, then schema, then data.
+// Seeding before migrating fails, and migrating before the database is healthy
+// fails intermittently — which is exactly why this is asserted rather than
+// trusted to review.
+check(
+  'self-host brings the stack up before migrating',
+  selfHost.indexOf("'up', '-d', '--build'") < selfHost.indexOf("'migrate'"),
+  'migrations need a running database',
+);
+check(
+  'self-host migrates before seeding',
+  selfHost.indexOf("'migrate'") < selfHost.indexOf("'seed'"),
+  'the seed writes rows the schema must already allow',
+);
+check(
+  'self-host refuses to start without a long enough JWT secret',
+  selfHost.includes('AUTH_JWT_SECRET.length < 32'),
 );
 
 // ---------------------------------------------------------------------------

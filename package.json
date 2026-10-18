@@ -39,6 +39,7 @@
     "smoke:phase7": "node scripts/smoke-phase7.mjs",
     "smoke:phase13": "node scripts/smoke-phase13.mjs",
     "check:docker": "node scripts/check-docker.mjs",
+    "self-host": "node scripts/self-host.mjs",
     "import:template": "tsx server/scripts/generate-template.ts",
     "import:data": "tsx server/scripts/import-data.ts"
   },

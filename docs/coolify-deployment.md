@@ -509,27 +509,34 @@ show this — rebuild without cache.
 
 ## Local parity
 
-`docker-compose.yml` builds the same two images against a real Postgres, so a
-deployment problem can be reproduced before it reaches production:
+`docker-compose.yml` builds the same two images against a real Postgres, behind
+Caddy, so a deployment problem can be reproduced before it reaches production:
 
 ```bash
-POSTGRES_PASSWORD=dev AUTH_JWT_SECRET=<32+ chars> docker compose up --build
+npm run self-host
 ```
 
-Then, in another terminal, apply the schema and create the first administrator — both
-run the same bundles the container Terminal uses in Coolify:
+That builds, starts, migrates and seeds in one go — the same sequence as the Coolify
+Terminal steps above. [self-hosting.md](self-hosting.md) is the full runbook for it.
+By hand:
 
 ```bash
+docker compose up -d --build
 docker compose --profile tools run --rm migrate
-SEED_ADMIN_EMAIL=you@example.co.za SEED_ADMIN_PASSWORD='Dev#Password123' \
-  docker compose --profile tools run --rm seed
+docker compose --profile tools run --rm seed
 ```
 
-Then open <http://localhost:3000>. This is not a development stack — both services
-build and run exactly as they will in Coolify. Development remains `npm run dev`.
+Then open <https://localhost>. Caddy serves it over HTTPS from its own local CA, so
+the browser warns until you trust that CA — see
+[self-hosting.md](self-hosting.md#3-tls-and-the-address-caddy-serves). HTTPS rather
+than HTTP deliberately: the session cookie is `Secure` here for the same reason it
+is in Coolify.
 
-Because Compose sets `NODE_ENV=production`, the seed refuses the shared-password demo
-accounts; they exist for `npm run seed` (tsx, development) only.
+This is not a development stack — every service builds and runs exactly as it will
+in Coolify. Development remains `npm run dev`.
+
+Because the stack sets `NODE_ENV=production`, the seed refuses the shared-password
+demo accounts; they exist for `npm run seed` (tsx, development) only.
 
 ---
 

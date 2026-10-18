@@ -1,23 +1,34 @@
 # =============================================================================
-# Local production parity
+# The production stack, on one host
 # =============================================================================
-# Runs the same two images Coolify will build, against a real Postgres, so a
-# deployment problem can be reproduced on a laptop before it reaches production.
+# The whole deployment: Postgres, the API, the web client, and Caddy in front.
+# One `docker compose up`, no control plane. docs/self-hosting.md is the runbook.
 #
-# This is *not* a development stack: both services build and run exactly as they
-# would in Coolify, against a real database. Development remains `npm run dev`.
+# These are the same two images Coolify builds, so a problem here reproduces
+# there and vice versa. This is *not* a development stack: every service builds
+# and runs exactly as it would in production, against a real database.
+# Development remains `npm run dev`.
 #
-#   docker compose up --build
+#   npm run self-host        # build, start, migrate and seed — one command
+#
+#   # or step by step:
+#   docker compose up -d --build
 #   docker compose --profile tools run --rm migrate   # apply migrations
 #   docker compose --profile tools run --rm seed      # first administrator
-#   open http://localhost:3000
+#   open https://localhost
 #
-# ## Why the API has no published port
+# ## Why Caddy, and why nothing else publishes a port
 #
-# Only the web container is reachable from outside. The API is on the internal
-# network and reached through the client's `/api/*` proxy, so the session cookie
-# stays first-party and the API needs no TLS certificate of its own. Publishing
-# `4000` here would mirror the mistake of giving it a public domain in Coolify.
+# Caddy is the only service that publishes ports (80/443). The web client is not
+# published, and neither is the API: the browser reaches the web client through
+# Caddy, and the web client reaches the API over the private Compose network at
+# `http://api:4000` through its own `/api/*` proxy. So the session cookie stays
+# first-party, the API needs no certificate of its own, and TLS is terminated in
+# exactly one place.
+#
+# Publishing `3000` or `4000` as well would put an insecure copy of the app
+# beside the secure one, and on `3000` the browser would silently drop the
+# Secure cookie — which reads as "login does nothing".
 # =============================================================================
 
 name: openerp
@@ -84,10 +95,20 @@ services:
       DATABASE_URL: postgresql://openerp:${POSTGRES_PASSWORD}@db:5432/openerp?schema=public
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?set AUTH_JWT_SECRET in .env}
       AUTH_JWT_EXPIRES_IN: ${AUTH_JWT_EXPIRES_IN:-15m}
-      # Must be true under NODE_ENV=production; `loadConfig()` throws at boot
-      # otherwise, which shows up as a crash loop rather than a warning.
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
-      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:3000}
+      # Hard-set, NOT interpolated from the shared `.env`. Two reasons:
+      #   1. Must be true under NODE_ENV=production; `loadConfig()` throws at boot
+      #      otherwise, so a `false` here is a crash loop rather than a warning.
+      #   2. The development `.env` sets it to `false` (development runs over
+      #      plain http://localhost:3000). Interpolating it would import that
+      #      value and crash-loop the API the moment it was read.
+      # Caddy terminates TLS on every path to this app, so true is also simply
+      # correct here, not merely permitted.
+      AUTH_COOKIE_SECURE: 'true'
+      # Derived from SITE_ADDRESS so the two can never disagree — the browser's
+      # origin is by definition whatever Caddy serves. A fixed value would drift
+      # the moment the site address changed, and origin checks would start
+      # refusing requests. A development CLIENT_ORIGIN in `.env` is ignored.
+      CLIENT_ORIGIN: https://${SITE_ADDRESS:-localhost}
       API_HOST: 0.0.0.0
       API_PORT: '4000'
       DEFAULT_CURRENCY: ZAR
@@ -172,8 +193,47 @@ services:
       NEXT_PUBLIC_DEMO_LOGIN: ''
       NEXT_PUBLIC_DEMO_PASSWORD: ''
       NEXT_PUBLIC_DEMO_ADMIN_PASSWORD: ''
+    # Deliberately NOT `ports:`. Reachable as `web:3000` from Caddy, and through
+    # Caddy from everywhere else. See the note at the top of this file.
+
+  # -----------------------------------------------------------------------------
+  # Caddy — TLS termination and the only published port
+  # -----------------------------------------------------------------------------
+  #
+  # Terminates TLS and reverse proxies to `web`. The site address is
+  # SITE_ADDRESS; `localhost` (the default) is served over HTTPS from Caddy's
+  # own local CA, so the stack runs on a laptop with no DNS and no certificate
+  # authority involved. For a real host, set it in `.env`:
+  #
+  #   SITE_ADDRESS=erp.example.co.za    # public DNS  → Let's Encrypt
+  #   SITE_ADDRESS=erp.internal         # LAN-only    → local CA
+  #
+  # http:// is redirected to https:// in every case. `Caddyfile` explains which
+  # names get which certificate, and docs/self-hosting.md covers trusting the
+  # local CA so the browser stops warning.
+  #
+  # The certificate store lives in `caddy-data`. Without that volume every
+  # restart would re-request a certificate and, on Let's Encrypt, burn the rate
+  # limit within a day.
+  # -----------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
     ports:
-      - '3000:3000'
+      - '80:80'
+      - '443:443'
+      # HTTP/3. Harmless if the host blocks UDP; browsers fall back to HTTP/2.
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
 
 volumes:
   db-data:
+  caddy-data:
+  caddy-config:

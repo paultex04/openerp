@@ -79,26 +79,27 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Scripts
 
-| Command                      | Purpose                                                                    |
-| ---------------------------- | -------------------------------------------------------------------------- |
-| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                 |
-| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + test                         |
-| `npm run verify:ci`          | `verify` minus the suites that need the seeded business baseline (CI gate) |
-| `npm run test`               | Run all workspace test suites                                              |
-| `npm run db:generate`        | Regenerate the Prisma client                                               |
-| `npm run db:push`            | Apply schema changes to the database                                       |
-| `npm run db:studio`          | Open Prisma Studio against the configured database                         |
-| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                 |
-| `npm run db:restore-fixture` | Restore the seeded fixture rows the suites mutate (the seeded invoice)     |
-| `npm run seed`               | Provision default roles + super admin                                      |
-| `npm run smoke:phase2`       | HTTP smoke test against a running API                                      |
-| `npm run smoke:phase3`       | As above, for the operations surface                                       |
-| `npm run smoke:phase4`       | As above, for billing and invoicing                                        |
-| `npm run smoke:phase5`       | As above, for admin and the audit log                                      |
-| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)        |
-| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                               |
-| `npm run smoke:phase13`      | As above, for the Phase 13 register/RBAC surfaces                          |
-| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)            |
+| Command                      | Purpose                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `npm run db:check`           | Verify TCP + authenticated DB connectivity                                   |
+| `npm run verify`             | format + lint (ESLint + oxlint) + typecheck + test                           |
+| `npm run verify:ci`          | `verify` minus the suites that need the seeded business baseline (CI gate)   |
+| `npm run test`               | Run all workspace test suites                                                |
+| `npm run db:generate`        | Regenerate the Prisma client                                                 |
+| `npm run db:push`            | Apply schema changes to the database                                         |
+| `npm run db:studio`          | Open Prisma Studio against the configured database                           |
+| `npm run db:migrate`         | Apply the hand-written SQL migrations, in order, once each                   |
+| `npm run db:restore-fixture` | Restore the seeded fixture rows the suites mutate (the seeded invoice)       |
+| `npm run seed`               | Provision default roles + super admin                                        |
+| `npm run smoke:phase2`       | HTTP smoke test against a running API                                        |
+| `npm run smoke:phase3`       | As above, for the operations surface                                         |
+| `npm run smoke:phase4`       | As above, for billing and invoicing                                          |
+| `npm run smoke:phase5`       | As above, for admin and the audit log                                        |
+| `npm run smoke:phase6`       | As above, for routing, nav and RBAC (needs **both** API and web up)          |
+| `npm run smoke:phase7`       | As above, for master-data CRUD and archiving                                 |
+| `npm run smoke:phase13`      | As above, for the Phase 13 register/RBAC surfaces                            |
+| `npm run check:docker`       | Validate the Dockerfiles and Compose stack (no daemon required)              |
+| `npm run self-host`          | Build the Compose stack, start it, migrate and seed — the one-command deploy |
 
 ## Running the stack
 
@@ -237,9 +238,11 @@ Phase 9 is deployment. It started by finding that the API had no production buil
 all: `server/package.json` claimed `node dist/index.js`, but the `build` script ran
 `tsc` against a `noEmit` tsconfig, so `dist/` had never existed and the API had only
 ever run under `tsx`. Phase 9 adds an esbuild bundle, two Dockerfiles, a
-`.dockerignore`, a local-parity Compose stack and
-[docs/coolify-deployment.md](docs/coolify-deployment.md). `npm run check:docker`
-validates the deployment files without needing a Docker daemon.
+`.dockerignore` and a local-parity Compose stack. There are two deployment runbooks,
+sharing the same images and environment contract:
+[docs/self-hosting.md](docs/self-hosting.md) for the whole stack on one host behind
+Caddy, and [docs/coolify-deployment.md](docs/coolify-deployment.md) for Coolify.
+`npm run check:docker` validates the deployment files without needing a Docker daemon.
 
 Phases 10–13 followed the deployment work. Phase 10 (`v1.5.0`) made the Billing
 screen usable: a draft invoice can be raised from a job or added by hand on the
