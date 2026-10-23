@@ -150,7 +150,7 @@ export default function LoginForm() {
               <ThemeAnnouncer />
             </div>
             <CardTitle className="text-xl">Sign in</CardTitle>
-            <CardDescription>Use your OpenERP account to continue · Homelab</CardDescription>
+            <CardDescription>Use your OpenERP account to continue.</CardDescription>
           </CardHeader>
 
           <CardContent>
