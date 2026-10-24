@@ -64,18 +64,27 @@ export function generatePrometheusMetrics(): string {
   return lines.join('\n') + '\n';
 }
 
+async function metricsHandler(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  return reply
+    .header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
+    .send(generatePrometheusMetrics());
+}
+
 export function registerMetrics(app: FastifyInstance): void {
   app.addHook('onResponse', (request: FastifyRequest, reply: FastifyReply, done) => {
-    if (!request.url.startsWith('/metrics') && !request.url.startsWith('/health')) {
-      const route = request.routeOptions?.url || request.url.split('?')[0] || '/';
+    const url = request.url;
+    if (
+      !url.startsWith('/metrics') &&
+      !url.startsWith('/health') &&
+      !url.startsWith('/api/metrics') &&
+      !url.startsWith('/api/health')
+    ) {
+      const route = request.routeOptions?.url || url.split('?')[0] || '/';
       recordHttpRequest(request.method, route, reply.statusCode);
     }
     done();
   });
 
-  app.get('/metrics', async (_request, reply) => {
-    return reply
-      .header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
-      .send(generatePrometheusMetrics());
-  });
+  app.get('/metrics', metricsHandler);
+  app.get('/api/metrics', metricsHandler);
 }

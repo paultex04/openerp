@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
@@ -30,6 +30,26 @@ export interface BuildAppOptions {
   config?: Config;
   logger?: boolean;
 }
+
+const healthHandler = async () => ({
+  status: 'ok',
+  version: APP_VERSION,
+  uptime: Math.round(process.uptime()),
+  s3Active: isS3Active(),
+});
+
+const readyHandler = async (_req: FastifyRequest, reply: FastifyReply) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return { status: 'ready', database: 'up' };
+  } catch (error: unknown) {
+    // Logged, because a bare 503 with no line in the log is indistinguishable
+    // from a container that never started. `SELECT 1` should not fail, so when
+    // it does the cause is worth seeing.
+    _req.log.error({ err: error }, 'readiness probe failed');
+    return reply.code(503).send({ status: 'degraded', database: 'down' });
+  }
+};
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const config = options.config ?? loadConfig();
@@ -74,25 +94,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   });
 
   // ---- Liveness / readiness & metrics -----------------------------------
-  app.get('/health', async () => ({
-    status: 'ok',
-    version: APP_VERSION,
-    uptime: Math.round(process.uptime()),
-    s3Active: isS3Active(),
-  }));
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
-  app.get('/health/ready', async (_req, reply) => {
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      return { status: 'ready', database: 'up' };
-    } catch (error: unknown) {
-      // Logged, because a bare 503 with no line in the log is indistinguishable
-      // from a container that never started. `SELECT 1` should not fail, so when
-      // it does the cause is worth seeing.
-      _req.log.error({ err: error }, 'readiness probe failed');
-      return reply.code(503).send({ status: 'degraded', database: 'down' });
-    }
-  });
+  app.get('/health/ready', readyHandler);
+  app.get('/api/health/ready', readyHandler);
 
   registerMetrics(app);
 
