@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useEffect, useMemo, useState } from 'react';
+import { FileDown } from 'lucide-react';
 import {
   api,
   ApiError,
@@ -114,6 +115,26 @@ const invoiceColumns = (onOpen: (id: number) => void): ColumnDef<any, InvoiceRow
     header: 'Total incl. VAT',
     meta: { align: 'right' },
     cell: ({ row }) => <span className="font-medium">{formatZar(row.original.totalWithTax)}</span>,
+  },
+  {
+    id: 'pdf',
+    header: '',
+    meta: { align: 'right' },
+    cell: ({ row }) => (
+      <Button
+        size="sm"
+        variant="ghost"
+        className="size-7 p-0"
+        title="Download Tax Invoice PDF"
+        onClick={(e) => {
+          e.stopPropagation();
+          window.open(`/api/invoices/${row.original.id}/pdf`, '_blank');
+        }}
+      >
+        <FileDown className="size-4 text-muted-foreground hover:text-primary" />
+        <span className="sr-only">Download PDF</span>
+      </Button>
+    ),
   },
 ];
 
@@ -357,8 +378,20 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
             <p className="font-mono text-[11px] text-muted-foreground">WO {job.workOrder}</p>
           )}
         </div>
-        <div className="text-right">
-          <Badge variant={invoiceVariant(invoice.status)}>{invoice.status}</Badge>
+        <div className="flex flex-col items-end gap-2 text-right">
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex items-center gap-1.5"
+              onClick={() => window.open(`/api/invoices/${invoiceId}/pdf`, '_blank')}
+              title="Download official SARS-compliant Tax Invoice PDF"
+            >
+              <FileDown className="size-4 text-primary" />
+              <span>Download PDF</span>
+            </Button>
+            <Badge variant={invoiceVariant(invoice.status)}>{invoice.status}</Badge>
+          </div>
           <p className="mt-1 text-[11px] text-muted-foreground">{client.name}</p>
           <p className="text-[11px] text-muted-foreground">
             {client.isVatRegistered ? 'VAT registered' : 'Not VAT registered'}

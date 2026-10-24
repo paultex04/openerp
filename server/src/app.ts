@@ -24,6 +24,7 @@ import { initStorage, isS3Active } from './storage/index.js';
 import { initChatBus, closeChatBus } from './chat/events.js';
 import { registerMetrics } from './metrics/index.js';
 import { initJobQueue, stopJobQueue } from './queue/index.js';
+import { initBackgroundWorkers } from './queue/workers.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerAnalyticsRoutes } from './routes/analytics.js';
 
@@ -56,7 +57,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const config = options.config ?? loadConfig();
   initStorage(config);
   void initChatBus(config);
-  void initJobQueue(config);
+  void initJobQueue(config).then(() => initBackgroundWorkers());
 
   const app = Fastify({
     logger: options.logger ?? !config.isTest,

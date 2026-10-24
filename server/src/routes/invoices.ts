@@ -34,6 +34,8 @@ import {
   transitionInvoice,
   updateDraft,
 } from '../billing/service.js';
+import { generateTaxInvoicePdf } from '../billing/pdf.js';
+import { downloadBlob, uploadBlob, deleteBlob, isS3Active } from '../storage/index.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -69,6 +71,57 @@ export async function registerInvoiceRoutes(app: FastifyInstance): Promise<void>
       const principal = request.principal!;
       try {
         return await getInvoiceDetail(id, principal.permissions);
+      } catch (error) {
+        toHttpError(error);
+      }
+    },
+  );
+
+  /**
+   * Generates or streams the SARS-compliant Tax Invoice PDF.
+   * Caches the generated PDF in Garage S3 object storage for high-speed subsequent downloads.
+   */
+  app.get(
+    '/api/invoices/:id/pdf',
+    { preHandler: [app.authenticate, app.requirePermission('invoice.read')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const principal = request.principal!;
+      const s3Key = `invoices/tax-inv-${id}.pdf`;
+
+      try {
+        const detail = await getInvoiceDetail(id, principal.permissions);
+        const invoiceNum = String(detail.invoice.invoiceNumber ?? `INV-${id}`);
+
+        // 1. Try Garage S3 cache first
+        if (isS3Active()) {
+          try {
+            const cached = await downloadBlob(s3Key);
+            if (cached) {
+              return reply
+                .header('Content-Type', 'application/pdf')
+                .header('Content-Disposition', `inline; filename="Tax-Invoice-${invoiceNum}.pdf"`)
+                .send(cached.buffer);
+            }
+          } catch {
+            // S3 cache miss or transient failure: proceed to fresh render
+          }
+        }
+
+        // 2. Render fresh PDF
+        const pdfBuffer = await generateTaxInvoicePdf(detail);
+
+        // 3. Persist to Garage S3 asynchronously
+        if (isS3Active()) {
+          void uploadBlob(s3Key, pdfBuffer, 'application/pdf').catch((err) => {
+            request.log.warn({ err }, 'Failed to cache tax invoice PDF to Garage S3');
+          });
+        }
+
+        return reply
+          .header('Content-Type', 'application/pdf')
+          .header('Content-Disposition', `inline; filename="Tax-Invoice-${invoiceNum}.pdf"`)
+          .send(pdfBuffer);
       } catch (error) {
         toHttpError(error);
       }
@@ -121,6 +174,9 @@ export async function registerInvoiceRoutes(app: FastifyInstance): Promise<void>
           ...(body.dueDate !== undefined && { dueDate: body.dueDate }),
           ...(body.notes !== undefined && { notes: body.notes }),
         });
+        if (isS3Active()) {
+          void deleteBlob(`invoices/tax-inv-${id}.pdf`);
+        }
         return { invoice: detail.invoice, lines: detail.lines };
       } catch (error) {
         toHttpError(error);
@@ -167,6 +223,9 @@ export async function registerInvoiceRoutes(app: FastifyInstance): Promise<void>
 
       try {
         await deleteInvoice(id);
+        if (isS3Active()) {
+          void deleteBlob(`invoices/tax-inv-${id}.pdf`);
+        }
       } catch (error) {
         toHttpError(error);
       }
@@ -209,8 +268,12 @@ export async function registerInvoiceRoutes(app: FastifyInstance): Promise<void>
       const body = invoiceTransitionSchema.parse(request.body);
       const principal = request.principal!;
       try {
+        const transition = await transitionInvoice(id, body.status as InvoiceStatus, principal);
+        if (isS3Active()) {
+          void deleteBlob(`invoices/tax-inv-${id}.pdf`);
+        }
         return {
-          transition: await transitionInvoice(id, body.status as InvoiceStatus, principal),
+          transition,
         };
       } catch (error) {
         toHttpError(error);
