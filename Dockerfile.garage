@@ -1,0 +1,9 @@
+# =============================================================================
+# Garage S3 Object Storage Container (Phase 3)
+# =============================================================================
+# Bundles Garage v2.4.1 with its single-node SQLite configuration into a
+# self-contained image so Docker Compose does not require host file bind mounts.
+# =============================================================================
+FROM dxflrs/garage:v2.4.1
+
+COPY docker/garage.toml /etc/garage.toml

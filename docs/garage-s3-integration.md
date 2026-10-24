@@ -35,7 +35,9 @@ No manual CLI bootstrapping is required.
 ### Service Definition
 ```yaml
   garage:
-    image: dxflrs/garage:v2.4.1
+    build:
+      context: .
+      dockerfile: Dockerfile.garage
     restart: unless-stopped
     command: ['/garage', 'server', '--single-node']
     environment:
@@ -43,7 +45,6 @@ No manual CLI bootstrapping is required.
       GARAGE_DEFAULT_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-openerpsecretkey0123456789abcdef}
       GARAGE_DEFAULT_BUCKET: ${S3_BUCKET:-openerp-attachments}
     volumes:
-      - ./garage.toml:/etc/garage.toml:ro
       - garage-meta:/var/lib/garage/meta
       - garage-data:/var/lib/garage/data
     healthcheck:
