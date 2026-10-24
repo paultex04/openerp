@@ -140,6 +140,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         anyOf: ['timesheet.write.own', 'timesheet.read.own', 'timesheet.write'],
       },
       {
+        href: '/timesheets/crew-matrix',
+        label: 'Crew Matrix',
+        icon: Users,
+        anyOf: ['timesheet.write', 'timesheet.approve', 'project.write', 'job.write'],
+      },
+      {
         href: '/timesheets?tab=approvals',
         label: 'Approvals',
         icon: ClipboardCheck,

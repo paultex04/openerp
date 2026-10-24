@@ -65,6 +65,9 @@ import { usePermissions } from '@/components/auth/usePermissions';
 import { useSessionRefresh } from '@/hooks/use-session-refresh';
 import { ChatDock, ChatToggle } from '@/components/chat/chat-dock';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
+import { QuickThemeToggle } from '@/components/theme-toggle';
+import { CommandPalette } from '@/components/command-palette';
+import { NotificationCenter } from '@/components/notifications/notification-center';
 import { api } from '@/lib/api';
 import { avatarImageUrl, avatarTint, initials } from '@/lib/avatar';
 import { breadcrumbFor, visibleSections, type NavSection } from '@/lib/nav';
@@ -194,13 +197,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <BreadcrumbTrail />
           </Suspense>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             {loading && <Spinner className="size-4 text-muted-foreground" />}
-            {/*
-              Theme is a per-device preference, so it is offered to every
-              authenticated user rather than gated on a permission.
-            */}
+            <CommandPalette />
+            <NotificationCenter />
             <ChatToggle />
+            <QuickThemeToggle />
             <ThemePicker />
             <ThemeAnnouncer />
             <UserMenu
