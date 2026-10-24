@@ -156,6 +156,7 @@ export const api = {
   put: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: 'PUT', body }),
   patch: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: 'PATCH', body }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: 'DELETE' }),
+  refreshSession: () => apiRequest<{ ok: true }>('/api/auth/refresh', { method: 'POST' }),
 };
 
 // ---------------------------------------------------------------------------

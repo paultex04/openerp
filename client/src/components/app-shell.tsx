@@ -62,6 +62,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { useSessionRefresh } from '@/hooks/use-session-refresh';
 import { ChatDock, ChatToggle } from '@/components/chat/chat-dock';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { api } from '@/lib/api';
@@ -103,6 +104,7 @@ function filtersMatch(href: string, search: string): boolean {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  useSessionRefresh();
   const { user, permissions, loading } = usePermissions();
   const sections = useMemo(() => visibleSections(permissions), [permissions]);
   const router = useRouter();

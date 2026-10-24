@@ -113,6 +113,44 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
     },
   );
 
+  // ---- POST /api/auth/refresh ------------------------------------------
+  app.post(
+    '/api/auth/refresh',
+    { preHandler: [app.authenticate] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const principal = request.principal!;
+
+      const user = await prisma.appUser.findUnique({
+        where: { id: principal.userId },
+        select: {
+          id: true,
+          isActive: true,
+          tokenVersion: true,
+        },
+      });
+
+      if (!user || !user.isActive) {
+        clearSessionCookie(reply, config);
+        throw unauthorized('Account is inactive or no longer exists.');
+      }
+
+      const token = await app.tokenCodec.sign({
+        userId: user.id,
+        tokenVersion: user.tokenVersion,
+      });
+
+      reply.setCookie(config.AUTH_COOKIE_NAME, token, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.AUTH_COOKIE_SECURE,
+        maxAge: secondsFromDuration(config.AUTH_JWT_EXPIRES_IN),
+      });
+
+      return reply.code(200).send({ ok: true });
+    },
+  );
+
   // ---- GET /api/auth/me -------------------------------------------------
   app.get(
     '/api/auth/me',
