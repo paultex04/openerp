@@ -20,8 +20,9 @@ import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 import { APP_VERSION } from './version.js';
 import { CHAT_ATTACHMENT_MAX_BYTES } from '@openerp/shared';
-import { initStorage } from './storage/index.js';
+import { initStorage, isS3Active } from './storage/index.js';
 import { initChatBus, closeChatBus } from './chat/events.js';
+import { registerMetrics } from './metrics/index.js';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -68,8 +69,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     },
   });
 
-  // ---- Liveness / readiness ---------------------------------------------
-  app.get('/health', async () => ({ status: 'ok', version: APP_VERSION }));
+  // ---- Liveness / readiness & metrics -----------------------------------
+  app.get('/health', async () => ({
+    status: 'ok',
+    version: APP_VERSION,
+    uptime: Math.round(process.uptime()),
+    s3Active: isS3Active(),
+  }));
 
   app.get('/health/ready', async (_req, reply) => {
     try {
@@ -83,6 +89,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       return reply.code(503).send({ status: 'degraded', database: 'down' });
     }
   });
+
+  registerMetrics(app);
 
   // ---- Auth routes -------------------------------------------------------
   await registerAuthRoutes(app, config);

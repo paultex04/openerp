@@ -68,6 +68,8 @@ if (process.env.DATABASE_URL === undefined || process.env.DATABASE_URL === '') {
 const adapter = new PrismaPg({
   connectionString: process.env.DATABASE_URL,
   connectionTimeoutMillis: 5_000,
+  max: 25,
+  idleTimeoutMillis: 30_000,
 });
 
 const base =
