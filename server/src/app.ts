@@ -23,6 +23,8 @@ import { CHAT_ATTACHMENT_MAX_BYTES } from '@openerp/shared';
 import { initStorage, isS3Active } from './storage/index.js';
 import { initChatBus, closeChatBus } from './chat/events.js';
 import { registerMetrics } from './metrics/index.js';
+import { initJobQueue, stopJobQueue } from './queue/index.js';
+import { registerJobRoutes } from './routes/jobs.js';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -33,6 +35,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   const config = options.config ?? loadConfig();
   initStorage(config);
   void initChatBus(config);
+  void initJobQueue(config);
 
   const app = Fastify({
     logger: options.logger ?? !config.isTest,
@@ -40,6 +43,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   app.addHook('onClose', async () => {
     await closeChatBus();
+    await stopJobQueue();
   });
 
   await app.register(cors, {
@@ -121,6 +125,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Phase 17: internal chat ------------------------------------------
   await registerChatRoutes(app, config);
+
+  // ---- Background Jobs & Queue (Step 3) ----------------------------------
+  await registerJobRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard
