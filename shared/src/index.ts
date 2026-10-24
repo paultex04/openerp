@@ -15,3 +15,4 @@ export * from './job-status';
 export * from './deliverables';
 export * from './invoice-status';
 export * from './costing';
+export * from './schemas/analytics';

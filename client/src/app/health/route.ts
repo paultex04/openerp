@@ -13,9 +13,6 @@ export async function GET() {
       },
     });
   } catch {
-    return NextResponse.json(
-      { status: 'degraded', error: 'API_UNREACHABLE' },
-      { status: 502 },
-    );
+    return NextResponse.json({ status: 'degraded', error: 'API_UNREACHABLE' }, { status: 502 });
   }
 }

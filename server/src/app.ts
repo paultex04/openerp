@@ -25,6 +25,7 @@ import { initChatBus, closeChatBus } from './chat/events.js';
 import { registerMetrics } from './metrics/index.js';
 import { initJobQueue, stopJobQueue } from './queue/index.js';
 import { registerJobRoutes } from './routes/jobs.js';
+import { registerAnalyticsRoutes } from './routes/analytics.js';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -134,6 +135,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Background Jobs & Queue (Step 3) ----------------------------------
   await registerJobRoutes(app);
+
+  // ---- Executive & Financial Analytics Dashboard (Phase 4) ---------------
+  await registerAnalyticsRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

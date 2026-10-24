@@ -45,7 +45,9 @@ export function generatePrometheusMetrics(): string {
   lines.push('# TYPE http_requests_total counter');
   for (const [key, count] of requestCounts) {
     const [method, route, statusCode] = key.split('|');
-    lines.push(`http_requests_total{method="${method}",route="${route}",status="${statusCode}"} ${count}`);
+    lines.push(
+      `http_requests_total{method="${method}",route="${route}",status="${statusCode}"} ${count}`,
+    );
   }
 
   // 4. Domain Metrics
@@ -53,7 +55,9 @@ export function generatePrometheusMetrics(): string {
   lines.push('# TYPE openerp_audit_failures_total counter');
   lines.push(`openerp_audit_failures_total ${auditFailureCount()}`);
 
-  lines.push('# HELP openerp_storage_s3_active 1 if S3/Garage storage client is configured, 0 if using DB byte fallback.');
+  lines.push(
+    '# HELP openerp_storage_s3_active 1 if S3/Garage storage client is configured, 0 if using DB byte fallback.',
+  );
   lines.push('# TYPE openerp_storage_s3_active gauge');
   lines.push(`openerp_storage_s3_active ${isS3Active() ? 1 : 0}`);
 

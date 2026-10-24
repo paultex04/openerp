@@ -454,7 +454,12 @@ export async function getAttachment(
 ): Promise<{ bytes: Buffer; mime: string }> {
   const attachment = await prisma.messageAttachment.findUnique({
     where: { id: attachmentId },
-    select: { bytes: true, storageKey: true, mime: true, message: { select: { conversationId: true } } },
+    select: {
+      bytes: true,
+      storageKey: true,
+      mime: true,
+      message: { select: { conversationId: true } },
+    },
   });
   if (!attachment) {
     throw new HttpError(404, 'ATTACHMENT_NOT_FOUND', `Attachment ${attachmentId} not found.`);
@@ -469,7 +474,11 @@ export async function getAttachment(
   }
 
   if (!attachment.bytes) {
-    throw new HttpError(404, 'ATTACHMENT_NOT_FOUND', `Attachment ${attachmentId} content not found.`);
+    throw new HttpError(
+      404,
+      'ATTACHMENT_NOT_FOUND',
+      `Attachment ${attachmentId} content not found.`,
+    );
   }
 
   return { bytes: Buffer.from(attachment.bytes), mime: attachment.mime };

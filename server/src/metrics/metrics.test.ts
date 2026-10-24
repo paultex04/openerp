@@ -1,9 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import {
-  recordHttpRequest,
-  resetMetrics,
-  generatePrometheusMetrics,
-} from './index.js';
+import { recordHttpRequest, resetMetrics, generatePrometheusMetrics } from './index.js';
 
 describe('Prometheus metrics collector', () => {
   beforeEach(() => {
@@ -23,9 +19,15 @@ describe('Prometheus metrics collector', () => {
     expect(output).toContain('process_uptime_seconds');
 
     expect(output).toContain('# HELP http_requests_total');
-    expect(output).toContain('http_requests_total{method="GET",route="/api/clients",status="200"} 2');
-    expect(output).toContain('http_requests_total{method="POST",route="/api/invoices",status="201"} 1');
-    expect(output).toContain('http_requests_total{method="GET",route="/api/unknown",status="404"} 1');
+    expect(output).toContain(
+      'http_requests_total{method="GET",route="/api/clients",status="200"} 2',
+    );
+    expect(output).toContain(
+      'http_requests_total{method="POST",route="/api/invoices",status="201"} 1',
+    );
+    expect(output).toContain(
+      'http_requests_total{method="GET",route="/api/unknown",status="404"} 1',
+    );
 
     expect(output).toContain('openerp_audit_failures_total');
     expect(output).toContain('openerp_storage_s3_active');
@@ -36,7 +38,9 @@ describe('Prometheus metrics collector', () => {
     recordHttpRequest('GET', '/api/clients?search=acme&includeArchived=true', 200);
 
     const output = generatePrometheusMetrics();
-    expect(output).toContain('http_requests_total{method="GET",route="/api/clients",status="200"} 1');
+    expect(output).toContain(
+      'http_requests_total{method="GET",route="/api/clients",status="200"} 1',
+    );
     expect(output).not.toContain('search=acme');
   });
 });

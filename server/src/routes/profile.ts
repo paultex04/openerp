@@ -251,13 +251,17 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
       if (user.avatarStorageKey && isS3Active()) {
         const obj = await downloadBlob(user.avatarStorageKey);
         if (!obj) {
-          return reply.code(404).send({ error: 'NO_AVATAR', message: 'Avatar image not found in storage.' });
+          return reply
+            .code(404)
+            .send({ error: 'NO_AVATAR', message: 'Avatar image not found in storage.' });
         }
         buffer = obj.buffer;
       } else if (user.avatarBytes) {
         buffer = Buffer.from(user.avatarBytes);
       } else {
-        return reply.code(404).send({ error: 'NO_AVATAR', message: 'Avatar image could not be loaded.' });
+        return reply
+          .code(404)
+          .send({ error: 'NO_AVATAR', message: 'Avatar image could not be loaded.' });
       }
 
       return (

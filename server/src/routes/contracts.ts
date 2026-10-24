@@ -74,9 +74,14 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       const existing = await prisma.client.findUnique({
         where: { id },
-        select: { id: true, deletedAt: true, _count: { select: { contracts: true, contacts: true } } },
+        select: {
+          id: true,
+          deletedAt: true,
+          _count: { select: { contracts: true, contacts: true } },
+        },
       });
-      if (!existing || existing.deletedAt) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
+      if (!existing || existing.deletedAt)
+        throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
 
       // Refuse rather than cascade, same rule as contracts: a client with
       // commercial history is the evidence for every invoice raised against it.
@@ -440,9 +445,14 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       const existing = await prisma.contract.findUnique({
         where: { id },
-        select: { id: true, deletedAt: true, _count: { select: { amendments: true, projects: true } } },
+        select: {
+          id: true,
+          deletedAt: true,
+          _count: { select: { amendments: true, projects: true } },
+        },
       });
-      if (!existing || existing.deletedAt) throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
+      if (!existing || existing.deletedAt)
+        throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
 
       // Refuse rather than cascade: deleting commercial history silently is
       // unrecoverable.

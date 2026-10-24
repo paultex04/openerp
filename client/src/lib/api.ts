@@ -864,3 +864,12 @@ export type ChatStreamEvent =
 
 /** `connecting`/`open` while the stream is up; `closed` means polling takes over. */
 export type ChatStreamStatus = 'connecting' | 'open' | 'closed';
+
+export type {
+  DashboardAnalyticsResponse,
+  FinancialAnalytics,
+  OperationalAnalytics,
+  RevenueMonthlyTrend,
+  ContractRevenueLeader,
+  ExpiringAmendmentSummary,
+} from '@openerp/shared';

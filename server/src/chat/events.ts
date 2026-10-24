@@ -76,7 +76,10 @@ export function handleRemoteNotification(payloadStr: string): void {
   }
 }
 
-async function notifyRemote(event: ChatServerEvent, targetUserIds?: Iterable<number>): Promise<void> {
+async function notifyRemote(
+  event: ChatServerEvent,
+  targetUserIds?: Iterable<number>,
+): Promise<void> {
   if (!listenClient) return;
   try {
     const payload: RemotePayload = {
