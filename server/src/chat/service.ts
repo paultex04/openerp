@@ -27,6 +27,7 @@ import { HttpError } from '../auth/plugin.js';
 import type { Principal } from '../auth/principal.js';
 import { prisma } from '../db/client.js';
 import { Prisma } from '../generated/prisma/client.js';
+import { isS3Active, uploadBlob, downloadBlob, deleteBlob } from '../storage/index.js';
 
 const USER_SELECT = {
   id: true,
@@ -397,6 +398,19 @@ export async function createAttachmentMessage(
 ): Promise<ChatMessageView> {
   await assertMember(conversationId, principal.userId);
 
+  let storageKey: string | null = null;
+  let dbBytes: Uint8Array<ArrayBuffer> | null = null;
+
+  if (isS3Active()) {
+    const key = `attachments/conv-${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
+    storageKey = await uploadBlob(key, input.bytes, input.mime);
+  } else {
+    const ab = new ArrayBuffer(input.bytes.byteLength);
+    const view = new Uint8Array(ab);
+    view.set(input.bytes);
+    dbBytes = view;
+  }
+
   const created = await prisma.$transaction(async (tx) => {
     const message = await tx.message.create({
       data: {
@@ -405,7 +419,8 @@ export async function createAttachmentMessage(
         body: input.body,
         attachment: {
           create: {
-            bytes: new Uint8Array(input.bytes),
+            bytes: dbBytes,
+            storageKey,
             mime: input.mime,
             originalName: input.originalName,
             width: input.width,
@@ -439,12 +454,24 @@ export async function getAttachment(
 ): Promise<{ bytes: Buffer; mime: string }> {
   const attachment = await prisma.messageAttachment.findUnique({
     where: { id: attachmentId },
-    select: { bytes: true, mime: true, message: { select: { conversationId: true } } },
+    select: { bytes: true, storageKey: true, mime: true, message: { select: { conversationId: true } } },
   });
   if (!attachment) {
     throw new HttpError(404, 'ATTACHMENT_NOT_FOUND', `Attachment ${attachmentId} not found.`);
   }
   await assertMember(attachment.message.conversationId, principal.userId);
+
+  if (attachment.storageKey && isS3Active()) {
+    const downloaded = await downloadBlob(attachment.storageKey);
+    if (downloaded) {
+      return { bytes: downloaded.buffer, mime: attachment.mime };
+    }
+  }
+
+  if (!attachment.bytes) {
+    throw new HttpError(404, 'ATTACHMENT_NOT_FOUND', `Attachment ${attachmentId} content not found.`);
+  }
+
   return { bytes: Buffer.from(attachment.bytes), mime: attachment.mime };
 }
 
@@ -515,6 +542,22 @@ export async function deleteConversation(
 ): Promise<{ memberIds: number[] }> {
   await assertMember(conversationId, principal.userId);
   const memberIds = await conversationMemberIds(conversationId);
+
+  if (isS3Active()) {
+    const attachments = await prisma.messageAttachment.findMany({
+      where: {
+        message: { conversationId },
+        storageKey: { not: null },
+      },
+      select: { storageKey: true },
+    });
+    for (const att of attachments) {
+      if (att.storageKey) {
+        deleteBlob(att.storageKey).catch(() => {});
+      }
+    }
+  }
+
   await prisma.conversation.delete({ where: { id: conversationId } });
   return { memberIds };
 }

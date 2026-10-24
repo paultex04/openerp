@@ -20,6 +20,8 @@ import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 import { APP_VERSION } from './version.js';
 import { CHAT_ATTACHMENT_MAX_BYTES } from '@openerp/shared';
+import { initStorage } from './storage/index.js';
+import { initChatBus, closeChatBus } from './chat/events.js';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -28,9 +30,15 @@ export interface BuildAppOptions {
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const config = options.config ?? loadConfig();
+  initStorage(config);
+  void initChatBus(config);
 
   const app = Fastify({
     logger: options.logger ?? !config.isTest,
+  });
+
+  app.addHook('onClose', async () => {
+    await closeChatBus();
   });
 
   await app.register(cors, {

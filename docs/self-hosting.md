@@ -15,6 +15,7 @@ runs here is a stack that deploys there.
 | Service   | Image                  | Published?  | Reached by                        |
 | --------- | ---------------------- | ----------- | --------------------------------- |
 | `db`      | `postgres:18-alpine`   | no          | `api` at `db:5432`                |
+| `garage`  | `dxflrs/garage:v2.4.1` | no          | `api` at `garage:3900`            |
 | `api`     | built `Dockerfile.api` | **no**      | `web` at `api:4000`, via `/api/*` |
 | `web`     | built `Dockerfile.web` | **no**      | `caddy` at `web:3000`             |
 | `caddy`   | `caddy:2-alpine`       | **80, 443** | the browser                       |

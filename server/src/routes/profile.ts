@@ -33,6 +33,7 @@ import { z } from 'zod';
 import { HttpError } from '../auth/plugin.js';
 import type { Config } from '../config.js';
 import { prisma } from '../db/client.js';
+import { downloadBlob, isS3Active, uploadBlob } from '../storage/index.js';
 
 /** Processed avatar size in pixels. Square; `sharp` crops to cover. */
 const AVATAR_SIZE = 256;
@@ -196,6 +197,20 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
       }
 
       const avatarUpdatedAt = new Date();
+      let avatarStorageKey: string | null = null;
+      let avatarBytes: Uint8Array<ArrayBuffer> | null = null;
+
+      if (isS3Active()) {
+        const key = `avatars/user-${principal.userId}-${avatarUpdatedAt.getTime()}.webp`;
+        await uploadBlob(key, processed, 'image/webp');
+        avatarStorageKey = key;
+      } else {
+        const ab = new ArrayBuffer(processed.byteLength);
+        const view = new Uint8Array(ab);
+        view.set(processed);
+        avatarBytes = view;
+      }
+
       /*
        * Deliberately no `select`: the audit extension records the *returned*
        * row, so a narrowed result ({ id }) produces an entry that claims
@@ -205,10 +220,8 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
       await prisma.appUser.update({
         where: { id: principal.userId },
         data: {
-          // A plain Uint8Array, not sharp's Buffer: Prisma's Bytes input wants
-          // a Uint8Array backed by a non-shared ArrayBuffer, which a copied
-          // view guarantees (and the copy is tens of KB).
-          avatarBytes: new Uint8Array(processed),
+          avatarBytes,
+          avatarStorageKey,
           avatarMime: 'image/webp',
           avatarUpdatedAt,
         },
@@ -227,11 +240,24 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
 
       const user = await prisma.appUser.findUnique({
         where: { id: principal.userId },
-        select: { avatarBytes: true, avatarMime: true },
+        select: { avatarBytes: true, avatarStorageKey: true, avatarMime: true },
       });
 
-      if (!user?.avatarBytes || !user.avatarMime) {
+      if (!user || (!user.avatarBytes && !user.avatarStorageKey) || !user.avatarMime) {
         return reply.code(404).send({ error: 'NO_AVATAR', message: 'This account has no avatar.' });
+      }
+
+      let buffer: Buffer;
+      if (user.avatarStorageKey && isS3Active()) {
+        const obj = await downloadBlob(user.avatarStorageKey);
+        if (!obj) {
+          return reply.code(404).send({ error: 'NO_AVATAR', message: 'Avatar image not found in storage.' });
+        }
+        buffer = obj.buffer;
+      } else if (user.avatarBytes) {
+        buffer = Buffer.from(user.avatarBytes);
+      } else {
+        return reply.code(404).send({ error: 'NO_AVATAR', message: 'Avatar image could not be loaded.' });
       }
 
       return (
@@ -241,7 +267,7 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
           // under a given URL: a long private cache is safe, and the shell avatar
           // does not refetch on every render.
           .header('cache-control', 'private, max-age=31536000, immutable')
-          .send(Buffer.from(user.avatarBytes))
+          .send(buffer)
       );
     },
   );

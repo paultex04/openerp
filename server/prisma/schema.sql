@@ -387,6 +387,7 @@ CREATE TABLE "app_user" (
     "updated_at" TIMESTAMPTZ(3) NOT NULL,
     "avatar_bytes" BYTEA,
     "avatar_mime" VARCHAR(64),
+    "avatar_storage_key" VARCHAR(255),
     "avatar_updated_at" TIMESTAMPTZ(3),
 
     CONSTRAINT "app_user_pkey" PRIMARY KEY ("id")
@@ -496,7 +497,8 @@ CREATE TABLE "message" (
 CREATE TABLE "message_attachment" (
     "id" SERIAL NOT NULL,
     "message_id" INTEGER NOT NULL,
-    "bytes" BYTEA NOT NULL,
+    "bytes" BYTEA,
+    "storage_key" VARCHAR(255),
     "mime" VARCHAR(64) NOT NULL,
     "original_name" VARCHAR(255),
     "width" INTEGER NOT NULL,

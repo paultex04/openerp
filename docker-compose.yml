@@ -78,6 +78,28 @@ services:
     # No published ports. Reachable as `db:5432` inside this network only.
 
   # -----------------------------------------------------------------------------
+  # S3 Object Storage (Garage) — Phase 3
+  # -----------------------------------------------------------------------------
+  garage:
+    image: dxflrs/garage:v2.4.1
+    restart: unless-stopped
+    command: ['/garage', 'server', '--single-node']
+    environment:
+      GARAGE_DEFAULT_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-GKopenerpaccesskey01234}
+      GARAGE_DEFAULT_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-openerpsecretkey0123456789abcdef}
+      GARAGE_DEFAULT_BUCKET: ${S3_BUCKET:-openerp-attachments}
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ['CMD', '/garage', '-c', '/etc/garage.toml', 'status']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # -----------------------------------------------------------------------------
   # API
   # -----------------------------------------------------------------------------
   api:
@@ -87,6 +109,8 @@ services:
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      garage:
         condition: service_healthy
     environment:
       NODE_ENV: production
@@ -113,6 +137,13 @@ services:
       API_PORT: '4000'
       DEFAULT_CURRENCY: ZAR
       DEFAULT_VAT_RATE: '0.15'
+      # S3 Object Storage (Garage)
+      S3_ENDPOINT: http://garage:3900
+      S3_REGION: garage
+      S3_BUCKET: ${S3_BUCKET:-openerp-attachments}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-GKopenerpaccesskey01234}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-openerpsecretkey0123456789abcdef}
+      S3_FORCE_PATH_STYLE: 'true'
     # Deliberately NOT `ports:`. Internal network only.
 
   # -----------------------------------------------------------------------------
@@ -237,3 +268,5 @@ volumes:
   db-data:
   caddy-data:
   caddy-config:
+  garage-meta:
+  garage-data:

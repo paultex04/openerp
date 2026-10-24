@@ -12,6 +12,8 @@ import {
   publishTo,
   resetChatBus,
   subscribe,
+  handleRemoteNotification,
+  INSTANCE_ID,
   type ChatServerEvent,
 } from './events.js';
 
@@ -103,5 +105,70 @@ describe('chat event bus', () => {
       publishTo([1], { type: 'typing', conversationId: 1, userId: 1, isTyping: true }),
     ).not.toThrow();
     expect(good.events).toHaveLength(1);
+  });
+
+  describe('PostgreSQL LISTEN/NOTIFY multi-instance sync', () => {
+    it('ignores notifications originating from the current instance to prevent duplicate dispatch', () => {
+      const a = collect();
+      subscribe(1, a.listener);
+      a.events.length = 0;
+
+      const selfPayload = JSON.stringify({
+        instanceId: INSTANCE_ID,
+        targetUserIds: [1],
+        event: { type: 'presence', userId: 2, online: true },
+      });
+
+      handleRemoteNotification(selfPayload);
+      expect(a.events).toHaveLength(0);
+    });
+
+    it('dispatches targeted notifications from another instance to matching local subscribers', () => {
+      const u1 = collect();
+      const u2 = collect();
+      subscribe(1, u1.listener);
+      subscribe(2, u2.listener);
+      u1.events.length = 0;
+      u2.events.length = 0;
+
+      const remotePayload = JSON.stringify({
+        instanceId: 'remote-instance-uuid-456',
+        targetUserIds: [2],
+        event: { type: 'typing', conversationId: 10, userId: 1, isTyping: true },
+      });
+
+      handleRemoteNotification(remotePayload);
+      expect(u1.events).toHaveLength(0);
+      expect(u2.events).toHaveLength(1);
+      expect(u2.events[0]).toEqual({
+        type: 'typing',
+        conversationId: 10,
+        userId: 1,
+        isTyping: true,
+      });
+    });
+
+    it('dispatches broadcast notifications from another instance to all local subscribers', () => {
+      const u1 = collect();
+      const u2 = collect();
+      subscribe(1, u1.listener);
+      subscribe(2, u2.listener);
+      u1.events.length = 0;
+      u2.events.length = 0;
+
+      const remoteBroadcast = JSON.stringify({
+        instanceId: 'remote-instance-uuid-789',
+        targetUserIds: null,
+        event: { type: 'presence', userId: 99, online: true },
+      });
+
+      handleRemoteNotification(remoteBroadcast);
+      expect(u1.events).toEqual([{ type: 'presence', userId: 99, online: true }]);
+      expect(u2.events).toEqual([{ type: 'presence', userId: 99, online: true }]);
+    });
+
+    it('silently ignores invalid JSON payloads without throwing', () => {
+      expect(() => handleRemoteNotification('not-valid-json')).not.toThrow();
+    });
   });
 });

@@ -1,0 +1,24 @@
+# =============================================================================
+# Garage S3 Object Storage Configuration (Phase 3)
+# =============================================================================
+# Lightweight, high-performance S3-compatible storage for OpenERP attachments
+# and avatars. Run as a single-node layout in Docker Compose.
+# =============================================================================
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+
+replication_factor = 1
+
+rpc_secret = "e8d254b036ca6d585483fef572e9d227b613bbad4b05a7c29e7102dbd6a2f865"
+rpc_bind_addr = "[::]:3901"
+
+[s3_api]
+api_bind_addr = "[::]:3900"
+s3_region = "garage"
+root_domain = ".s3.garage.internal"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token = "openerp-garage-admin-secret-token"

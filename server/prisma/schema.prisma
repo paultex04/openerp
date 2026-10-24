@@ -686,10 +686,11 @@ model AppUser {
   /// bytes are tens of KB and safe to keep inline. They live on the *account*,
   /// not the employee: an avatar identifies a login, and an avatar column on
   /// `employee` would suggest employees without accounts can have one.
-  avatarBytes     Bytes?    @map("avatar_bytes")
-  avatarMime      String?   @map("avatar_mime") @db.VarChar(64)
+  avatarBytes      Bytes?    @map("avatar_bytes")
+  avatarMime       String?   @map("avatar_mime") @db.VarChar(64)
+  avatarStorageKey String?   @map("avatar_storage_key") @db.VarChar(255)
   /// Doubles as the cache-buster: the client appends it to the image URL.
-  avatarUpdatedAt DateTime? @map("avatar_updated_at") @db.Timestamptz(3)
+  avatarUpdatedAt  DateTime? @map("avatar_updated_at") @db.Timestamptz(3)
 
   employee Employee      @relation(fields: [employeeId], references: [id])
   roles    AppUserRole[]
@@ -875,7 +876,8 @@ model Message {
 model MessageAttachment {
   id           Int      @id @default(autoincrement())
   messageId    Int      @unique @map("message_id")
-  bytes        Bytes
+  bytes        Bytes?
+  storageKey   String?  @map("storage_key") @db.VarChar(255)
   mime         String   @db.VarChar(64)
   originalName String?  @map("original_name") @db.VarChar(255)
   width        Int
