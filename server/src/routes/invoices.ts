@@ -29,6 +29,7 @@ import {
   generateDraft,
   getInvoiceDetail,
   listInvoices,
+  restoreInvoice,
   toHttpError,
   transitionInvoice,
   updateDraft,
@@ -170,6 +171,21 @@ export async function registerInvoiceRoutes(app: FastifyInstance): Promise<void>
         toHttpError(error);
       }
       return reply.code(204).send();
+    },
+  );
+
+  /** Restores a soft-deleted invoice */
+  app.post(
+    '/api/invoices/:id/restore',
+    { preHandler: [app.authenticate, app.requirePermission('invoice.write')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      try {
+        await restoreInvoice(id);
+      } catch (error) {
+        toHttpError(error);
+      }
+      return reply.code(200).send({ ok: true, message: `Invoice ${id} restored.` });
     },
   );
 

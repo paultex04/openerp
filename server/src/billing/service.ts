@@ -494,7 +494,7 @@ export async function getInvoiceDetail(
       },
     },
   });
-  if (!invoice)
+  if (!invoice || invoice.deletedAt)
     throw new BillingError(404, 'INVOICE_NOT_FOUND', `Invoice ${invoiceId} does not exist.`);
 
   const statusLabel = invoiceStatusFromKey(invoice.status);
@@ -569,6 +569,7 @@ export async function listInvoices(filters: {
 }): Promise<Record<string, unknown>[]> {
   const invoices = await prisma.invoice.findMany({
     where: {
+      deletedAt: null,
       ...(filters.status !== undefined && { status: invoiceStatusToKey(filters.status) as never }),
       ...(filters.jobId !== undefined && { jobId: filters.jobId }),
       ...(filters.search
@@ -664,9 +665,9 @@ export async function updateDraft(
 export async function deleteInvoice(invoiceId: number): Promise<void> {
   const existing = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, invoiceNumber: true, status: true },
+    select: { id: true, invoiceNumber: true, status: true, deletedAt: true },
   });
-  if (!existing) {
+  if (!existing || existing.deletedAt) {
     throw new BillingError(404, 'INVOICE_NOT_FOUND', `Invoice ${invoiceId} does not exist.`);
   }
 
@@ -680,8 +681,28 @@ export async function deleteInvoice(invoiceId: number): Promise<void> {
     );
   }
 
-  await prisma.invoiceItem.deleteMany({ where: { invoiceId } });
-  await prisma.invoice.delete({ where: { id: invoiceId } });
+  await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { deletedAt: new Date() },
+  });
+}
+
+export async function restoreInvoice(invoiceId: number): Promise<void> {
+  const existing = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, deletedAt: true },
+  });
+  if (!existing) {
+    throw new BillingError(404, 'INVOICE_NOT_FOUND', `Invoice ${invoiceId} does not exist.`);
+  }
+  if (!existing.deletedAt) {
+    return;
+  }
+
+  await prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { deletedAt: null },
+  });
 }
 
 // ---------------------------------------------------------------------------

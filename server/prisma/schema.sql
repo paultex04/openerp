@@ -83,6 +83,7 @@ CREATE TABLE "client" (
     "is_vat_registered" BOOLEAN NOT NULL DEFAULT true,
     "vat_number" VARCHAR(50),
     "is_archived" BOOLEAN NOT NULL DEFAULT false,
+    "deleted_at" TIMESTAMPTZ(3),
 
     CONSTRAINT "client_pkey" PRIMARY KEY ("id")
 );
@@ -108,6 +109,7 @@ CREATE TABLE "contract" (
     "description" TEXT NOT NULL,
     "type" VARCHAR(100),
     "is_archived" BOOLEAN NOT NULL DEFAULT false,
+    "deleted_at" TIMESTAMPTZ(3),
 
     CONSTRAINT "contract_pkey" PRIMARY KEY ("id")
 );
@@ -315,6 +317,7 @@ CREATE TABLE "invoice" (
     "tax_amount" DECIMAL(14,2) NOT NULL DEFAULT 0,
     "total_with_tax" DECIMAL(14,2) NOT NULL DEFAULT 0,
     "notes" TEXT,
+    "deleted_at" TIMESTAMPTZ(3),
 
     CONSTRAINT "invoice_pkey" PRIMARY KEY ("id")
 );
@@ -531,6 +534,9 @@ CREATE INDEX "employee_manager_id_idx" ON "employee"("manager_id");
 CREATE UNIQUE INDEX "client_email_key" ON "client"("email");
 
 -- CreateIndex
+CREATE INDEX "client_deleted_at_idx" ON "client"("deleted_at");
+
+-- CreateIndex
 CREATE INDEX "contact_client_id_idx" ON "contact"("client_id");
 
 -- CreateIndex
@@ -538,6 +544,9 @@ CREATE UNIQUE INDEX "contract_number_key" ON "contract"("number");
 
 -- CreateIndex
 CREATE INDEX "contract_client_id_idx" ON "contract"("client_id");
+
+-- CreateIndex
+CREATE INDEX "contract_deleted_at_idx" ON "contract"("deleted_at");
 
 -- CreateIndex
 CREATE INDEX "contract_amendment_contract_id_idx" ON "contract_amendment"("contract_id");
@@ -631,6 +640,9 @@ CREATE INDEX "invoice_job_id_idx" ON "invoice"("job_id");
 
 -- CreateIndex
 CREATE INDEX "invoice_status_idx" ON "invoice"("status");
+
+-- CreateIndex
+CREATE INDEX "invoice_deleted_at_idx" ON "invoice"("deleted_at");
 
 -- CreateIndex
 CREATE INDEX "invoice_item_invoice_id_idx" ON "invoice_item"("invoice_id");

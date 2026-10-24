@@ -36,6 +36,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       const clients = await prisma.client.findMany({
         where: {
+          deletedAt: null,
           // Archived clients are hidden unless asked for. The default is what
           // matters: a register that quietly fills with retired rows stops being
           // readable, and every picker would offer dead clients.
@@ -73,9 +74,9 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       const existing = await prisma.client.findUnique({
         where: { id },
-        select: { id: true, _count: { select: { contracts: true, contacts: true } } },
+        select: { id: true, deletedAt: true, _count: { select: { contracts: true, contacts: true } } },
       });
-      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
+      if (!existing || existing.deletedAt) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
 
       // Refuse rather than cascade, same rule as contracts: a client with
       // commercial history is the evidence for every invoice raised against it.
@@ -89,8 +90,26 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         );
       }
 
-      await prisma.client.delete({ where: { id } });
+      await prisma.client.update({ where: { id }, data: { deletedAt: new Date() } });
       return reply.code(204).send();
+    },
+  );
+
+  /** Restores a soft-deleted client */
+  app.post(
+    '/api/clients/:id/restore',
+    { preHandler: [app.authenticate, app.requirePermission('contract.write')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const existing = await prisma.client.findUnique({
+        where: { id },
+        select: { id: true, deletedAt: true },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Client ${id} does not exist.`);
+      if (existing.deletedAt) {
+        await prisma.client.update({ where: { id }, data: { deletedAt: null } });
+      }
+      return reply.code(200).send({ ok: true, message: `Client ${id} restored.` });
     },
   );
 
@@ -257,6 +276,7 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       const contracts = await prisma.contract.findMany({
         where: {
+          deletedAt: null,
           ...(includeArchived ? {} : { isArchived: false }),
           ...(search
             ? {
@@ -420,9 +440,9 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
 
       const existing = await prisma.contract.findUnique({
         where: { id },
-        select: { id: true, _count: { select: { amendments: true, projects: true } } },
+        select: { id: true, deletedAt: true, _count: { select: { amendments: true, projects: true } } },
       });
-      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
+      if (!existing || existing.deletedAt) throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
 
       // Refuse rather than cascade: deleting commercial history silently is
       // unrecoverable.
@@ -435,8 +455,26 @@ export async function registerClientRoutes(app: FastifyInstance): Promise<void> 
         );
       }
 
-      await prisma.contract.delete({ where: { id } });
+      await prisma.contract.update({ where: { id }, data: { deletedAt: new Date() } });
       return reply.code(204).send();
+    },
+  );
+
+  /** Restores a soft-deleted contract */
+  app.post(
+    '/api/contracts/:id/restore',
+    { preHandler: [app.authenticate, app.requirePermission('contract.write')] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = contractIdParam.parse(request.params);
+      const existing = await prisma.contract.findUnique({
+        where: { id },
+        select: { id: true, deletedAt: true },
+      });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', `Contract ${id} does not exist.`);
+      if (existing.deletedAt) {
+        await prisma.contract.update({ where: { id }, data: { deletedAt: null } });
+      }
+      return reply.code(200).send({ ok: true, message: `Contract ${id} restored.` });
     },
   );
 }

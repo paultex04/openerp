@@ -183,9 +183,11 @@ model Client {
   vatNumber       String?    @map("vat_number") @db.VarChar(50)
   /// Phase 8 item 3: archived, not deleted. See ADR-008.
   isArchived      Boolean    @default(false) @map("is_archived")
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz(3)
   contacts        Contact[]
   contracts       Contract[]
 
+  @@index([deletedAt])
   @@map("client")
 }
 
@@ -218,12 +220,14 @@ model Contract {
   type        String? @db.VarChar(100)
   /// Phase 8 item 3: archived, not deleted. See ADR-008.
   isArchived  Boolean @default(false) @map("is_archived")
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
 
   client     Client              @relation(fields: [clientId], references: [id])
   amendments ContractAmendment[]
   projects   Project[]
 
   @@index([clientId])
+  @@index([deletedAt])
   @@map("contract")
 }
 
@@ -553,12 +557,14 @@ model Invoice {
   // -----------------------------------------------------------------------
 
   notes String?
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
 
   job   Job           @relation(fields: [jobId], references: [id])
   items InvoiceItem[]
 
   @@index([jobId])
   @@index([status])
+  @@index([deletedAt])
   @@map("invoice")
 }
 
