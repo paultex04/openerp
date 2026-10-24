@@ -39,10 +39,10 @@ No manual CLI bootstrapping is required.
       context: .
       dockerfile: Dockerfile.garage
     restart: unless-stopped
-    command: ['/garage', 'server', '--single-node']
+    command: ['/garage', 'server', '--single-node', '--default-bucket']
     environment:
-      GARAGE_DEFAULT_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-GKopenerpaccesskey01234}
-      GARAGE_DEFAULT_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-openerpsecretkey0123456789abcdef}
+      GARAGE_DEFAULT_ACCESS_KEY: ${S3_ACCESS_KEY_ID:-GK0123456789abcdef01234567}
+      GARAGE_DEFAULT_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       GARAGE_DEFAULT_BUCKET: ${S3_BUCKET:-openerp-attachments}
     volumes:
       - garage-meta:/var/lib/garage/meta
@@ -67,8 +67,8 @@ The API service depends on `garage` being healthy before starting:
       S3_ENDPOINT: http://garage:3900
       S3_REGION: garage
       S3_BUCKET: ${S3_BUCKET:-openerp-attachments}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-GKopenerpaccesskey01234}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-openerpsecretkey0123456789abcdef}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-GK0123456789abcdef01234567}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
       S3_FORCE_PATH_STYLE: 'true'
 ```
 
@@ -87,14 +87,19 @@ In Phase 3:
 
 ---
 
-## 4. Database Migrations
+## 4. Database Migrations & Garage Verification
 
 Migration `0011_storage_keys` adds:
 - `avatar_storage_key VARCHAR(255)` to table `app_user`
 - `storage_key VARCHAR(255)` to table `message_attachment`
 - Modifies `bytes` column on `message_attachment` to nullable `BYTEA`.
 
-To apply in Coolify:
+To apply migrations in Coolify:
 ```bash
 node server/scripts/apply-migrations.mjs
+```
+
+To verify or provision Garage S3 credentials and bucket on demand from the API container terminal:
+```bash
+node server/scripts/setup-garage.mjs
 ```

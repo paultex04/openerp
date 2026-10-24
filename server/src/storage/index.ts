@@ -9,6 +9,92 @@ import type { Config } from '../config.js';
 let s3Client: S3Client | null = null;
 let bucketName = 'openerp-attachments';
 
+export async function ensureGarageProvisioned(config: Config): Promise<void> {
+  if (config.isTest) return;
+  if (!config.S3_ENDPOINT || !config.S3_ACCESS_KEY_ID || !config.S3_SECRET_ACCESS_KEY) return;
+  if (!config.S3_ENDPOINT.includes('garage') && !config.S3_ENDPOINT.includes(':3900')) return;
+
+  try {
+    const adminUrl = config.S3_ENDPOINT.replace(':3900', ':3903');
+    const adminToken = process.env.GARAGE_ADMIN_TOKEN || 'openerp-garage-admin-secret-token';
+    const headers = {
+      Authorization: `Bearer ${adminToken}`,
+      'Content-Type': 'application/json',
+    };
+
+    // 1. Import Key (idempotent)
+    try {
+      await fetch(`${adminUrl}/v2/ImportKey`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          accessKeyId: config.S3_ACCESS_KEY_ID,
+          secretAccessKey: config.S3_SECRET_ACCESS_KEY,
+          name: 'openerp-key',
+        }),
+      });
+    } catch {
+      // Ignore if key cannot be imported or already exists
+    }
+
+    // 2. Discover or create bucket
+    let bucketId: string | null = null;
+    try {
+      const listRes = await fetch(`${adminUrl}/v2/ListBuckets`, { headers });
+      if (listRes.ok) {
+        const buckets = (await listRes.json()) as Array<{ id: string; globalAliases?: string[] }>;
+        const found = buckets.find((b) => b.globalAliases?.includes(config.S3_BUCKET));
+        if (found) {
+          bucketId = found.id;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!bucketId) {
+      try {
+        const createRes = await fetch(`${adminUrl}/v2/CreateBucket`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            globalAlias: config.S3_BUCKET,
+          }),
+        });
+        if (createRes.ok) {
+          const created = (await createRes.json()) as { id: string };
+          bucketId = created.id;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. Grant key access permissions on the bucket
+    if (bucketId) {
+      try {
+        await fetch(`${adminUrl}/v2/AllowBucketKey`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            bucketId,
+            accessKeyId: config.S3_ACCESS_KEY_ID,
+            permissions: {
+              read: true,
+              write: true,
+              owner: true,
+            },
+          }),
+        });
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // Best-effort auto-provisioning
+  }
+}
+
 export function initStorage(config: Config): void {
   if (config.S3_ENDPOINT && config.S3_ACCESS_KEY_ID && config.S3_SECRET_ACCESS_KEY) {
     bucketName = config.S3_BUCKET;
@@ -21,6 +107,7 @@ export function initStorage(config: Config): void {
       },
       forcePathStyle: config.S3_FORCE_PATH_STYLE,
     });
+    void ensureGarageProvisioned(config);
   } else {
     s3Client = null;
   }
