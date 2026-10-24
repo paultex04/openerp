@@ -3,12 +3,14 @@
   "version": "2.1.1",
   "private": true,
   "description": "OpenERP web client: Next.js App Router + Tailwind + shadcn/ui + TanStack Table/Query.",
+  "type": "module",
   "scripts": {
     "build": "next build",
     "build:webpack": "next build --webpack",
     "dev": "next dev",
     "start": "next start",
     "lint": "oxlint src",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
@@ -38,6 +40,7 @@
     "postcss": "^8.5.30",
     "shadcn": "^4.21.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
   }
 }

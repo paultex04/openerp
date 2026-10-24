@@ -9,13 +9,14 @@ This runbook covers backup, verification, and disaster recovery procedures for t
 Coolify provides native scheduled backups for database containers and Compose services.
 
 ### Option A: Coolify Scheduled Database Backups (Recommended)
+
 1. In the Coolify dashboard, navigate to your project and open the database resource.
 2. Go to the **Backups** tab.
 3. Configure the backup schedule:
-   * **Enabled:** Toggle **ON**
-   * **Frequency (Cron):** `0 2 * * *` *(Runs nightly at 02:00 AM)*
-   * **Storage Destination:** Local storage or S3-compatible bucket (e.g. MinIO, Cloudflare R2, AWS S3).
-   * **Retention:** Set retention period (e.g. 14 to 30 days).
+   - **Enabled:** Toggle **ON**
+   - **Frequency (Cron):** `0 2 * * *` _(Runs nightly at 02:00 AM)_
+   - **Storage Destination:** Local storage or S3-compatible bucket (e.g. MinIO, Cloudflare R2, AWS S3).
+   - **Retention:** Set retention period (e.g. 14 to 30 days).
 4. Click **Save Changes** and click **Backup Now** to perform an immediate manual test run. Verify the status shows green (`Success`).
 
 ---
@@ -25,6 +26,7 @@ Coolify provides native scheduled backups for database containers and Compose se
 If you are running the unified Compose stack (`docker-compose.coolify.yml`) where Postgres is managed directly within Compose:
 
 ### Create Nightly Backup Script
+
 Inside your Coolify LXC (or host shell), create `/opt/scripts/backup-openerp.sh`:
 
 ```bash
@@ -47,12 +49,15 @@ echo "Backup complete: ${BACKUP_DIR}/openerp_${TIMESTAMP}.dump"
 ```
 
 Make it executable:
+
 ```bash
 chmod +x /opt/scripts/backup-openerp.sh
 ```
 
 ### Schedule in Crontab
+
 Add to root crontab (`crontab -e`):
+
 ```text
 0 2 * * * /opt/scripts/backup-openerp.sh >> /var/log/openerp-backup.log 2>&1
 ```
@@ -62,6 +67,7 @@ Add to root crontab (`crontab -e`):
 ## 3. Manual Backup and Restore Runbook
 
 ### Taking an Immediate Manual Dump
+
 From your terminal or inside the Coolify LXC:
 
 ```bash
@@ -78,11 +84,13 @@ docker compose -f docker-compose.coolify.yml exec -T db pg_dump -U openerp -d op
 > Restoring overwrites existing database tables. Ensure all running API instances are stopped before restoring.
 
 1. Stop the application services to prevent active connections:
+
    ```bash
    docker compose -f docker-compose.coolify.yml stop api web
    ```
 
 2. Restore the compressed dump file:
+
    ```bash
    # Terminate any remaining connections and restore:
    docker compose -f docker-compose.coolify.yml exec -T db pg_restore \
@@ -95,6 +103,7 @@ docker compose -f docker-compose.coolify.yml exec -T db pg_dump -U openerp -d op
    ```
 
 3. Restart the API and Web containers:
+
    ```bash
    docker compose -f docker-compose.coolify.yml start api web
    ```

@@ -13,6 +13,7 @@
     "build:watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude \"**/*.integration.test.ts\" --exclude \"**/*.e2e.test.ts\"",
     "test:ci": "vitest run --exclude \"**/commercial.integration.test.ts\" --exclude \"**/billing.integration.test.ts\" --exclude \"**/operations.integration.test.ts\"",
     "test:watch": "vitest",
     "db:generate": "prisma generate",

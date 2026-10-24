@@ -116,7 +116,10 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
   // ---- POST /api/auth/refresh ------------------------------------------
   app.post(
     '/api/auth/refresh',
-    { preHandler: [app.authenticate] },
+    {
+      preHandler: [app.authenticate],
+      config: config.isTest ? {} : { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const principal = request.principal!;
 
@@ -203,7 +206,10 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
   // ---- POST /api/auth/change-password -----------------------------------
   app.post(
     '/api/auth/change-password',
-    { preHandler: [app.authenticate] },
+    {
+      preHandler: [app.authenticate],
+      config: config.isTest ? {} : { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const principal = request.principal!;
       const body = changePasswordSchema.parse(request.body);
