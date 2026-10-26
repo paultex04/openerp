@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -571,79 +572,91 @@ export function TaskListView({
                         {/* Quick Context Dropdown */}
                         <DropdownMenu>
                           <DropdownMenuTrigger
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent hover:text-foreground"
-                          >
-                            <MoreHorizontal className="size-4" />
-                          </DropdownMenuTrigger>
+                            render={
+                              <button
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent hover:text-foreground cursor-pointer"
+                                aria-label="Task options"
+                              >
+                                <MoreHorizontal className="size-4" />
+                              </button>
+                            }
+                          />
                           <DropdownMenuContent
                             align="end"
                             className="w-44"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setStatusMutation.mutate({ id: task.id, status: 'Todo' })
-                              }
-                            >
-                              Todo
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setStatusMutation.mutate({ id: task.id, status: 'In Progress' })
-                              }
-                            >
-                              In Progress
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setStatusMutation.mutate({ id: task.id, status: 'Blocked' })
-                              }
-                            >
-                              Blocked
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setStatusMutation.mutate({ id: task.id, status: 'Done' })
-                              }
-                            >
-                              Done
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() =>
-                                setStatusMutation.mutate({ id: task.id, status: 'Cancelled' })
-                              }
-                            >
-                              Cancelled
-                            </DropdownMenuItem>
-
-                            <DropdownMenuSeparator />
-                            <DropdownMenuLabel>Change Priority</DropdownMenuLabel>
-                            {(['Urgent', 'High', 'Medium', 'Low'] as const).map((p) => (
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel>Change Status</DropdownMenuLabel>
                               <DropdownMenuItem
-                                key={p}
                                 onClick={() =>
-                                  setPriorityMutation.mutate({ id: task.id, priority: p })
+                                  setStatusMutation.mutate({ id: task.id, status: 'Todo' })
                                 }
                               >
-                                <Flag className={cn('size-3.5 mr-1.5', PRIORITY_FLAGS[p]?.color)} />
-                                {p}
+                                Todo
                               </DropdownMenuItem>
-                            ))}
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setStatusMutation.mutate({ id: task.id, status: 'In Progress' })
+                                }
+                              >
+                                In Progress
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setStatusMutation.mutate({ id: task.id, status: 'Blocked' })
+                                }
+                              >
+                                Blocked
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setStatusMutation.mutate({ id: task.id, status: 'Done' })
+                                }
+                              >
+                                Done
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setStatusMutation.mutate({ id: task.id, status: 'Cancelled' })
+                                }
+                              >
+                                Cancelled
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
 
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => {
-                                if (confirm(`Delete "${task.title}"?`)) {
-                                  deleteTaskMutation.mutate(task.id);
-                                }
-                              }}
-                            >
-                              <Trash2 className="size-3.5 mr-1.5" />
-                              Delete Task
-                            </DropdownMenuItem>
+                            <DropdownMenuGroup>
+                              <DropdownMenuLabel>Change Priority</DropdownMenuLabel>
+                              {(['Urgent', 'High', 'Medium', 'Low'] as const).map((p) => (
+                                <DropdownMenuItem
+                                  key={p}
+                                  onClick={() =>
+                                    setPriorityMutation.mutate({ id: task.id, priority: p })
+                                  }
+                                >
+                                  <Flag className={cn('size-3.5 mr-1.5', PRIORITY_FLAGS[p]?.color)} />
+                                  {p}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuGroup>
+
+                            <DropdownMenuSeparator />
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => {
+                                  if (confirm(`Delete "${task.title}"?`)) {
+                                    deleteTaskMutation.mutate(task.id);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="size-3.5 mr-1.5" />
+                                Delete Task
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

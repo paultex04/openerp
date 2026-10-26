@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -260,40 +261,50 @@ export function TaskKanbanView({
                       {/* Card Actions Menu */}
                       <DropdownMenu>
                         <DropdownMenuTrigger
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent hover:text-foreground"
-                        >
-                          <MoreHorizontal className="size-3.5" />
-                        </DropdownMenuTrigger>
+                          render={
+                            <button
+                              type="button"
+                              onClick={(e) => e.stopPropagation()}
+                              className="flex size-6 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent hover:text-foreground cursor-pointer"
+                              aria-label="Card options"
+                            >
+                              <MoreHorizontal className="size-3.5" />
+                            </button>
+                          }
+                        />
                         <DropdownMenuContent
                           align="end"
                           className="w-40"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                          {COLUMNS.map((targetCol) => {
-                            if (targetCol.status === task.status) return null;
-                            return (
-                              <DropdownMenuItem
-                                key={targetCol.status}
-                                onClick={() =>
-                                  moveStatusMutation.mutate({
-                                    id: task.id,
-                                    status: targetCol.status,
-                                  })
-                                }
-                              >
-                                <span
-                                  className={cn('size-2 rounded-full mr-2', targetCol.dotColor)}
-                                />
-                                {targetCol.label}
-                              </DropdownMenuItem>
-                            );
-                          })}
+                          <DropdownMenuGroup>
+                            <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                            {COLUMNS.map((targetCol) => {
+                              if (targetCol.status === task.status) return null;
+                              return (
+                                <DropdownMenuItem
+                                  key={targetCol.status}
+                                  onClick={() =>
+                                    moveStatusMutation.mutate({
+                                      id: task.id,
+                                      status: targetCol.status,
+                                    })
+                                  }
+                                >
+                                  <span
+                                    className={cn('size-2 rounded-full mr-2', targetCol.dotColor)}
+                                  />
+                                  {targetCol.label}
+                                </DropdownMenuItem>
+                              );
+                            })}
+                          </DropdownMenuGroup>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => onSelectTask(task.id)}>
-                            View Details
-                          </DropdownMenuItem>
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem onClick={() => onSelectTask(task.id)}>
+                              View Details
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -396,8 +407,18 @@ export function TaskKanbanView({
               })}
 
               {colList.length === 0 && (
-                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-center text-xs text-muted-foreground">
+                <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground gap-2">
                   <p>No tasks</p>
+                  {onQuickAddForStatus && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => onQuickAddForStatus(col.status)}
+                      className="text-xs gap-1 text-primary hover:text-primary"
+                    >
+                      <Plus className="size-3" /> Add Task
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

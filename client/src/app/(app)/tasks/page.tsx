@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -37,6 +38,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
+import {
+  TaskCreateDialog,
+} from '@/components/tasks/TaskCreateDialog';
 import {
   TaskDetailSheet,
 } from '@/components/tasks/TaskDetailSheet';
@@ -50,9 +54,6 @@ import {
 import {
   TaskProjectDialog,
 } from '@/components/tasks/TaskProjectDialog';
-import {
-  TaskQuickAdd,
-} from '@/components/tasks/TaskQuickAdd';
 import {
   api,
   ApiError,
@@ -81,6 +82,10 @@ export default function TasksPage() {
 
   // Dialog & Detail Sheet states
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState<boolean>(false);
+  const [createDialogStatus, setCreateDialogStatus] = useState<
+    'Todo' | 'In Progress' | 'Blocked' | 'Done' | 'Cancelled'
+  >('Todo');
   const [projectDialogOpen, setProjectDialogOpen] = useState<boolean>(false);
   const [editingProject, setEditingProject] = useState<TaskProjectRow | null>(null);
 
@@ -242,11 +247,13 @@ export default function TasksPage() {
                 <span>Group: {groupBy === 'dueDate' ? 'Due Date' : groupBy === 'priority' ? 'Priority' : groupBy === 'status' ? 'Status' : 'None'}</span>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuLabel>Group Tasks By</DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => setGroupBy('dueDate')}>Due Date</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setGroupBy('priority')}>Priority</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setGroupBy('status')}>Status</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setGroupBy('none')}>None (Flat List)</DropdownMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Group Tasks By</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => setGroupBy('dueDate')}>Due Date</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setGroupBy('priority')}>Priority</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setGroupBy('status')}>Status</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setGroupBy('none')}>None (Flat List)</DropdownMenuItem>
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -402,10 +409,16 @@ export default function TasksPage() {
 
                       <DropdownMenu>
                         <DropdownMenuTrigger
-                          className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-opacity"
-                        >
-                          <MoreVertical className="size-3.5" />
-                        </DropdownMenuTrigger>
+                          render={
+                            <button
+                              type="button"
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-opacity cursor-pointer"
+                              aria-label="Project options"
+                            >
+                              <MoreVertical className="size-3.5" />
+                            </button>
+                          }
+                        />
                         <DropdownMenuContent align="end" className="w-36">
                           <DropdownMenuItem
                             onClick={() => {
@@ -471,9 +484,9 @@ export default function TasksPage() {
 
         {/* Main Workspace Area */}
         <main className="space-y-4 md:col-span-3 lg:col-span-4 min-w-0">
-          {/* Search bar & quick filter reset */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
+          {/* Search bar, priority filter, & primary "+ New Task" action button */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[200px] flex-1">
               <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
               <Input
                 placeholder="Search tasks by title, note, or #tag..."
@@ -504,13 +517,19 @@ export default function TasksPage() {
                 </button>
               </Badge>
             )}
-          </div>
 
-          {/* Todoist-style Quick Add Bar */}
-          <TaskQuickAdd
-            defaultProjectId={selectedView === 'project' ? selectedProjectId : undefined}
-            projects={projects}
-          />
+            {/* Prominent New Task Modal Trigger Button */}
+            <Button
+              onClick={() => {
+                setCreateDialogStatus('Todo');
+                setCreateDialogOpen(true);
+              }}
+              className="gap-1.5 shrink-0"
+            >
+              <Plus className="size-4" />
+              New Task
+            </Button>
+          </div>
 
           {/* Active View Content */}
           {viewMode === 'list' ? (
@@ -522,8 +541,8 @@ export default function TasksPage() {
               groupBy={groupBy}
               showCompleted={showCompleted}
               onQuickAdd={() => {
-                const input = document.querySelector<HTMLInputElement>('input[placeholder="Add a task..."]');
-                input?.focus();
+                setCreateDialogStatus('Todo');
+                setCreateDialogOpen(true);
               }}
             />
           ) : (
@@ -532,14 +551,26 @@ export default function TasksPage() {
               isLoading={tasksLoading}
               selectedTaskId={selectedTaskId}
               onSelectTask={(id) => setSelectedTaskId(id)}
-              onQuickAddForStatus={() => {
-                const input = document.querySelector<HTMLInputElement>('input[placeholder="Add a task..."]');
-                input?.focus();
+              onQuickAddForStatus={(colStatus) => {
+                setCreateDialogStatus(colStatus);
+                setCreateDialogOpen(true);
               }}
             />
           )}
         </main>
       </div>
+
+      {/* Create Task Modal Dialog */}
+      <TaskCreateDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        defaultStatus={createDialogStatus}
+        defaultProjectId={selectedView === 'project' ? selectedProjectId : null}
+        projects={projects}
+        onCreated={(newTask) => {
+          setSelectedTaskId(newTask.id);
+        }}
+      />
 
       {/* Slide-over Inspection Sheet */}
       <TaskDetailSheet
