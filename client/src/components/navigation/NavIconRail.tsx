@@ -17,6 +17,7 @@ import {
   PanelLeftOpen,
   Receipt,
   ShieldCheck,
+  Star,
   type LucideIcon,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -46,18 +47,29 @@ export function NavIconRail() {
     setActiveDomain,
     flyoutOpen,
     setFlyoutOpen,
+    favorites,
   } = useDualRail();
 
   const { timesheetApprovalsCount, tasksAssignedCount, unreadMessagesCount } = useNavMeta();
 
-  // Primary Domain items
-  const domains: RailItem[] = [
+  // Primary workspace navigation items
+  const primaryTools: RailItem[] = [
     {
       id: 'dashboard',
       label: 'Dashboard',
       icon: Gauge,
       href: '/dashboard',
     },
+    {
+      id: 'favorites',
+      label: 'Favorites',
+      icon: Star,
+      badge: favorites.length > 0 ? favorites.length : undefined,
+    },
+  ];
+
+  // Domain module items
+  const domains: RailItem[] = [
     {
       id: 'commercial',
       label: 'Commercial & Contracts',
@@ -124,6 +136,77 @@ export function NavIconRail() {
     }
   };
 
+  const renderRailItem = (item: RailItem) => {
+    // Permission check
+    if (item.permission === 'commercial' && !canAny('contract.read', 'costparameter.read', 'ratemaster.read', 'servicecode.read')) return null;
+    if (item.permission === 'operations' && !canAny('project.read', 'job.read', 'deliverable.read')) return null;
+    if (item.permission === 'timesheets' && !canAny('timesheet.write.own', 'timesheet.read.own', 'timesheet.write', 'timesheet.read', 'timesheet.approve')) return null;
+    if (item.permission === 'billing' && !can('invoice.read')) return null;
+    if (item.permission === 'tasks' && !can('task.read')) return null;
+    if (item.permission === 'messages' && !can('chat.read')) return null;
+    if (item.permission === 'admin' && !canAny('admin.user.read', 'admin.role.read', 'admin.audit.read', 'employee.read')) return null;
+
+    const isActive = activeDomain === item.id;
+    const Icon = item.icon;
+
+    return (
+      <Tooltip key={item.id}>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              onClick={() => handleDomainClick(item)}
+              className={cn(
+                'group relative flex size-10 items-center justify-center rounded-lg transition-all cursor-pointer',
+                isActive
+                  ? 'bg-primary/15 text-primary font-medium'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+              )}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              {/* Active vertical left bar */}
+              {isActive && (
+                <span
+                  className="absolute -left-[1px] top-2 bottom-2 w-1 rounded-r-full bg-primary"
+                  aria-hidden="true"
+                />
+              )}
+
+              <Icon className={cn('size-5 transition-transform group-hover:scale-110', isActive && 'stroke-[2.25]')} />
+
+              {/* Numeric Counter Badge (e.g. pending approvals, tasks, or favorites) */}
+              {item.badge !== undefined && item.badge > 0 && (
+                <span
+                  className={cn(
+                    'absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white shadow-xs',
+                    item.id === 'favorites' ? 'bg-amber-500' : 'bg-rose-500',
+                  )}
+                >
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
+
+              {/* Dot Indicator (e.g. unread messages) */}
+              {item.hasDot && (
+                <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-emerald-500 ring-2 ring-card" />
+              )}
+            </button>
+          }
+        />
+        <TooltipContent side="right" sideOffset={12}>
+          <p className="font-medium">{item.label}</p>
+          {item.badge && (
+            <p className={cn('text-[10px]', item.id === 'favorites' ? 'text-amber-400' : 'text-rose-400')}>
+              {item.id === 'favorites' ? `${item.badge} saved` : `${item.badge} pending`}
+            </p>
+          )}
+          {item.hasDot && <p className="text-[10px] text-emerald-400">Unread messages</p>}
+        </TooltipContent>
+      </Tooltip>
+    );
+  };
+
   return (
     <TooltipProvider delay={200}>
       <aside
@@ -154,69 +237,16 @@ export function NavIconRail() {
           {/* Divider */}
           <div className="h-px w-7 bg-border/60" />
 
-          {/* Middle: Domain Icons */}
+          {/* Middle: Navigation Rails */}
           <nav className="flex flex-col items-center gap-1.5">
-            {domains.map((item) => {
-              // Permission check
-              if (item.permission === 'commercial' && !canAny('contract.read', 'costparameter.read', 'ratemaster.read', 'servicecode.read')) return null;
-              if (item.permission === 'operations' && !canAny('project.read', 'job.read', 'deliverable.read')) return null;
-              if (item.permission === 'timesheets' && !canAny('timesheet.write.own', 'timesheet.read.own', 'timesheet.write', 'timesheet.read', 'timesheet.approve')) return null;
-              if (item.permission === 'billing' && !can('invoice.read')) return null;
-              if (item.permission === 'tasks' && !can('task.read')) return null;
-              if (item.permission === 'messages' && !can('chat.read')) return null;
-              if (item.permission === 'admin' && !canAny('admin.user.read', 'admin.role.read', 'admin.audit.read', 'employee.read')) return null;
+            {/* Primary Workspace Tools: Dashboard & Favorites */}
+            {primaryTools.map(renderRailItem)}
 
-              const isActive = activeDomain === item.id;
-              const Icon = item.icon;
+            {/* Section Divider */}
+            <div className="h-px w-6 bg-border/60 my-0.5" aria-hidden="true" />
 
-              return (
-                <Tooltip key={item.id}>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        onClick={() => handleDomainClick(item)}
-                        className={cn(
-                          'group relative flex size-10 items-center justify-center rounded-lg transition-all cursor-pointer',
-                          isActive
-                            ? 'bg-primary/15 text-primary font-medium'
-                            : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                        )}
-                        aria-label={item.label}
-                        aria-current={isActive ? 'page' : undefined}
-                      >
-                        {/* Active vertical left bar */}
-                        {isActive && (
-                          <span
-                            className="absolute -left-[1px] top-2 bottom-2 w-1 rounded-r-full bg-primary"
-                            aria-hidden="true"
-                          />
-                        )}
-
-                        <Icon className={cn('size-5 transition-transform group-hover:scale-110', isActive && 'stroke-[2.25]')} />
-
-                        {/* Numeric Counter Badge (e.g. pending approvals or tasks) */}
-                        {item.badge !== undefined && item.badge > 0 && (
-                          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white shadow-xs">
-                            {item.badge > 99 ? '99+' : item.badge}
-                          </span>
-                        )}
-
-                        {/* Dot Indicator (e.g. unread messages) */}
-                        {item.hasDot && (
-                          <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-emerald-500 ring-2 ring-card" />
-                        )}
-                      </button>
-                    }
-                  />
-                  <TooltipContent side="right" sideOffset={12}>
-                    <p className="font-medium">{item.label}</p>
-                    {item.badge && <p className="text-[10px] text-rose-400">{item.badge} pending</p>}
-                    {item.hasDot && <p className="text-[10px] text-emerald-400">Unread messages</p>}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
+            {/* ERP Domain Modules */}
+            {domains.map(renderRailItem)}
           </nav>
         </div>
 

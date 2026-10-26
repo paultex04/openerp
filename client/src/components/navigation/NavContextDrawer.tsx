@@ -48,6 +48,10 @@ const DOMAIN_CONFIGS: Record<string, ContextDomainConfig> = {
       { href: '/dashboard', label: 'Executive Dashboard', icon: FileSpreadsheet },
     ],
   },
+  favorites: {
+    title: 'Favorites',
+    icon: Star,
+  },
   commercial: {
     title: 'Commercial & Contracts',
     icon: Building2,
@@ -116,6 +120,18 @@ export function NavContextDrawer() {
 
   // Collect items for the active domain
   const rawItems = useMemo(() => {
+    if (activeDomain === 'favorites') {
+      const allNavItems = NAV_SECTIONS.flatMap((s) => s.items);
+      return favorites.map((fav) => {
+        const found = allNavItems.find((item) => item.href === fav.href);
+        return {
+          href: fav.href,
+          label: fav.label,
+          icon: found ? found.icon : Star,
+        };
+      });
+    }
+
     if (config.customItems) return config.customItems;
     if (!config.sectionKey) return [];
 
@@ -127,7 +143,7 @@ export function NavContextDrawer() {
       if (item.anyOf.length === 0) return true;
       return canAny(...item.anyOf);
     });
-  }, [config, canAny]);
+  }, [config, canAny, activeDomain, favorites]);
 
   // Apply search filter
   const filteredItems = useMemo(() => {
@@ -207,7 +223,7 @@ export function NavContextDrawer() {
             <Search className="absolute left-2.5 top-2 size-3 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Filter routes..."
+              placeholder={activeDomain === 'favorites' ? 'Filter favorites...' : 'Filter routes...'}
               value={routeFilter}
               onChange={(e) => setRouteFilter(e.target.value)}
               className="h-7 w-full pl-7 pr-6 text-xs bg-muted/40 border-transparent focus:border-border"
@@ -226,57 +242,12 @@ export function NavContextDrawer() {
 
         {/* Scrollable Navigation Area */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          {/* Section 1: Favorites / Pinned (shown if no filter active) */}
-          {!routeFilter && favorites.length > 0 && (
-            <div className="space-y-1">
-              <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 flex items-center gap-1.5">
-                <Star className="size-3 text-amber-500 fill-amber-500" />
-                Favorites
-              </span>
-              <div className="space-y-0.5">
-                {favorites.map((fav) => {
-                  const isActive = pathname === fav.href.split('?')[0];
-
-                  return (
-                    <div
-                      key={fav.href}
-                      className={cn(
-                        'group flex items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
-                        isActive
-                          ? 'bg-primary text-primary-foreground shadow-xs'
-                          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                      )}
-                    >
-                      <Link
-                        href={fav.href}
-                        onClick={handleLinkClick}
-                        className="flex min-w-0 flex-1 items-center gap-2 truncate"
-                      >
-                        <span className="truncate">{fav.label}</span>
-                      </Link>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFavorite(fav);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-amber-400 hover:text-amber-500 cursor-pointer"
-                        title="Remove from favorites"
-                      >
-                        <Star className="size-3 fill-current" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Section 2: Domain Navigation Links */}
+          {/* Navigation Links or Starred Favorites */}
           <div className="space-y-1">
             <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80">
-              {routeFilter ? 'Matching Routes' : 'Navigation'}
+              {activeDomain === 'favorites'
+                ? (routeFilter ? 'Matching Favorites' : 'Starred Shortcuts')
+                : (routeFilter ? 'Matching Routes' : 'Navigation')}
             </span>
             <div className="space-y-0.5">
               {filteredItems.map((item) => {
@@ -335,15 +306,33 @@ export function NavContextDrawer() {
               })}
 
               {filteredItems.length === 0 && (
-                <p className="px-2 py-3 text-xs text-muted-foreground italic">
-                  No matching routes found.
-                </p>
+                activeDomain === 'favorites' ? (
+                  routeFilter ? (
+                    <p className="px-2 py-3 text-xs text-muted-foreground italic">
+                      No matching favorites found.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-10 px-3 text-center">
+                      <div className="flex size-9 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 mb-2.5">
+                        <Star className="size-4.5" />
+                      </div>
+                      <p className="text-xs font-semibold text-foreground">No favorites yet</p>
+                      <p className="text-[11px] text-muted-foreground mt-1 max-w-[170px] leading-relaxed">
+                        Hover over any page in other sections and click the star icon to pin it here.
+                      </p>
+                    </div>
+                  )
+                ) : (
+                  <p className="px-2 py-3 text-xs text-muted-foreground italic">
+                    No matching routes found.
+                  </p>
+                )
               )}
             </div>
           </div>
 
-          {/* Section 3: Recent History (shown if no filter active) */}
-          {!routeFilter && recents.length > 0 && (
+          {/* Recent History (shown if no filter active and not in favorites domain) */}
+          {!routeFilter && activeDomain !== 'favorites' && recents.length > 0 && (
             <div className="space-y-1 border-t pt-3">
               <div className="flex items-center justify-between px-2">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 flex items-center gap-1.5">
