@@ -146,7 +146,7 @@ export async function registerServiceCodeRoutes(app: FastifyInstance): Promise<v
 
   app.post(
     '/api/service-codes',
-    { preHandler: [app.authenticate, app.requirePermission('servicecode.write')] },
+    { preHandler: [app.authenticate, app.requireAdmin] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = serviceCodeUpsertSchema.parse(request.body);
 

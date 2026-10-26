@@ -9,7 +9,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, Plus } from 'lucide-react';
 import {
   api,
   ApiError,
@@ -202,7 +202,8 @@ const rateCardColumns: ColumnDef<any, RateCardRow, unknown>[] = [
 ];
 
 export default function CommercialPage() {
-  const { permissions, loading: authLoading } = usePermissions();
+  const { permissions, roles, loading: authLoading } = usePermissions();
+  const isAdmin = roles.includes('administrator');
   const [vatFilter, setVatFilter] = useState('');
   const [amendmentsFilter, setAmendmentsFilter] = useState('');
   const [shiftFilter, setShiftFilter] = useState('');
@@ -212,6 +213,7 @@ export default function CommercialPage() {
   const [tab, setTab] = useUrlParam<Tab>('tab', TAB_KEYS, 'contracts');
   const [amendmentId, setAmendmentId] = useState<number | null>(null);
   const [inspectingContract, setInspectingContract] = useState<ContractRow | null>(null);
+  const [isCreatingRate, setIsCreatingRate] = useState(false);
 
   const can = (permission: string) => permissions.includes(permission);
 
@@ -441,16 +443,36 @@ export default function CommercialPage() {
       {tab === 'rates' && activeAmendmentId !== null && (
         <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-2">
-            <h3 className="text-sm font-semibold">Labour master rates</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Labour master rates</h3>
+              {isAdmin && (
+                <Button
+                  type="button"
+                  variant={isCreatingRate ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setIsCreatingRate(true);
+                    setSelectedRateId(null);
+                  }}
+                  className="gap-1 text-xs"
+                >
+                  <Plus className="size-3.5" />
+                  New rate
+                </Button>
+              )}
+            </div>
             {rates.isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
             <ul className="max-h-[32rem] space-y-1 overflow-auto">
               {(rates.data?.rates ?? []).map((r) => (
                 <li key={r.id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedRateId(r.id)}
+                    onClick={() => {
+                      setSelectedRateId(r.id);
+                      setIsCreatingRate(false);
+                    }}
                     className={`w-full rounded-md border px-3 py-2 text-left text-sm transition-colors ${
-                      selectedRateId === r.id
+                      !isCreatingRate && selectedRateId === r.id
                         ? 'border-primary bg-accent'
                         : 'border-transparent hover:bg-accent/50'
                     }`}
@@ -476,6 +498,12 @@ export default function CommercialPage() {
               engine={parameters.data?.engine ?? {}}
               selected={selectedRate}
               canEdit={can('ratemaster.write')}
+              isCreating={isCreatingRate}
+              onCancelCreate={() => setIsCreatingRate(false)}
+              onCreated={(newRateId) => {
+                setIsCreatingRate(false);
+                setSelectedRateId(newRateId);
+              }}
             />
           </div>
         </div>

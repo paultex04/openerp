@@ -13,6 +13,7 @@ import fp from 'fastify-plugin';
 import cookie from '@fastify/cookie';
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
+import { ROLE_ADMINISTRATOR } from '@openerp/shared';
 import { TokenCodec, TokenError } from './tokens.js';
 import { PrincipalError, resolvePrincipal, type Principal } from './principal.js';
 import { PasswordPolicyError } from './password.js';
@@ -28,6 +29,7 @@ declare module 'fastify' {
     requirePermission: (
       ...permissions: string[]
     ) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAdmin: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     /** Test/ops helper: mint a token for an arbitrary user id + version. */
     tokenCodec: TokenCodec;
   }
@@ -185,6 +187,17 @@ async function authPluginImpl(app: FastifyInstance, opts: { config: Config }): P
         }
       },
   );
+
+  app.decorate('requireAdmin', async (request: FastifyRequest, reply: FastifyReply) => {
+    const principal = principalFrom(request);
+    if (!principal.roleKeys.includes(ROLE_ADMINISTRATOR)) {
+      return reply.code(403).send({
+        error: 'FORBIDDEN',
+        message: 'Only administrators may perform this action.',
+        roles: principal.roleKeys,
+      });
+    }
+  });
 
   /** Normalises thrown errors into a consistent JSON envelope. */
   app.setErrorHandler((error: FastifyError, _request, reply) => {

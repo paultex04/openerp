@@ -11,11 +11,13 @@
  * (authoritative) overheads are shown alongside what re-deriving them from the
  * amendment's parameters would produce, because the two differ by roughly 0.4%.
  */
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
   compareAgainstDerived,
   computeFullLoadedRate,
+  shiftTypeValues,
+  type ShiftType,
   type AmendmentCostParameters,
   type Tier1Result,
 } from '@openerp/shared';
@@ -35,6 +37,11 @@ import { NumericCell } from '@/components/data-table/NumericCell';
 import { formatDelta, formatPercent, formatZar } from '@/lib/format';
 
 interface Draft {
+  serviceMasterCode: string;
+  labourType: string;
+  shiftType: ShiftType;
+  uom: string;
+  bargainingCouncilDesc: string;
   councilRate: string;
   customRate: string;
   wagePremiumPct: string;
@@ -50,6 +57,11 @@ interface Draft {
 }
 
 const BLANK: Draft = {
+  serviceMasterCode: '',
+  labourType: '',
+  shiftType: 'NT',
+  uom: 'per Hour',
+  bargainingCouncilDesc: '',
   councilRate: '',
   customRate: '',
   wagePremiumPct: '0',
@@ -66,6 +78,11 @@ const BLANK: Draft = {
 
 function draftFrom(card: RateCardRow): Draft {
   return {
+    serviceMasterCode: card.serviceMasterCode,
+    labourType: card.labourType,
+    shiftType: (card.shiftType as ShiftType) ?? 'NT',
+    uom: card.uom,
+    bargainingCouncilDesc: card.bargainingCouncilDesc ?? '',
     councilRate: card.councilRate !== null ? String(card.councilRate) : '',
     customRate: card.customRate !== null ? String(card.customRate) : '',
     // The stored wage premium is already a fraction.
@@ -93,6 +110,9 @@ interface Props {
   engine: AmendmentCostParameters;
   selected: RateCardRow | null;
   canEdit: boolean;
+  isCreating?: boolean;
+  onCancelCreate?: () => void;
+  onCreated?: (rateId: number) => void;
 }
 
 /**
@@ -130,13 +150,25 @@ function Line({
   );
 }
 
-export function RateBuildupSheet({ amendmentId, engine, selected, canEdit }: Props) {
+export function RateBuildupSheet({
+  amendmentId,
+  engine,
+  selected,
+  canEdit,
+  isCreating,
+  onCancelCreate,
+  onCreated,
+}: Props) {
   // The edit buffer is reset by keying the subtree, not by copying props into
   // state inside an effect. `key` changes unmount and remount this component,
   // which discards the draft and initialises it from the newly selected card —
   // no effect, no cascading render, and the draft can never drift out of sync
   // with the selection.
-  const selectionKey = selected ? `${amendmentId}:${selected.id}` : `blank:${amendmentId}`;
+  const selectionKey = isCreating
+    ? `new:${amendmentId}`
+    : selected
+      ? `${amendmentId}:${selected.id}`
+      : `blank:${amendmentId}`;
 
   return (
     <RateBuildupForm
@@ -145,6 +177,9 @@ export function RateBuildupSheet({ amendmentId, engine, selected, canEdit }: Pro
       engine={engine}
       selected={selected}
       canEdit={canEdit}
+      isCreating={isCreating}
+      onCancelCreate={onCancelCreate}
+      onCreated={onCreated}
     />
   );
 }
@@ -153,8 +188,17 @@ export function RateBuildupSheet({ amendmentId, engine, selected, canEdit }: Pro
 // rather than receiving it as a prop. Prop-drilling a global made the component
 // untestable without an importer and forced a hand-written signature to be kept
 // in sync with the toast API.
-function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
-  const [draft, setDraft] = useState<Draft>(selected ? draftFrom(selected) : BLANK);
+function RateBuildupForm({
+  amendmentId,
+  engine,
+  selected,
+  canEdit,
+  isCreating,
+  onCancelCreate,
+  onCreated,
+}: Props) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<Draft>(selected && !isCreating ? draftFrom(selected) : BLANK);
   const [profitPctInput, setProfitPctInput] = useState(String(engine.profitPct ?? 0.095));
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
@@ -221,13 +265,15 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
 
   const save = useMutation({
     mutationFn: () => {
-      if (!selected) throw new Error('No rate card selected.');
-      return api.put(`/api/service-master-rates/${selected.id}`, {
+      const payload = {
         amendmentId,
-        serviceMasterCode: selected.serviceMasterCode,
-        labourType: selected.labourType,
-        shiftType: selected.shiftType,
-        uom: selected.uom,
+        serviceMasterCode: isCreating ? draft.serviceMasterCode.trim() : selected!.serviceMasterCode,
+        labourType: isCreating ? draft.labourType.trim() : selected!.labourType,
+        shiftType: isCreating ? draft.shiftType : selected!.shiftType,
+        uom: isCreating ? draft.uom.trim() : selected!.uom,
+        bargainingCouncilDesc: isCreating
+          ? draft.bargainingCouncilDesc.trim() || null
+          : selected?.bargainingCouncilDesc,
         councilRate: draft.councilRate.trim() === '' ? null : toNumber(draft.councilRate),
         customRate: draft.customRate.trim() === '' ? null : toNumber(draft.customRate),
         wagePremiumPct: toNumber(draft.wagePremiumPct),
@@ -240,12 +286,28 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
         sgaCost: toNumber(draft.sgaCost),
         profitPct: toNumber(profitPctInput),
         deriveOverheads: draft.deriveOverheads,
-      });
+      };
+
+      if (isCreating) {
+        return api.post<{ rate: RateCardRow }>('/api/service-master-rates', payload);
+      } else {
+        if (!selected) throw new Error('No rate card selected.');
+        return api.put<{ rate: RateCardRow }>(`/api/service-master-rates/${selected.id}`, payload);
+      }
     },
-    onSuccess: () => toast.add({ title: 'Rate card saved', type: 'success' }),
+    onSuccess: async (data) => {
+      toast.add({
+        title: isCreating ? 'Rate card created' : 'Rate card saved',
+        type: 'success',
+      });
+      await queryClient.invalidateQueries({ queryKey: ['service-master-rates', amendmentId] });
+      if (isCreating && data?.rate?.id) {
+        onCreated?.(data.rate.id);
+      }
+    },
     onError: (e: Error) =>
       toast.add({
-        title: 'Could not save rate card',
+        title: isCreating ? 'Could not create rate card' : 'Could not save rate card',
         description: e instanceof ApiError ? e.message : e.message,
         type: 'error',
       }),
@@ -276,14 +338,86 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
       <div className="space-y-4">
         <div>
           <h3 className="text-sm font-semibold">
-            {selected ? `${selected.serviceMasterCode} · ${selected.labourType}` : 'Rate build-up'}
+            {isCreating
+              ? 'New labour master rate card'
+              : selected
+                ? `${selected.serviceMasterCode} · ${selected.labourType}`
+                : 'Rate build-up'}
           </h3>
-          {selected && (
+          {isCreating ? (
+            <p className="text-xs text-muted-foreground">
+              Define a new trade rate card for Amendment {amendmentId}. Real-time preview uses the
+              shared calculation engine.
+            </p>
+          ) : selected ? (
             <p className="text-xs text-muted-foreground">
               Stored full loaded rate {formatZar(selected.fullLoadedRate)} per {selected.uom}
             </p>
-          )}
+          ) : null}
         </div>
+
+        {isCreating && (
+          <div className="grid grid-cols-2 gap-3 rounded-md border p-3 bg-muted/20">
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Service master code</span>
+              <input
+                type="text"
+                placeholder="e.g. S00259999"
+                value={draft.serviceMasterCode}
+                onChange={(e) => set('serviceMasterCode', e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                required
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Labour type / Trade</span>
+              <input
+                type="text"
+                placeholder="e.g. Artisan Mechanical"
+                value={draft.labourType}
+                onChange={(e) => set('labourType', e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                required
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Shift type</span>
+              <select
+                value={draft.shiftType}
+                onChange={(e) => set('shiftType', e.target.value as ShiftType)}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {shiftTypeValues.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Unit of measure</span>
+              <input
+                type="text"
+                value={draft.uom}
+                onChange={(e) => set('uom', e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                required
+              />
+            </label>
+            <label className="col-span-2 block space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">
+                Bargaining council description (optional)
+              </span>
+              <input
+                type="text"
+                placeholder="e.g. MEIBC Main Agreement Rate A"
+                value={draft.bargainingCouncilDesc}
+                onChange={(e) => set('bargainingCouncilDesc', e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           {field('Council rate (ZAR)', 'councilRate')}
@@ -331,11 +465,33 @@ function RateBuildupForm({ amendmentId, engine, selected, canEdit }: Props) {
           </span>
         </label>
 
-        {canEdit && selected && (
+        {isCreating ? (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancelCreate}
+              disabled={save.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => save.mutate()}
+              disabled={
+                save.isPending ||
+                !computed ||
+                !draft.serviceMasterCode.trim() ||
+                !draft.labourType.trim()
+              }
+            >
+              {save.isPending ? 'Creating…' : 'Create rate card'}
+            </Button>
+          </div>
+        ) : canEdit && selected ? (
           <Button onClick={() => save.mutate()} disabled={save.isPending || !computed}>
             {save.isPending ? 'Saving…' : 'Save rate card'}
           </Button>
-        )}
+        ) : null}
       </div>
 
       {/* ---- Live preview ---- */}

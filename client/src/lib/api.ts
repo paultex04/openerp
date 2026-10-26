@@ -227,6 +227,7 @@ export interface RateCardRow {
   labourType: string;
   shiftType: string;
   uom: string;
+  bargainingCouncilDesc?: string | null;
   councilRate: number | null;
   customRate: number | null;
   wagePremiumPct: number;

@@ -11,9 +11,22 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Plus } from 'lucide-react';
+import { costParameterCategoryValues, type CostParameterCategory } from '@openerp/shared';
+import { usePermissions } from '@/components/auth/usePermissions';
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -56,7 +69,10 @@ export function CostParameterTable(props: Props) {
 
 function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
   const queryClient = useQueryClient();
+  const { roles } = usePermissions();
+  const isAdmin = roles.includes('administrator');
   const [draft, setDraft] = useState<Draft>({});
+  const [isAddOpen, setIsAddOpen] = useState(false);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['cost-parameters', amendmentId],
@@ -126,11 +142,25 @@ function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
             engine consumes them as fractions.
           </p>
         </div>
-        {canEdit && (
-          <Button onClick={handleSave} disabled={!dirty || save.isPending}>
-            {save.isPending ? 'Saving…' : 'Save parameters'}
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAddOpen(true)}
+              className="gap-1.5"
+            >
+              <Plus className="size-3.5" />
+              Add parameter
+            </Button>
+          )}
+          {canEdit && (
+            <Button onClick={handleSave} disabled={!dirty || save.isPending}>
+              {save.isPending ? 'Saving…' : 'Save parameters'}
+            </Button>
+          )}
+        </div>
       </div>
 
       <Table>
@@ -198,6 +228,164 @@ function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
         Amendment VAT rate:{' '}
         <span className="font-mono tabular-nums">{formatPercent(data!.amendment.vatRate)}</span>
       </p>
+
+      {isAdmin && (
+        <AddCostParameterDialog
+          open={isAddOpen}
+          onOpenChange={setIsAddOpen}
+          amendmentId={amendmentId}
+        />
+      )}
     </div>
+  );
+}
+
+interface AddCostParameterDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  amendmentId: number;
+}
+
+function AddCostParameterDialog({ open, onOpenChange, amendmentId }: AddCostParameterDialogProps) {
+  const queryClient = useQueryClient();
+  const [category, setCategory] = useState<CostParameterCategory>('Equipment');
+  const [parameterName, setParameterName] = useState('');
+  const [numericValue, setNumericValue] = useState('');
+  const [uom, setUom] = useState('per Day');
+  const [notes, setNotes] = useState('');
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ parameter: CostParameterRow }>(`/api/amendments/${amendmentId}/cost-parameters`, {
+        category,
+        parameterName: parameterName.trim(),
+        numericValue: Number(numericValue),
+        uom: uom.trim(),
+        notes: notes.trim() || null,
+      }),
+    onSuccess: async () => {
+      toast.add({ title: 'Cost parameter created', type: 'success' });
+      await queryClient.invalidateQueries({ queryKey: ['cost-parameters', amendmentId] });
+      onOpenChange(false);
+      setParameterName('');
+      setNumericValue('');
+      setNotes('');
+    },
+    onError: (e: Error) =>
+      toast.add({
+        title: 'Could not create parameter',
+        description: e instanceof ApiError ? e.message : e.message,
+        type: 'error',
+      }),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!parameterName.trim() || numericValue.trim() === '' || !uom.trim()) return;
+    createMutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add cost parameter</DialogTitle>
+          <DialogDescription>
+            Configure a new global cost parameter for this amendment. Only administrators can add
+            parameters.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Field>
+            <FieldLabel htmlFor="param-category">Category</FieldLabel>
+            <select
+              id="param-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value as CostParameterCategory)}
+              className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {costParameterCategoryValues.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="param-name">Parameter name</FieldLabel>
+            <Input
+              id="param-name"
+              placeholder="e.g. Cherry Picker, Fuel Levy"
+              value={parameterName}
+              onChange={(e) => setParameterName(e.target.value)}
+              required
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field>
+              <FieldLabel htmlFor="param-val">Numeric value</FieldLabel>
+              <Input
+                id="param-val"
+                type="number"
+                step="any"
+                placeholder={uom === '%' ? '7 (for 7%)' : '0.00'}
+                value={numericValue}
+                onChange={(e) => setNumericValue(e.target.value)}
+                required
+              />
+              <FieldDescription>
+                {uom === '%' ? 'Percent number (7 = 7%)' : 'Authoritative base value'}
+              </FieldDescription>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="param-uom">Unit of measure</FieldLabel>
+              <Input
+                id="param-uom"
+                placeholder="%, per Day, per Hour"
+                value={uom}
+                onChange={(e) => setUom(e.target.value)}
+                required
+              />
+            </Field>
+          </div>
+
+          <Field>
+            <FieldLabel htmlFor="param-notes">Notes (optional)</FieldLabel>
+            <Input
+              id="param-notes"
+              placeholder="Contractual basis or revision reference"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </Field>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={createMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                createMutation.isPending ||
+                !parameterName.trim() ||
+                numericValue.trim() === '' ||
+                !uom.trim()
+              }
+            >
+              {createMutation.isPending ? 'Creating…' : 'Add parameter'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -13,6 +13,9 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { serviceCodeCategoryValues, type ServiceCodeCategory } from '@openerp/shared';
+import { usePermissions } from '@/components/auth/usePermissions';
 import {
   api,
   ApiError,
@@ -23,6 +26,16 @@ import {
 import { toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -92,7 +105,10 @@ function VarianceBanner({
 
 export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
   const queryClient = useQueryClient();
+  const { roles } = usePermissions();
+  const isAdmin = roles.includes('administrator');
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isAddOpen, setIsAddOpen] = useState(false);
 
   const codes = useQuery({
     queryKey: ['service-codes', amendmentId],
@@ -221,9 +237,23 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
     <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
       {/* ---- Master list ---- */}
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold">Service codes</h3>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Service codes</h3>
+          {isAdmin && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAddOpen(true)}
+              className="gap-1 text-xs"
+            >
+              <Plus className="size-3.5" />
+              New code
+            </Button>
+          )}
+        </div>
         {codes.isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
-        <ul className="space-y-1">
+        <ul className="max-h-[32rem] space-y-1 overflow-auto">
           {(codes.data?.serviceCodes ?? []).map((c) => (
             <li key={c.id}>
               <button
@@ -556,6 +586,182 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
           </>
         )}
       </div>
+
+      {isAdmin && (
+        <AddServiceCodeDialog
+          open={isAddOpen}
+          onOpenChange={setIsAddOpen}
+          amendmentId={amendmentId}
+          onCreated={(newCodeId) => setSelectedId(newCodeId)}
+        />
+      )}
     </div>
+  );
+}
+
+interface AddServiceCodeDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  amendmentId: number;
+  onCreated: (serviceCodeId: number) => void;
+}
+
+function AddServiceCodeDialog({
+  open,
+  onOpenChange,
+  amendmentId,
+  onCreated,
+}: AddServiceCodeDialogProps) {
+  const queryClient = useQueryClient();
+  const [code, setCode] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<ServiceCodeCategory>('Activity');
+  const [uom, setUom] = useState('M');
+  const [materialMarkupPct, setMaterialMarkupPct] = useState('0');
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      api.post<{
+        serviceCode: {
+          id: number;
+          code: string;
+          description: string;
+          category: string;
+          uom: string;
+        };
+      }>('/api/service-codes', {
+        amendmentId,
+        code: code.trim(),
+        description: description.trim(),
+        category,
+        uom: uom.trim(),
+        materialMarkupPct: Number(materialMarkupPct),
+      }),
+    onSuccess: async (data) => {
+      toast.add({ title: 'Service code created', type: 'success' });
+      await queryClient.invalidateQueries({ queryKey: ['service-codes', amendmentId] });
+      onOpenChange(false);
+      setCode('');
+      setDescription('');
+      setMaterialMarkupPct('0');
+      if (data?.serviceCode?.id) {
+        onCreated(data.serviceCode.id);
+      }
+    },
+    onError: (e: Error) =>
+      toast.add({
+        title: 'Could not create service code',
+        description: e instanceof ApiError ? e.message : e.message,
+        type: 'error',
+      }),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!code.trim() || !description.trim() || !uom.trim()) return;
+    createMutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>New service code</DialogTitle>
+          <DialogDescription>
+            Create a new deliverable service code or material recipe item for Amendment {amendmentId}.
+            Only administrators can create service codes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Field>
+              <FieldLabel htmlFor="sc-code">Code</FieldLabel>
+              <Input
+                id="sc-code"
+                placeholder="e.g. S00247970"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                required
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="sc-cat">Category</FieldLabel>
+              <select
+                id="sc-cat"
+                value={category}
+                onChange={(e) => setCategory(e.target.value as ServiceCodeCategory)}
+                className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {serviceCodeCategoryValues.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <Field>
+            <FieldLabel htmlFor="sc-desc">Description</FieldLabel>
+            <Input
+              id="sc-desc"
+              placeholder="e.g. Cable removal per metre"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+            />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field>
+              <FieldLabel htmlFor="sc-uom">Unit of measure</FieldLabel>
+              <Input
+                id="sc-uom"
+                placeholder="e.g. M, EA, KG, HR"
+                value={uom}
+                onChange={(e) => setUom(e.target.value)}
+                required
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="sc-markup">Material markup (fraction)</FieldLabel>
+              <Input
+                id="sc-markup"
+                type="number"
+                step="0.0001"
+                min="0"
+                max="1"
+                placeholder="0.15 = 15%"
+                value={materialMarkupPct}
+                onChange={(e) => setMaterialMarkupPct(e.target.value)}
+              />
+              <FieldDescription>0.15 = 15%</FieldDescription>
+            </Field>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={createMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                createMutation.isPending || !code.trim() || !description.trim() || !uom.trim()
+              }
+            >
+              {createMutation.isPending ? 'Creating…' : 'Create service code'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

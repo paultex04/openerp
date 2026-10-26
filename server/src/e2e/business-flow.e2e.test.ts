@@ -166,6 +166,7 @@ afterAll(async () => {
 describe('E2E: contract -> pricing -> scope -> actuals -> invoice -> audit', () => {
   it('carries one job from a new contract to an approved, audited invoice', async () => {
     const tag = randomUUID().slice(0, 8);
+    const admin = await sessionFor('administrator');
     const qs = await sessionFor('commercial_qs');
     const pm = await sessionFor('project_manager');
     const supervisor = await sessionFor('site_supervisor');
@@ -229,7 +230,7 @@ describe('E2E: contract -> pricing -> scope -> actuals -> invoice -> audit', () 
     });
     created.rateCards.push(rateCard.id);
 
-    const serviceCode = await http('POST', '/api/service-codes', qs, {
+    const serviceCode = await http('POST', '/api/service-codes', admin, {
       amendmentId,
       code: `E2E-SC-${tag}`,
       description: 'E2E cable removal per metre',
@@ -393,7 +394,6 @@ describe('E2E: contract -> pricing -> scope -> actuals -> invoice -> audit', () 
     // The QS cannot read the log; the administrator can.
     expect(audit.status).toBe(403);
 
-    const admin = await sessionFor('administrator');
     const log = await http('GET', `/api/admin/audit?limit=500`, admin);
     expect(log.status).toBe(200);
 

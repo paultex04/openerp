@@ -148,7 +148,7 @@ export async function registerRateMasterRoutes(app: FastifyInstance): Promise<vo
 
   app.post(
     '/api/service-master-rates',
-    { preHandler: [app.authenticate, app.requirePermission('ratemaster.write')] },
+    { preHandler: [app.authenticate, app.requireAdmin] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = serviceMasterRateUpsertSchema.parse(request.body);
 

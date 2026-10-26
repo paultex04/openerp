@@ -326,6 +326,134 @@ describe('Gate 3: non-commercial roles cannot edit rate components', () => {
       expect(response.statusCode).toBe(401);
     }
   });
+
+  describe('Admin-only commercial creation endpoints', () => {
+    it('blocks commercial_qs from creating cost parameters, labour rates, and service codes (403)', async () => {
+      const qs = await track(['commercial_qs']);
+      const cookie = await login(app, qs.email, TEST_PASSWORD);
+
+      // 1. Cost parameter
+      const resParam = await app.inject({
+        method: 'POST',
+        url: '/api/amendments/1/cost-parameters',
+        headers: { cookie },
+        payload: {
+          category: 'PPE',
+          parameterName: 'QS Test Param',
+          numericValue: 12.5,
+          uom: 'ZAR',
+        },
+      });
+      expect(resParam.statusCode).toBe(403);
+
+      // 2. Labour rate
+      const resRate = await app.inject({
+        method: 'POST',
+        url: '/api/service-master-rates',
+        headers: { cookie },
+        payload: {
+          amendmentId: 1,
+          serviceMasterCode: 'QS_RATE',
+          labourType: 'QS Labourer',
+          councilRate: 100,
+          wagePremiumPct: 0,
+          profitPct: 0,
+          leavePay: 0,
+          totalStatutoryCost: 0,
+          ppeCost: 0,
+          transportCost: 0,
+          equipmentCost: 0,
+          overheadCost: 0,
+          sgaCost: 0,
+        },
+      });
+      expect(resRate.statusCode).toBe(403);
+
+      // 3. Service code
+      const resCode = await app.inject({
+        method: 'POST',
+        url: '/api/service-codes',
+        headers: { cookie },
+        payload: {
+          amendmentId: 1,
+          code: 'QS_CODE',
+          description: 'QS Service Code',
+          category: 'Activity',
+          uom: 'EA',
+        },
+      });
+      expect(resCode.statusCode).toBe(403);
+    });
+
+    it('allows administrators to create cost parameters, labour rates, and service codes (201)', async () => {
+      const cookie = await adminCookie();
+
+      // 1. Cost parameter
+      const paramName = `Admin Param ${Date.now()}`;
+      const resParam = await app.inject({
+        method: 'POST',
+        url: '/api/amendments/1/cost-parameters',
+        headers: { cookie },
+        payload: {
+          category: 'Equipment',
+          parameterName: paramName,
+          numericValue: 50,
+          uom: 'per Day',
+          notes: 'Created by admin',
+        },
+      });
+      expect(resParam.statusCode).toBe(201);
+      expect(resParam.json().parameter.parameterName).toBe(paramName);
+      await prisma.contractCostParameter.deleteMany({
+        where: { amendmentId: 1, parameterName: paramName },
+      });
+
+      // 2. Labour rate
+      const code = `ADM${String(Date.now()).slice(-6)}`;
+      const resRate = await app.inject({
+        method: 'POST',
+        url: '/api/service-master-rates',
+        headers: { cookie },
+        payload: {
+          amendmentId: 1,
+          serviceMasterCode: code,
+          labourType: 'Admin Specialist',
+          councilRate: 150,
+          wagePremiumPct: 0,
+          profitPct: 0.1,
+          leavePay: 10,
+          totalStatutoryCost: 5,
+          ppeCost: 2,
+          transportCost: 3,
+          equipmentCost: 1,
+          overheadCost: 10,
+          sgaCost: 5,
+        },
+      });
+      expect(resRate.statusCode).toBe(201);
+      const rateId = resRate.json().rate.id;
+      await prisma.serviceMasterRate.delete({ where: { id: rateId } });
+
+      // 3. Service code
+      const scCode = `SC${String(Date.now()).slice(-6)}`;
+      const resCode = await app.inject({
+        method: 'POST',
+        url: '/api/service-codes',
+        headers: { cookie },
+        payload: {
+          amendmentId: 1,
+          code: scCode,
+          description: 'Admin Service Code',
+          category: 'Activity',
+          uom: 'M',
+          materialMarkupPct: 0.15,
+        },
+      });
+      expect(resCode.statusCode).toBe(201);
+      const scId = resCode.json().serviceCode.id;
+      await prisma.serviceCode.delete({ where: { id: scId } });
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

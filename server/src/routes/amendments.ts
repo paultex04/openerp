@@ -258,6 +258,55 @@ export async function registerAmendmentRoutes(app: FastifyInstance): Promise<voi
   );
 
   // --- Cost parameters ---------------------------------------------------
+  app.post(
+    '/api/amendments/:id/cost-parameters',
+    { preHandler: [app.authenticate, app.requireAdmin] },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = idParam.parse(request.params);
+      const body = costParameterUpsertSchema.omit({ amendmentId: true }).parse(request.body);
+
+      const amendment = await prisma.contractAmendment.findUnique({
+        where: { id },
+        select: { id: true },
+      });
+      if (!amendment) throw new HttpError(404, 'NOT_FOUND', `Amendment ${id} does not exist.`);
+
+      const existingParam = await prisma.contractCostParameter.findUnique({
+        where: {
+          amendmentId_parameterName: {
+            amendmentId: id,
+            parameterName: body.parameterName,
+          },
+        },
+      });
+      if (existingParam) {
+        throw new HttpError(
+          409,
+          'CONFLICT',
+          `A parameter named "${body.parameterName}" already exists on amendment ${id}.`,
+        );
+      }
+
+      const created = await prisma.contractCostParameter.create({
+        data: {
+          amendmentId: id,
+          category: COST_PARAMETER_CATEGORY.toKey(
+            body.category,
+          ) as PrismaCostParameterCategory,
+          parameterName: body.parameterName,
+          numericValue: body.numericValue,
+          uom: body.uom,
+          notes: body.notes ?? null,
+        },
+      });
+
+      return reply.code(201).send({
+        parameter: { ...created, numericValue: created.numericValue.toNumber() },
+        engine: await loadAmendmentCostParameters(id),
+      });
+    },
+  );
+
   app.get(
     '/api/amendments/:id/cost-parameters',
     { preHandler: [app.authenticate, app.requirePermission('costparameter.read')] },
