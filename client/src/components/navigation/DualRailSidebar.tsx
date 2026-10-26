@@ -82,10 +82,10 @@ export function DualRailSidebar() {
         <NavContextDrawer />
       </Suspense>
 
-      {/* Backdrop for unpinned flyout overlay */}
+      {/* Backdrop for unpinned flyout overlay: starts at left-14 so primary rail is never obscured or blocked */}
       {!isPinned && flyoutOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/25 backdrop-blur-[1px] animate-in fade-in-0 duration-150"
+          className="fixed inset-y-0 left-14 right-0 z-30 bg-black/20 backdrop-blur-[1px] animate-in fade-in-0 duration-150"
           onClick={() => setFlyoutOpen(false)}
           aria-hidden="true"
         />

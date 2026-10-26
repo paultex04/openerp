@@ -218,7 +218,7 @@ export function NavContextDrawer() {
         className={cn(
           'flex h-full w-[220px] shrink-0 flex-col border-r bg-card/95 backdrop-blur-md select-none transition-all duration-200 z-20',
           !isPinned &&
-            'fixed left-14 top-0 z-40 shadow-2xl border-r border-border animate-in slide-in-from-left-2 duration-150',
+            'fixed left-14 top-0 bottom-0 z-40 shadow-2xl border-r border-border animate-in slide-in-from-left-2 duration-150',
         )}
       >
         {/* Drawer Header */}

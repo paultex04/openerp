@@ -227,7 +227,7 @@ export function NavIconRail() {
   return (
     <TooltipProvider delay={200}>
       <aside
-        className="flex h-full w-14 shrink-0 flex-col items-center justify-between border-r bg-card py-3 select-none z-30"
+        className="relative flex h-full w-14 shrink-0 flex-col items-center justify-between border-r bg-card py-3 select-none z-50"
         aria-label="Primary Navigation"
       >
         {/* Top: Brand Monogram */}
