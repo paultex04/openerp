@@ -12,9 +12,7 @@ import {
   FileSpreadsheet,
   FolderKanban,
   History,
-  Inbox,
   ListTodo,
-  MessageSquare,
   Pin,
   PinOff,
   Search,
@@ -52,6 +50,10 @@ const DOMAIN_CONFIGS: Record<string, ContextDomainConfig> = {
     title: 'Favorites',
     icon: Star,
   },
+  recents: {
+    title: 'Recent History',
+    icon: History,
+  },
   commercial: {
     title: 'Commercial & Contracts',
     icon: Building2,
@@ -73,20 +75,14 @@ const DOMAIN_CONFIGS: Record<string, ContextDomainConfig> = {
     sectionKey: 'billing',
   },
   tasks: {
-    title: 'Tasks & Workflow',
+    title: 'Tasks & Collaboration',
     icon: ListTodo,
-    customItems: [
-      { href: '/tasks', label: 'Inbox (All Tasks)', icon: Inbox },
-      { href: '/tasks', label: 'Task Board', icon: ListTodo },
-    ],
+    sectionKey: 'collaboration',
   },
   messages: {
-    title: 'Collaboration',
-    icon: MessageSquare,
-    customItems: [
-      { href: '/messages', label: 'Direct Messages', icon: MessageSquare },
-      { href: '/tasks', label: 'Tasks', icon: ListTodo },
-    ],
+    title: 'Tasks & Collaboration',
+    icon: ListTodo,
+    sectionKey: 'collaboration',
   },
   administration: {
     title: 'System Administration',
@@ -132,6 +128,18 @@ export function NavContextDrawer() {
       });
     }
 
+    if (activeDomain === 'recents') {
+      const allNavItems = NAV_SECTIONS.flatMap((s) => s.items);
+      return recents.map((recent) => {
+        const found = allNavItems.find((item) => item.href === recent.href);
+        return {
+          href: recent.href,
+          label: recent.label,
+          icon: found ? found.icon : History,
+        };
+      });
+    }
+
     if (config.customItems) return config.customItems;
     if (!config.sectionKey) return [];
 
@@ -143,14 +151,54 @@ export function NavContextDrawer() {
       if (item.anyOf.length === 0) return true;
       return canAny(...item.anyOf);
     });
-  }, [config, canAny, activeDomain, favorites]);
+  }, [config, canAny, activeDomain, favorites, recents]);
 
-  // Apply search filter
-  const filteredItems = useMemo(() => {
-    if (!routeFilter.trim()) return rawItems;
+  // All accessible routes across the entire application for global search
+  const allAccessibleRoutes = useMemo(() => {
+    const list: Array<{
+      href: string;
+      label: string;
+      icon: LucideIcon;
+      domainTitle: string;
+    }> = [
+      {
+        href: '/dashboard',
+        label: 'Executive Dashboard',
+        icon: Building2,
+        domainTitle: 'Dashboard',
+      },
+    ];
+
+    for (const section of NAV_SECTIONS) {
+      if (section.key === 'account') continue;
+      for (const item of section.items) {
+        if (item.anyOf.length === 0 || canAny(...item.anyOf)) {
+          if (!list.some((existing) => existing.href === item.href)) {
+            list.push({
+              href: item.href,
+              label: item.label,
+              icon: item.icon,
+              domainTitle: section.label,
+            });
+          }
+        }
+      }
+    }
+
+    return list;
+  }, [canAny]);
+
+  // Global search across all routes when routeFilter is non-empty
+  const searchResults = useMemo(() => {
+    if (!routeFilter.trim()) return [];
     const q = routeFilter.toLowerCase().trim();
-    return rawItems.filter((i) => i.label.toLowerCase().includes(q) || i.href.toLowerCase().includes(q));
-  }, [rawItems, routeFilter]);
+    return allAccessibleRoutes.filter(
+      (item) =>
+        item.label.toLowerCase().includes(q) ||
+        item.href.toLowerCase().includes(q) ||
+        item.domainTitle.toLowerCase().includes(q),
+    );
+  }, [allAccessibleRoutes, routeFilter]);
 
   const handleLinkClick = () => {
     // If unpinned, close the flyout on navigation
@@ -217,13 +265,13 @@ export function NavContextDrawer() {
           </div>
         </div>
 
-        {/* Route Filter Input */}
+        {/* Route Search Input (Searches all modules) */}
         <div className="border-b p-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-2 size-3 text-muted-foreground" />
             <Input
               type="text"
-              placeholder={activeDomain === 'favorites' ? 'Filter favorites...' : 'Filter routes...'}
+              placeholder="Search all routes..."
               value={routeFilter}
               onChange={(e) => setRouteFilter(e.target.value)}
               className="h-7 w-full pl-7 pr-6 text-xs bg-muted/40 border-transparent focus:border-border"
@@ -232,7 +280,7 @@ export function NavContextDrawer() {
               <button
                 type="button"
                 onClick={() => setRouteFilter('')}
-                className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground"
+                className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <X className="size-3" />
               </button>
@@ -242,76 +290,177 @@ export function NavContextDrawer() {
 
         {/* Scrollable Navigation Area */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          {/* Navigation Links or Starred Favorites */}
-          <div className="space-y-1">
-            <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80">
-              {activeDomain === 'favorites'
-                ? (routeFilter ? 'Matching Favorites' : 'Starred Shortcuts')
-                : (routeFilter ? 'Matching Routes' : 'Navigation')}
-            </span>
-            <div className="space-y-0.5">
-              {filteredItems.map((item) => {
-                const [itemPath, itemQuery] = item.href.split('?');
-                const isPathActive = pathname === itemPath || (itemPath === '/operations' && pathname.startsWith('/operations/'));
+          {routeFilter ? (
+            /* Global Search Results across all modules */
+            <div className="space-y-1">
+              <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80">
+                Search Results ({searchResults.length})
+              </span>
+              <div className="space-y-0.5">
+                {searchResults.map((item) => {
+                  const [itemPath, itemQuery] = item.href.split('?');
+                  const isPathActive = pathname === itemPath || (itemPath === '/operations' && pathname.startsWith('/operations/'));
 
-                // Exact query parameter match if item specifies one
-                let isActive = isPathActive;
-                if (itemQuery && search) {
-                  const q = new URLSearchParams(search);
-                  for (const [k, v] of new URLSearchParams(itemQuery)) {
-                    if (q.get(k) !== v) isActive = false;
+                  let isActive = isPathActive;
+                  if (itemQuery && search) {
+                    const q = new URLSearchParams(search);
+                    for (const [k, v] of new URLSearchParams(itemQuery)) {
+                      if (q.get(k) !== v) isActive = false;
+                    }
                   }
-                }
 
-                const favorited = isFavorite(item.href);
-                const ItemIcon = item.icon;
+                  const favorited = isFavorite(item.href);
+                  const ItemIcon = item.icon;
 
-                return (
-                  <div
-                    key={item.href}
-                    className={cn(
-                      'group flex items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
-                      isActive
-                        ? 'bg-primary text-primary-foreground shadow-xs'
-                        : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                    )}
-                  >
-                    <Link
-                      href={item.href}
-                      onClick={handleLinkClick}
-                      className="flex min-w-0 flex-1 items-center gap-2 truncate"
-                    >
-                      <ItemIcon className={cn('size-3.5 shrink-0', isActive ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-foreground')} />
-                      <span className="truncate">{item.label}</span>
-                    </Link>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite({ href: item.href, label: item.label });
-                      }}
+                  return (
+                    <div
+                      key={item.href}
                       className={cn(
-                        'transition-opacity p-0.5 rounded cursor-pointer',
-                        favorited
-                          ? 'text-amber-500 opacity-100'
-                          : 'opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-amber-500',
+                        'group flex items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                        isActive
+                          ? 'bg-primary text-primary-foreground shadow-xs'
+                          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                       )}
-                      title={favorited ? 'Remove from favorites' : 'Pin to favorites'}
                     >
-                      <Star className={cn('size-3', favorited && 'fill-current')} />
-                    </button>
-                  </div>
-                );
-              })}
+                      <Link
+                        href={item.href}
+                        onClick={handleLinkClick}
+                        className="flex min-w-0 flex-1 flex-col gap-0.5"
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <ItemIcon className={cn('size-3.5 shrink-0', isActive ? 'text-primary-foreground' : 'text-muted-foreground group-hover:text-foreground')} />
+                          <span className="truncate">{item.label}</span>
+                        </div>
+                        <span
+                          className={cn(
+                            'text-[9px] pl-5.5 truncate',
+                            isActive ? 'text-primary-foreground/80' : 'text-muted-foreground/70',
+                          )}
+                        >
+                          {item.domainTitle}
+                        </span>
+                      </Link>
 
-              {filteredItems.length === 0 && (
-                activeDomain === 'favorites' ? (
-                  routeFilter ? (
-                    <p className="px-2 py-3 text-xs text-muted-foreground italic">
-                      No matching favorites found.
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite({ href: item.href, label: item.label });
+                        }}
+                        className={cn(
+                          'transition-opacity p-0.5 rounded cursor-pointer shrink-0 ml-1',
+                          favorited
+                            ? 'text-amber-500 opacity-100'
+                            : 'opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-amber-500',
+                        )}
+                        title={favorited ? 'Remove from favorites' : 'Pin to favorites'}
+                      >
+                        <Star className={cn('size-3', favorited && 'fill-current')} />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {searchResults.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
+                    <Search className="size-5 text-muted-foreground/50 mb-2" />
+                    <p className="text-xs font-semibold text-foreground">No matching routes</p>
+                    <p className="text-[11px] text-muted-foreground mt-1 max-w-[170px] leading-relaxed">
+                      No routes found across all modules for &ldquo;{routeFilter}&rdquo;.
                     </p>
-                  ) : (
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            /* Normal Domain View: Favorites, Recents, or Dedicated Domain */
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80">
+                  {activeDomain === 'favorites'
+                    ? `Starred Shortcuts (${favorites.length})`
+                    : activeDomain === 'recents'
+                    ? `Recent History (${recents.length})`
+                    : 'Navigation'}
+                </span>
+
+                {activeDomain === 'recents' && recents.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={clearRecents}
+                    className="text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-0.5">
+                {rawItems.map((item) => {
+                  const [itemPath, itemQuery] = item.href.split('?');
+                  const isPathActive = pathname === itemPath || (itemPath === '/operations' && pathname.startsWith('/operations/'));
+
+                  let isActive = isPathActive;
+                  if (itemQuery && search) {
+                    const q = new URLSearchParams(search);
+                    for (const [k, v] of new URLSearchParams(itemQuery)) {
+                      if (q.get(k) !== v) isActive = false;
+                    }
+                  }
+
+                  const favorited = isFavorite(item.href);
+                  const ItemIcon = item.icon;
+
+                  return (
+                    <div
+                      key={item.href}
+                      className={cn(
+                        'group flex items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                        isActive
+                          ? 'bg-primary text-primary-foreground shadow-xs'
+                          : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                      )}
+                    >
+                      <Link
+                        href={item.href}
+                        onClick={handleLinkClick}
+                        className="flex min-w-0 flex-1 items-center gap-2 truncate"
+                      >
+                        <ItemIcon
+                          className={cn(
+                            'size-3.5 shrink-0',
+                            isActive
+                              ? 'text-primary-foreground'
+                              : activeDomain === 'favorites'
+                              ? 'text-amber-500 fill-amber-500'
+                              : 'text-muted-foreground group-hover:text-foreground',
+                          )}
+                        />
+                        <span className="truncate">{item.label}</span>
+                      </Link>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite({ href: item.href, label: item.label });
+                        }}
+                        className={cn(
+                          'transition-opacity p-0.5 rounded cursor-pointer shrink-0 ml-1',
+                          favorited
+                            ? 'text-amber-500 opacity-100'
+                            : 'opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-amber-500',
+                        )}
+                        title={favorited ? 'Remove from favorites' : 'Pin to favorites'}
+                      >
+                        <Star className={cn('size-3', favorited && 'fill-current')} />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {rawItems.length === 0 && (
+                  activeDomain === 'favorites' ? (
                     <div className="flex flex-col items-center justify-center py-10 px-3 text-center">
                       <div className="flex size-9 items-center justify-center rounded-full bg-amber-500/10 text-amber-500 mb-2.5">
                         <Star className="size-4.5" />
@@ -321,44 +470,22 @@ export function NavContextDrawer() {
                         Hover over any page in other sections and click the star icon to pin it here.
                       </p>
                     </div>
+                  ) : activeDomain === 'recents' ? (
+                    <div className="flex flex-col items-center justify-center py-10 px-3 text-center">
+                      <div className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground mb-2.5">
+                        <History className="size-4.5" />
+                      </div>
+                      <p className="text-xs font-semibold text-foreground">No recent history</p>
+                      <p className="text-[11px] text-muted-foreground mt-1 max-w-[170px] leading-relaxed">
+                        Pages you visit will appear here for fast access.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="px-2 py-3 text-xs text-muted-foreground italic">
+                      No matching routes found.
+                    </p>
                   )
-                ) : (
-                  <p className="px-2 py-3 text-xs text-muted-foreground italic">
-                    No matching routes found.
-                  </p>
-                )
-              )}
-            </div>
-          </div>
-
-          {/* Recent History (shown if no filter active and not in favorites domain) */}
-          {!routeFilter && activeDomain !== 'favorites' && recents.length > 0 && (
-            <div className="space-y-1 border-t pt-3">
-              <div className="flex items-center justify-between px-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/80 flex items-center gap-1.5">
-                  <History className="size-3" />
-                  Recent
-                </span>
-                <button
-                  type="button"
-                  onClick={clearRecents}
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                >
-                  Clear
-                </button>
-              </div>
-
-              <div className="space-y-0.5">
-                {recents.map((recent) => (
-                  <Link
-                    key={recent.href}
-                    href={recent.href}
-                    onClick={handleLinkClick}
-                    className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground truncate transition-colors"
-                  >
-                    <span className="truncate flex-1">{recent.label}</span>
-                  </Link>
-                ))}
+                )}
               </div>
             </div>
           )}

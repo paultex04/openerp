@@ -11,8 +11,8 @@ import {
   Clock,
   FolderKanban,
   Gauge,
+  History,
   ListTodo,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Receipt,
@@ -48,6 +48,7 @@ export function NavIconRail() {
     flyoutOpen,
     setFlyoutOpen,
     favorites,
+    recents,
   } = useDualRail();
 
   const { timesheetApprovalsCount, tasksAssignedCount, unreadMessagesCount } = useNavMeta();
@@ -65,6 +66,12 @@ export function NavIconRail() {
       label: 'Favorites',
       icon: Star,
       badge: favorites.length > 0 ? favorites.length : undefined,
+    },
+    {
+      id: 'recents',
+      label: 'Recents',
+      icon: History,
+      badge: recents.length > 0 ? recents.length : undefined,
     },
   ];
 
@@ -101,12 +108,6 @@ export function NavIconRail() {
       icon: ListTodo,
       permission: 'tasks',
       badge: tasksAssignedCount > 0 ? tasksAssignedCount : undefined,
-    },
-    {
-      id: 'messages',
-      label: 'Messages',
-      icon: MessageSquare,
-      permission: 'messages',
       hasDot: unreadMessagesCount > 0,
     },
     {
@@ -142,8 +143,7 @@ export function NavIconRail() {
     if (item.permission === 'operations' && !canAny('project.read', 'job.read', 'deliverable.read')) return null;
     if (item.permission === 'timesheets' && !canAny('timesheet.write.own', 'timesheet.read.own', 'timesheet.write', 'timesheet.read', 'timesheet.approve')) return null;
     if (item.permission === 'billing' && !can('invoice.read')) return null;
-    if (item.permission === 'tasks' && !can('task.read')) return null;
-    if (item.permission === 'messages' && !can('chat.read')) return null;
+    if (item.permission === 'tasks' && !canAny('task.read', 'chat.read')) return null;
     if (item.permission === 'admin' && !canAny('admin.user.read', 'admin.role.read', 'admin.audit.read', 'employee.read')) return null;
 
     const isActive = activeDomain === item.id;
@@ -175,12 +175,16 @@ export function NavIconRail() {
 
               <Icon className={cn('size-5 transition-transform group-hover:scale-110', isActive && 'stroke-[2.25]')} />
 
-              {/* Numeric Counter Badge (e.g. pending approvals, tasks, or favorites) */}
+              {/* Numeric Counter Badge (e.g. pending approvals, tasks, favorites, or recents) */}
               {item.badge !== undefined && item.badge > 0 && (
                 <span
                   className={cn(
                     'absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white shadow-xs',
-                    item.id === 'favorites' ? 'bg-amber-500' : 'bg-rose-500',
+                    item.id === 'favorites'
+                      ? 'bg-amber-500'
+                      : item.id === 'recents'
+                      ? 'bg-slate-500'
+                      : 'bg-rose-500',
                   )}
                 >
                   {item.badge > 99 ? '99+' : item.badge}
@@ -197,8 +201,21 @@ export function NavIconRail() {
         <TooltipContent side="right" sideOffset={12}>
           <p className="font-medium">{item.label}</p>
           {item.badge && (
-            <p className={cn('text-[10px]', item.id === 'favorites' ? 'text-amber-400' : 'text-rose-400')}>
-              {item.id === 'favorites' ? `${item.badge} saved` : `${item.badge} pending`}
+            <p
+              className={cn(
+                'text-[10px]',
+                item.id === 'favorites'
+                  ? 'text-amber-400'
+                  : item.id === 'recents'
+                  ? 'text-slate-300'
+                  : 'text-rose-400',
+              )}
+            >
+              {item.id === 'favorites'
+                ? `${item.badge} saved`
+                : item.id === 'recents'
+                ? `${item.badge} recent`
+                : `${item.badge} pending`}
             </p>
           )}
           {item.hasDot && <p className="text-[10px] text-emerald-400">Unread messages</p>}

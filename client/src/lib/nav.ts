@@ -176,8 +176,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
   },
   {
     key: 'collaboration',
-    label: 'Collaboration',
-    icon: MessageSquare,
+    label: 'Tasks & Collaboration',
+    icon: ListTodo,
     // Cross-cutting collaboration features
     anyOf: ['chat.read', 'task.read'],
     items: [

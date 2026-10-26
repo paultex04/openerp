@@ -42,10 +42,8 @@ export function useNavMeta() {
       domain = 'timesheets';
     } else if (pathname.startsWith('/billing')) {
       domain = 'billing';
-    } else if (pathname.startsWith('/tasks')) {
+    } else if (pathname.startsWith('/tasks') || pathname.startsWith('/messages')) {
       domain = 'tasks';
-    } else if (pathname.startsWith('/messages')) {
-      domain = 'messages';
     } else if (pathname.startsWith('/admin')) {
       domain = 'administration';
     }
