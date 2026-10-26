@@ -22,19 +22,25 @@ export async function ensureGarageProvisioned(config: Config): Promise<void> {
       'Content-Type': 'application/json',
     };
 
-    // 1. Import Key (idempotent)
+    // 1. Check or Import Key (idempotent)
     try {
-      await fetch(`${adminUrl}/v2/ImportKey`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          accessKeyId: config.S3_ACCESS_KEY_ID,
-          secretAccessKey: config.S3_SECRET_ACCESS_KEY,
-          name: 'openerp-key',
-        }),
-      });
+      const keyInfoRes = await fetch(
+        `${adminUrl}/v2/GetKeyInfo?id=${encodeURIComponent(config.S3_ACCESS_KEY_ID)}`,
+        { headers },
+      );
+      if (!keyInfoRes.ok) {
+        await fetch(`${adminUrl}/v2/ImportKey`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            accessKeyId: config.S3_ACCESS_KEY_ID,
+            secretAccessKey: config.S3_SECRET_ACCESS_KEY,
+            name: 'openerp-key',
+          }),
+        });
+      }
     } catch {
-      // Ignore if key cannot be imported or already exists
+      // Ignore if key cannot be queried/imported or already exists
     }
 
     // 2. Discover or create bucket

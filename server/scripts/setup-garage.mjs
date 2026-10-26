@@ -22,25 +22,33 @@ const headers = {
 async function main() {
   console.log(`Connecting to Garage Admin API at ${adminUrl}...`);
 
-  // 1. Import Key
+  // 1. Check or Import Key
   try {
-    const importRes = await fetch(`${adminUrl}/v2/ImportKey`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        accessKeyId,
-        secretAccessKey,
-        name: 'openerp-key',
-      }),
-    });
-    if (importRes.ok) {
-      console.log(`✓ S3 access key imported: ${accessKeyId}`);
+    const keyInfoRes = await fetch(
+      `${adminUrl}/v2/GetKeyInfo?id=${encodeURIComponent(accessKeyId)}`,
+      { headers },
+    );
+    if (keyInfoRes.ok) {
+      console.log(`✓ S3 access key already exists: ${accessKeyId}`);
     } else {
-      const err = await importRes.text();
-      console.log(`ℹ S3 key notice: ${err}`);
+      const importRes = await fetch(`${adminUrl}/v2/ImportKey`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          accessKeyId,
+          secretAccessKey,
+          name: 'openerp-key',
+        }),
+      });
+      if (importRes.ok) {
+        console.log(`✓ S3 access key imported: ${accessKeyId}`);
+      } else {
+        const err = await importRes.text();
+        console.log(`ℹ S3 key notice: ${err}`);
+      }
     }
   } catch (err) {
-    console.error(`✗ Failed to import S3 key: ${err.message}`);
+    console.error(`✗ Failed to check or import S3 key: ${err.message}`);
   }
 
   // 2. Discover or create bucket
