@@ -29,7 +29,14 @@ const API_ORIGIN = process.env.API_ORIGIN ?? 'http://127.0.0.1:4000';
  * Headers worth forwarding upstream. `cookie` carries the session; the rest are
  * content negotiation.
  */
-const FORWARD_REQUEST_HEADERS = ['cookie', 'content-type', 'accept', 'accept-language'];
+const FORWARD_REQUEST_HEADERS = [
+  'cookie',
+  'authorization',
+  'x-csrf-token',
+  'content-type',
+  'accept',
+  'accept-language',
+];
 
 /**
  * Headers returned downstream. `set-cookie` is the important one: without it the
@@ -56,20 +63,15 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
   // GET and HEAD must not carry a body.
   const method = request.method;
   const hasBody = method !== 'GET' && method !== 'HEAD';
+  const bodyBuffer = hasBody ? await request.arrayBuffer() : null;
+  const requestBody = bodyBuffer && bodyBuffer.byteLength > 0 ? bodyBuffer : undefined;
 
   let upstream: Response;
   try {
     upstream = await fetch(target, {
       method,
       headers,
-      // Buffered as bytes, not forwarded as a stream and definitely not read
-      // as text: decoding a multipart upload as UTF-8 corrupted the image
-      // (the server answered AVATAR_UNREADABLE), and the streamed variant
-      // arrived mangled through the dev server too. `arrayBuffer()` keeps the
-      // bytes exact. The largest body through here is a 5 MB avatar, so
-      // holding it in memory is the right trade for a proxy that cannot corrupt
-      // what it forwards.
-      ...(hasBody ? { body: await request.arrayBuffer() } : {}),
+      ...(requestBody ? { body: requestBody } : {}),
       // Never let a cached response mask a 401.
       cache: 'no-store',
       redirect: 'manual',
@@ -93,8 +95,19 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
 
   const responseHeaders = new Headers();
   for (const name of FORWARD_RESPONSE_HEADERS) {
+    if (name === 'set-cookie') continue;
     const value = upstream.headers.get(name);
     if (value !== null) responseHeaders.set(name, value);
+  }
+
+  // Forward Set-Cookie headers properly using getSetCookie() to avoid mangling multiple cookies
+  const setCookies =
+    typeof upstream.headers.getSetCookie === 'function'
+      ? upstream.headers.getSetCookie()
+      : ([upstream.headers.get('set-cookie')].filter(Boolean) as string[]);
+
+  for (const cookieStr of setCookies) {
+    responseHeaders.append('set-cookie', cookieStr);
   }
 
   return new NextResponse(upstream.body, {

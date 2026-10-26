@@ -17,11 +17,11 @@
  * NOTE ON BASE UI: this project uses the `base-nova` shadcn base, so components
  * take a `render` prop rather than Radix's `asChild`. See ADR-006.
  */
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { UserRound } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Suspense } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Breadcrumb,
@@ -46,7 +46,6 @@ import {
 } from '@/components/ui/sidebar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
-import { toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { useSessionRefresh } from '@/hooks/use-session-refresh';
 import { ChatDock, ChatToggle } from '@/components/chat/chat-dock';
@@ -81,25 +80,25 @@ function humanise(roles: readonly string[]): string {
 export function AppShell({ children }: { children: React.ReactNode }) {
   useSessionRefresh();
   const { user, loading } = usePermissions();
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const [sidebarOpen, setSidebarOpen] = useSidebarOpen();
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const logout = useMutation({
-    mutationFn: () => api.post<{ ok: true }>('/api/auth/logout'),
-    onSuccess: () => {
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await api.post<{ ok: true }>('/api/auth/logout');
+    } catch (err) {
+      // Even if the server returns 401 or network fails, proceed with client-side sign out
+      console.warn('Server logout notice, proceeding with client sign out:', err);
+    } finally {
       queryClient.clear();
-      router.push('/login');
-      router.refresh();
-    },
-    onError: () =>
-      toast.add({
-        title: 'Sign-out request failed',
-        description: 'Continuing anyway. Close the browser if this is a shared machine.',
-        type: 'warning',
-      }),
-  });
+      document.cookie = 'openerp_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0;';
+      document.cookie = 'openerp_csrf=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0;';
+      window.location.href = '/login';
+    }
+  };
 
   return (
     <DualRailProvider>
@@ -111,7 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <DualRailSidebar />
 
         <SidebarInset id="main-content" className="min-w-0 overflow-hidden flex-1">
-          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+          <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
             <DualRailTrigger className="-ml-1" />
 
             <Suspense fallback={<Skeleton className="h-4 w-40" />}>
@@ -133,8 +132,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }
                 avatarUrl={avatarImageUrl(user?.user.avatarUpdatedAt)}
                 roles={user?.roles.map((role) => role.key) ?? []}
-                loggingOut={logout.isPending}
-                onLogout={() => logout.mutate()}
+                loggingOut={loggingOut}
+                onLogout={handleLogout}
               />
             </div>
           </header>
