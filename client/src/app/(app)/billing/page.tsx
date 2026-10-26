@@ -13,7 +13,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useEffect, useMemo, useState } from 'react';
-import { FileDown } from 'lucide-react';
+import { FileDown, Plus } from 'lucide-react';
 import {
   api,
   ApiError,
@@ -69,6 +69,7 @@ const invoiceColumns = (onOpen: (id: number) => void): ColumnDef<any, InvoiceRow
     id: 'invoiceNumber',
     accessorKey: 'invoiceNumber',
     header: 'Invoice',
+    enableHiding: false,
     cell: ({ row }) => (
       <span className="block max-w-[12rem]">
         <button
@@ -94,6 +95,40 @@ const invoiceColumns = (onOpen: (id: number) => void): ColumnDef<any, InvoiceRow
     ),
   },
   {
+    id: 'client',
+    header: 'Client',
+    accessorFn: (row) => row.job.project.contract.client.name,
+    cell: ({ row }) => (
+      <span className="text-xs truncate max-w-40 block" title={row.original.job.project.contract.client.name}>
+        {row.original.job.project.contract.client.name}
+      </span>
+    ),
+  },
+  {
+    id: 'contract',
+    header: 'Contract',
+    accessorFn: (row) => row.job.project.contract.number,
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">{row.original.job.project.contract.number}</span>
+    ),
+  },
+  {
+    id: 'project',
+    header: 'Project',
+    accessorFn: (row) => row.job.project.code,
+    cell: ({ row }) => (
+      <span className="font-mono text-xs">{row.original.job.project.code}</span>
+    ),
+  },
+  {
+    id: 'job',
+    header: 'Job',
+    accessorFn: (row) => row.job.id,
+    cell: ({ row }) => (
+      <span className="font-mono text-xs text-muted-foreground">#{row.original.job.id}</span>
+    ),
+  },
+  {
     id: 'issueDate',
     accessorKey: 'issueDate',
     header: 'Issued',
@@ -110,15 +145,36 @@ const invoiceColumns = (onOpen: (id: number) => void): ColumnDef<any, InvoiceRow
     ),
   },
   {
+    id: 'subtotalAmount',
+    accessorKey: 'subtotalAmount',
+    header: 'Subtotal excl. VAT',
+    meta: { align: 'right' },
+    cell: ({ row }) => <span className="tabular-nums">{formatZar(row.original.subtotalAmount)}</span>,
+  },
+  {
+    id: 'taxAmount',
+    accessorKey: 'taxAmount',
+    header: 'SARS 15% VAT',
+    meta: { align: 'right' },
+    cell: ({ row }) => <span className="tabular-nums text-muted-foreground">{formatZar(row.original.taxAmount)}</span>,
+  },
+  {
     id: 'totalWithTax',
     accessorKey: 'totalWithTax',
     header: 'Total incl. VAT',
     meta: { align: 'right' },
-    cell: ({ row }) => <span className="font-medium">{formatZar(row.original.totalWithTax)}</span>,
+    cell: ({ row }) => <span className="font-medium tabular-nums">{formatZar(row.original.totalWithTax)}</span>,
+  },
+  {
+    id: 'lineCount',
+    accessorKey: 'lineCount',
+    header: 'Lines',
+    meta: { align: 'right' },
+    cell: ({ row }) => <span className="tabular-nums">{row.original.lineCount}</span>,
   },
   {
     id: 'pdf',
-    header: '',
+    header: 'PDF',
     meta: { align: 'right' },
     cell: ({ row }) => (
       <Button
@@ -198,6 +254,7 @@ export default function BillingPage() {
             would appear on the printed page.
           */}
           <DataTable<InvoiceRow>
+            tableId="billing-invoices"
             caption="Invoice register"
             data={invoices}
             columns={columns}
@@ -211,6 +268,30 @@ export default function BillingPage() {
             isLoading={register.isLoading}
             initialSort={[{ id: 'issueDate', desc: true }]}
             emptyMessage="No invoices match the current search and filters."
+            initialColumnVisibility={{
+              invoiceNumber: true,
+              status: true,
+              client: true,
+              contract: false,
+              project: false,
+              job: false,
+              issueDate: true,
+              dueDate: true,
+              subtotalAmount: false,
+              taxAmount: false,
+              totalWithTax: true,
+              lineCount: false,
+              pdf: true,
+            }}
+            onRowClick={(row) => setSelectedId(row.id)}
+            emptyAction={
+              can('invoice.write') ? (
+                <Button size="sm" onClick={() => setNewInvoiceOpen(true)}>
+                  <Plus aria-hidden="true" className="size-4 mr-1.5" />
+                  New Tax Invoice
+                </Button>
+              ) : undefined
+            }
             filters={[
               {
                 id: 'status',

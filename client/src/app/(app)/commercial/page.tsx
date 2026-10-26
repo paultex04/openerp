@@ -9,6 +9,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Eye } from 'lucide-react';
 import {
   api,
   ApiError,
@@ -25,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { CostParameterTable } from '@/components/commercial/CostParameterTable';
 import { RateBuildupSheet } from '@/components/commercial/RateBuildupSheet';
 import { ServiceCodeRecipeBuilder } from '@/components/commercial/ServiceCodeRecipeBuilder';
+import { ContractInspectionSheet } from '@/components/commercial/contract-inspection-sheet';
 import { DataTable } from '@/components/data-table/data-table';
 import type { ColumnDef } from '@tanstack/react-table';
 import { useUrlParam } from '@/hooks/use-url-param';
@@ -48,6 +50,7 @@ const contractColumns: ColumnDef<any, ContractRow, unknown>[] = [
     id: 'number',
     accessorKey: 'number',
     header: 'Contract',
+    enableHiding: false,
     cell: ({ row }) => <span className="font-mono text-sm">{row.original.number}</span>,
   },
   {
@@ -65,6 +68,22 @@ const contractColumns: ColumnDef<any, ContractRow, unknown>[] = [
     accessorFn: (row) => row.client.name,
     header: 'Client',
     cell: ({ row }) => <span className="truncate">{row.original.client.name}</span>,
+  },
+  {
+    id: 'type',
+    accessorKey: 'type',
+    header: 'Type',
+    cell: ({ row }) => (
+      <span className="text-xs text-muted-foreground">{row.original.type ?? 'Standard'}</span>
+    ),
+  },
+  {
+    id: 'projects',
+    header: 'Projects',
+    meta: { align: 'right' },
+    cell: ({ row }) => (
+      <span className="font-mono text-xs tabular-nums">{row.original._count?.projects ?? 0}</span>
+    ),
   },
   {
     id: 'vat',
@@ -192,6 +211,7 @@ export default function CommercialPage() {
   // the user where they were. See `useUrlParam` for the validation rationale.
   const [tab, setTab] = useUrlParam<Tab>('tab', TAB_KEYS, 'contracts');
   const [amendmentId, setAmendmentId] = useState<number | null>(null);
+  const [inspectingContract, setInspectingContract] = useState<ContractRow | null>(null);
 
   const can = (permission: string) => permissions.includes(permission);
 
@@ -331,6 +351,7 @@ export default function CommercialPage() {
             whose most important column is a lookup.
           */}
           <DataTable<ContractRow>
+            tableId="commercial-contracts"
             caption="Contracts and their amendments"
             data={contracts.data?.contracts ?? []}
             columns={contractColumns}
@@ -346,6 +367,19 @@ export default function CommercialPage() {
             isLoading={contracts.isLoading}
             initialSort={[{ id: 'number', desc: false }]}
             emptyMessage="No contracts match the current search and filters."
+            onRowClick={(contract) => setInspectingContract(contract)}
+            renderRowActions={(contract) => (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setInspectingContract(contract)}
+                title={`Inspect Contract ${contract.number}`}
+                aria-label={`Inspect Contract ${contract.number}`}
+                className="hover:bg-muted"
+              >
+                <Eye className="size-3.5 text-muted-foreground" />
+              </Button>
+            )}
             filters={[
               {
                 id: 'vat',
@@ -378,6 +412,18 @@ export default function CommercialPage() {
                     : contract.amendments.length === 0,
               },
             ]}
+          />
+
+          <ContractInspectionSheet
+            contract={inspectingContract}
+            open={inspectingContract !== null}
+            onOpenChange={(open) => {
+              if (!open) setInspectingContract(null);
+            }}
+            onSelectAmendment={(id, targetTab) => {
+              setAmendmentId(id);
+              setTab(targetTab);
+            }}
           />
         </section>
       )}
@@ -454,6 +500,7 @@ export default function CommercialPage() {
             answer "what is our most expensive fully-loaded rate?".
           */}
           <DataTable<RateCardRow>
+            tableId="commercial-rates"
             caption="Rate card summary"
             data={rates.data.rates}
             columns={rateCardColumns}

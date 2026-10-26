@@ -54,10 +54,16 @@ import {
   type ColumnDef,
   type SortingState,
 } from '@tanstack/react-table';
-import { ArrowDown, ArrowUp, ChevronsUpDown, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronsUpDown, Rows3, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Empty, EmptyDescription } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -92,6 +98,19 @@ const features = tableFeatures({
   paginatedRowModel: createPaginatedRowModel(),
   sortFns,
 });
+
+export type TableDensity = 'compact' | 'comfortable';
+
+function getColumnLabel(column: { id: string; columnDef: { header?: unknown; meta?: unknown } }): string {
+  const meta = column.columnDef.meta as { label?: string } | undefined;
+  if (meta?.label) return meta.label;
+  if (typeof column.columnDef.header === 'string') return column.columnDef.header;
+  return column.id
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
 
 export interface DataTableFilter<T> {
   /** Stable id; also the filter's state key. */
@@ -131,6 +150,8 @@ export interface DataTableProps<T extends object> {
   /** Required: an unlabelled table is unusable with a screen reader. */
   caption: string;
   emptyMessage?: string;
+  /** Optional contextual action button to display in empty states (e.g. "Create Job"). */
+  emptyAction?: ReactNode;
   initialSort?: SortingState;
   pageSize?: number;
   /** Rendered in the toolbar, right-aligned. Typically "New ..." actions. */
@@ -138,46 +159,10 @@ export interface DataTableProps<T extends object> {
   /** Renders a cell in a trailing actions column. */
   renderRowActions?: (row: T) => ReactNode;
   isLoading?: boolean;
-  /**
-   * Extra classes on the table's root, for the rare card that needs to adjust
-   * its own spacing.
-   *
-   * The table always behaves the same way: it fills the height its parent gives
-   * it, the rows scroll inside it, the header stays pinned and the pagination
-   * never leaves the bottom edge. Phase 15 made that unconditional — the `fill`
-   * prop it replaced was threaded through nine call sites and was silently inert
-   * wherever a parent had not also been turned into a flex chain, which is why
-   * some registers scrolled as documents and others as tables. The parent's job
-   * is now simply to give the table a definite height.
-   */
   className?: string;
 
   /**
    * Controlled server-side pagination.
-   *
-   * Supply all three, or none. With them the table stops filtering, sorting and
-   * slicing `data` locally: it emits the requested page and renders exactly what
-   * the server returned. Without them the behaviour is unchanged — the original
-   * model, where every list endpoint returns everything and the browser does the
-   * work.
-   *
-   * ## Why the jobs register needs this
-   *
-   * Every other register here fetches the whole set and filters in the browser.
-   * That is the right trade while the result fits in memory, and wrong for jobs:
-   * a jobs table grows with every job the company ever runs, and a search box that
-   * has to download the table before it can answer "find WO-9844210" stops being
-   * usable at exactly the scale it was built for.
-   *
-   * ## Why it is all-or-nothing
-   *
-   * TanStack's row model computes `rowCount` from the rows it holds, so a table in
-   * server mode would report "page 1 of 1" for every page and Next would be
-   * permanently disabled. `manualPagination` tells it to trust `rowCount` instead.
-   * Mixing the two - server paging with client filtering - is the genuinely broken
-   * case, and it is refused here rather than silently producing wrong answers: the
-   * search box would filter one page of a many-page result and report a count that
-   * has nothing to do with the total.
    */
   manualPagination?: {
     pageIndex: number;
@@ -190,6 +175,17 @@ export interface DataTableProps<T extends object> {
   onSearchChange?: (term: string) => void;
   /** Controlled search term. Pair with `onSearchChange` in server mode. */
   searchTerm?: string;
+
+  /** Unique table id for persisting column visibility and density in localStorage. */
+  tableId?: string;
+  /** Initial visibility state map (columnId -> boolean). */
+  initialColumnVisibility?: Record<string, boolean>;
+  /** Optional row click handler for slide-over drawer peeks. */
+  onRowClick?: (row: T) => void;
+  /** Hide column visibility switcher if table is very small. */
+  disableColumnVisibility?: boolean;
+  /** Hide density switcher. */
+  disableDensityToggle?: boolean;
 }
 
 /** Reads a possibly-dotted path out of an unknown record. */
@@ -229,6 +225,7 @@ export function DataTable<T extends object>({
   filters = [],
   caption,
   emptyMessage = 'Nothing matches the current search and filters.',
+  emptyAction,
   initialSort,
   pageSize = 25,
   actions,
@@ -238,6 +235,11 @@ export function DataTable<T extends object>({
   manualPagination,
   onSearchChange,
   searchTerm,
+  tableId,
+  initialColumnVisibility,
+  onRowClick,
+  disableColumnVisibility = false,
+  disableDensityToggle = false,
 }: DataTableProps<T>) {
   // One source of truth for the box's value: controlled when the parent owns the
   // term (server mode, so the URL or query key can hold it), local otherwise.
@@ -250,6 +252,53 @@ export function DataTable<T extends object>({
   };
 
   const [sorting, setSorting] = useState<SortingState>(initialSort ?? []);
+
+  // Density state: compact (default for desktop/widescreen) or comfortable
+  const [density, setDensity] = useState<TableDensity>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('openerp_table_density');
+        if (saved === 'comfortable' || saved === 'compact') return saved;
+      } catch {}
+    }
+    return 'compact';
+  });
+
+  const handleDensityChange = (next: TableDensity) => {
+    setDensity(next);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('openerp_table_density', next);
+      } catch {}
+    }
+  };
+
+  // Column visibility state: persisted in localStorage if tableId is provided
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    if (tableId && typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`openerp_table_cols_${tableId}`);
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return initialColumnVisibility ?? {};
+  });
+
+  const handleColumnVisibilityChange = (
+    updaterOrValue:
+      | Record<string, boolean>
+      | ((prev: Record<string, boolean>) => Record<string, boolean>),
+  ) => {
+    setColumnVisibility((prev) => {
+      const next = typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue;
+      if (tableId && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`openerp_table_cols_${tableId}`, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  };
 
   const filtered = useMemo(() => {
     let rows = data;
@@ -278,6 +327,7 @@ export function DataTable<T extends object>({
                 <div className="flex justify-end gap-1">{renderRowActions(row.original)}</div>
               ),
               enableSorting: false,
+              enableHiding: false,
             } as ColumnDef<typeof features, T, unknown>,
           ]
         : columns,
@@ -296,11 +346,13 @@ export function DataTable<T extends object>({
       : allColumns,
     state: {
       sorting,
+      columnVisibility,
       ...(manualPagination && {
         pagination: { pageIndex: manualPagination.pageIndex, pageSize: manualPagination.pageSize },
       }),
     },
     onSortingChange: setSorting,
+    onColumnVisibilityChange: handleColumnVisibilityChange,
     // Sorting and slicing are the server's job in manual mode, so the row models
     // are simply not registered: registering them would slice the page again and
     // show 25 of 25.
@@ -309,7 +361,10 @@ export function DataTable<T extends object>({
       paginatedRowModel: createPaginatedRowModel(),
     }),
     ...(manualPagination && { manualPagination: true }),
-    initialState: { pagination: { pageIndex: 0, pageSize } },
+    initialState: {
+      pagination: { pageIndex: 0, pageSize },
+      columnVisibility: initialColumnVisibility ?? {},
+    },
   });
 
   const activeFilterCount = filters.filter((filter) => filter.value).length;
@@ -391,21 +446,89 @@ export function DataTable<T extends object>({
           </Button>
         )}
 
-        {/*
-          Announced politely rather than shown only visually: a filter change
-          that silently alters a row count is disorienting without it.
-        */}
-        <span aria-live="polite" className="ml-auto text-xs text-muted-foreground">
-          {isLoading
-            ? 'Loading…'
-            : manualPagination
-              ? // `data.length` is the page, not the result, so "N of M" would be
-                // nonsense here. The count alone is the honest figure.
-                `${total} ${total === 1 ? 'row' : 'rows'}`
-              : `${total} of ${data.length} ${total === 1 ? 'row' : 'rows'}`}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          {!disableDensityToggle && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                handleDensityChange(density === 'compact' ? 'comfortable' : 'compact')
+              }
+              title={`Switch to ${density === 'compact' ? 'comfortable' : 'compact'} density`}
+              className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Rows3 aria-hidden="true" className="size-3.5" />
+              <span className="capitalize hidden sm:inline">{density}</span>
+            </Button>
+          )}
 
-        {actions}
+          {!disableColumnVisibility && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    <SlidersHorizontal aria-hidden="true" className="size-3.5" />
+                    <span>Columns</span>
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" className="w-52 max-h-72 overflow-y-auto">
+                <div className="flex items-center justify-between px-2 py-1.5 border-b">
+                  <span className="text-xs font-semibold">Toggle Columns</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      table.resetColumnVisibility();
+                      if (tableId && typeof window !== 'undefined') {
+                        try {
+                          localStorage.removeItem(`openerp_table_cols_${tableId}`);
+                        } catch {}
+                      }
+                    }}
+                    className="text-[11px] text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="p-1 space-y-0.5">
+                  {table
+                    .getAllLeafColumns()
+                    .filter((column) => column.id !== '__actions' && column.getCanHide())
+                    .map((column) => {
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={column.id}
+                          checked={column.getIsVisible()}
+                          onCheckedChange={(checked) => column.toggleVisibility(Boolean(checked))}
+                          className="text-xs cursor-pointer"
+                        >
+                          {getColumnLabel(column)}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/*
+            Announced politely rather than shown only visually: a filter change
+            that silently alters a row count is disorienting without it.
+          */}
+          <span aria-live="polite" className="text-xs text-muted-foreground">
+            {isLoading
+              ? 'Loading…'
+              : manualPagination
+                ? `${total} ${total === 1 ? 'row' : 'rows'}`
+                : `${total} of ${data.length} ${total === 1 ? 'row' : 'rows'}`}
+          </span>
+
+          {actions}
+        </div>
       </div>
 
       {/* The scroll container is focusable so a keyboard user can reach a table
@@ -426,13 +549,6 @@ export function DataTable<T extends object>({
           'bg-card',
         )}
       >
-        {/*
-          A raw <table>, not `Table` from `ui/table.tsx`: that component wraps the
-          table in a scroll container of its own, and an intermediate scrollport
-          divorces the sticky header from the region that actually scrolls — the
-          header would scroll away with the rows. The subcomponents below are the
-          registry's own, used as-is.
-        */}
         <table className="w-full caption-bottom text-sm">
           <TableCaption className="sr-only">{caption}</TableCaption>
           <TableHeader>
@@ -457,11 +573,8 @@ export function DataTable<T extends object>({
                               : undefined
                       }
                       className={cn(
-                        // Sticky lives on the cells, not on the <tr>: a sticky
-                        // row keeps its box where it was and loses its border
-                        // from view the moment it pins, so each cell carries its
-                        // own background and rule.
-                        'sticky top-0 z-10 border-b bg-card',
+                        'sticky top-0 z-10 border-b bg-card/95 backdrop-blur-xs font-medium text-muted-foreground select-none',
+                        density === 'compact' ? 'h-8 px-2.5 text-xs' : 'h-11 px-3.5 text-sm',
                         !sortable && '[&_button]:cursor-default',
                       )}
                     >
@@ -494,8 +607,11 @@ export function DataTable<T extends object>({
             {isLoading ? (
               Array.from({ length: 5 }).map((_, index) => (
                 <TableRow key={`skeleton-${index}`}>
-                  {allColumns.map((_column, cellIndex) => (
-                    <TableCell key={cellIndex}>
+                  {table.getVisibleLeafColumns().map((_column, cellIndex) => (
+                    <TableCell
+                      key={cellIndex}
+                      className={density === 'compact' ? 'py-1.5 px-2.5' : 'py-3 px-3.5'}
+                    >
                       <Skeleton className="h-4 w-full" />
                     </TableCell>
                   ))}
@@ -503,15 +619,56 @@ export function DataTable<T extends object>({
               ))
             ) : pageRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={allColumns.length} className="h-32">
-                  <Empty>
-                    <EmptyDescription>{emptyMessage}</EmptyDescription>
-                  </Empty>
+                <TableCell
+                  colSpan={table.getVisibleLeafColumns().length || 1}
+                  className="h-44 text-center"
+                >
+                  <div className="flex flex-col items-center justify-center gap-2 py-8">
+                    <Empty>
+                      <EmptyDescription className="text-sm text-muted-foreground">
+                        {emptyMessage}
+                      </EmptyDescription>
+                    </Empty>
+                    {isFiltered ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearAll}
+                        className="mt-2 text-xs"
+                      >
+                        <X aria-hidden="true" className="size-3.5 mr-1.5" />
+                        Clear filters & search
+                      </Button>
+                    ) : emptyAction ? (
+                      <div className="mt-2">{emptyAction}</div>
+                    ) : null}
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
               pageRows.map((row) => (
-                <TableRow key={rowKey(row.original)}>
+                <TableRow
+                  key={rowKey(row.original)}
+                  onClick={
+                    onRowClick
+                      ? (event) => {
+                          const target = event.target as HTMLElement;
+                          if (
+                            target.closest(
+                              'a, button, input, select, textarea, [role="button"], [data-slot="dropdown-menu-trigger"]',
+                            )
+                          ) {
+                            return;
+                          }
+                          onRowClick(row.original);
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    'transition-colors',
+                    onRowClick && 'cursor-pointer hover:bg-muted/50 active:bg-muted/70',
+                  )}
+                >
                   {row.getVisibleCells().map((cell) => {
                     // Numeric cells opt in via `meta.align`, so right-alignment
                     // and tabular figures are decided once with the column rather
@@ -521,11 +678,24 @@ export function DataTable<T extends object>({
                     const value = flexRender(cell.column.columnDef.cell, cell.getContext());
 
                     return align === 'right' ? (
-                      <NumericCell key={cell.id} className="whitespace-nowrap">
+                      <NumericCell
+                        key={cell.id}
+                        className={cn(
+                          'whitespace-nowrap',
+                          density === 'compact' ? 'py-1.5 px-2.5 text-xs' : 'py-3 px-3.5 text-sm',
+                        )}
+                      >
                         {value}
                       </NumericCell>
                     ) : (
-                      <TableCell key={cell.id}>{value}</TableCell>
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          density === 'compact' ? 'py-1.5 px-2.5 text-xs' : 'py-3 px-3.5 text-sm',
+                        )}
+                      >
+                        {value}
+                      </TableCell>
                     );
                   })}
                 </TableRow>

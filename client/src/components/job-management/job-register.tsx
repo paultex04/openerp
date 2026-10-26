@@ -36,40 +36,40 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Plus } from 'lucide-react';
+import { Eye, Plus } from 'lucide-react';
 import { api, type JobListResponse, type JobRow } from '@/lib/api';
 import { DataTable, type DataTableFilter } from '@/components/data-table/data-table';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AddJobDialog } from '@/components/job-management/AddJobDialog';
+import { JobInspectionSheet } from '@/components/job-management/job-inspection-sheet';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { StatusPill } from '@/components/lifecycle/status-badge';
 import { useJobWorkflow } from '@/hooks/use-job-workflow';
 import { useDebounced } from '@/hooks/use-debounced';
+import { formatDate } from '@/lib/format';
 
 /**
  * A display column.
- *
- * `ColumnDef<any, T, unknown>` is the type `DataTable` takes, and TanStack's
- * `createColumnHelper` produces `ColumnDef<T, TValue>` with `TValue` inferred from
- * the accessor - so a `helper.accessor('id', …)` is `ColumnDef<JobRow, number>` and
- * will not assign. Building the object and casting once here is what the master-data
- * panels already do for the same reason, and it keeps the column list readable
- * without a generic argument on every cell.
  */
-function cell<T extends object>(header: string, accessor: (row: T) => ReactNode) {
+function cell<T extends object>(
+  id: string,
+  header: string,
+  accessor: (row: T) => ReactNode,
+  options?: { enableHiding?: boolean; align?: 'right' },
+) {
   return {
+    id,
     header,
+    ...(options?.enableHiding !== undefined && { enableHiding: options.enableHiding }),
+    ...(options?.align && { meta: { align: options.align } }),
     cell: ({ row }: { row: { original: T } }) => accessor(row.original),
   } as unknown as ColumnDef<any, T, unknown>;
 }
 
 /** Right-aligned and tabular, matching the other registers' numeric columns. */
-function numericCell<T extends object>(header: string, accessor: (row: T) => ReactNode) {
-  return {
-    header,
-    meta: { align: 'right' },
-    cell: ({ row }: { row: { original: T } }) => accessor(row.original),
-  } as unknown as ColumnDef<any, T, unknown>;
+function numericCell<T extends object>(id: string, header: string, accessor: (row: T) => ReactNode) {
+  return cell(id, header, accessor, { align: 'right' });
 }
 
 /** Rows fetched per request. Kept small: this is a list, not a report. */
@@ -94,6 +94,7 @@ export function JobRegister() {
   // Creating a job is a `job.write` action; the server refuses anyone else, and
   // the button is hidden rather than offered to a role that cannot use it.
   const [adding, setAdding] = useState(false);
+  const [inspectingJobId, setInspectingJobId] = useState<number | null>(null);
   const canWrite = can('job.write');
 
   // The page is stored *with the query it belongs to*, rather than reset in an
@@ -199,21 +200,40 @@ export function JobRegister() {
 
   const columns = useMemo<ColumnDef<any, JobRow, unknown>[]>(
     () => [
-      // The job number is the doorway into the job. The old trailing "Open"
-      // button was a second click target for the same destination; the number
-      // is what the reader is already looking at, so it became the link and
-      // the button went away. The register's query rides along so returning
-      // from the job restores the same filters and page.
-      cell<JobRow>('Job', (row) => (
-        <Link
-          href={`/operations/${row.id}?${registerQuery}`}
-          className="font-mono font-medium text-primary underline-offset-4 hover:underline"
-        >
-          #{row.id}
-        </Link>
-      )),
-      cell<JobRow>('Status', (row) => <StatusPill status={row.status} />),
-      cell<JobRow>('Description', (row) =>
+      // The job number is the doorway into the job.
+      cell<JobRow>(
+        'job',
+        'Job',
+        (row) => (
+          <Link
+            href={`/operations/${row.id}?${registerQuery}`}
+            className="font-mono font-medium text-primary underline-offset-4 hover:underline"
+          >
+            #{row.id}
+          </Link>
+        ),
+        { enableHiding: false },
+      ),
+      cell<JobRow>('status', 'Status', (row) => <StatusPill status={row.status} />),
+      cell<JobRow>('priority', 'Priority', (row) =>
+        row.priority ? (
+          <Badge
+            variant={
+              row.priority === 'High'
+                ? 'destructive'
+                : row.priority === 'Medium'
+                  ? 'warning'
+                  : 'secondary'
+            }
+            className="text-[10px] uppercase font-mono px-1.5"
+          >
+            {row.priority}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+      ),
+      cell<JobRow>('description', 'Description', (row) =>
         row.description ? (
           <span className="block max-w-80 truncate" title={row.description}>
             {row.description}
@@ -222,16 +242,27 @@ export function JobRegister() {
           <span className="text-muted-foreground">No description</span>
         ),
       ),
-      cell<JobRow>('Work order', (row) => (
+      cell<JobRow>('client', 'Client', (row) => (
+        <span className="text-xs truncate max-w-40 block" title={row.project.contract.client?.name}>
+          {row.project.contract.client?.name ?? '—'}
+        </span>
+      )),
+      cell<JobRow>('contract', 'Contract', (row) => (
+        <span className="font-mono text-xs">{row.project.contract.number}</span>
+      )),
+      cell<JobRow>('workOrder', 'Work order', (row) => (
         <span className="font-mono text-xs">{row.workOrder ?? '—'}</span>
       )),
-      cell<JobRow>('Purchase order', (row) => (
+      cell<JobRow>('purchaseOrder', 'Purchase order', (row) => (
         <span className="font-mono text-xs">{row.purchaseOrder ?? '—'}</span>
       )),
-      cell<JobRow>('Project', (row) => (
+      cell<JobRow>('area', 'Area', (row) => (
+        <span className="text-xs">{row.area ?? '—'}</span>
+      )),
+      cell<JobRow>('project', 'Project', (row) => (
         <span className="font-mono text-xs">{row.project.code}</span>
       )),
-      cell<JobRow>('Supervisor', (row) =>
+      cell<JobRow>('supervisor', 'Supervisor', (row) =>
         row.supervisor ? (
           <span className="text-xs">
             {row.supervisor.name} {row.supervisor.surname}
@@ -240,11 +271,45 @@ export function JobRegister() {
           <span className="text-xs text-muted-foreground">Unassigned</span>
         ),
       ),
-      numericCell<JobRow>('Lines', (row) => (
+      cell<JobRow>('plannedStartDate', 'Planned Start', (row) => (
+        <span className="text-xs whitespace-nowrap">{formatDate(row.plannedStartDate)}</span>
+      )),
+      cell<JobRow>('plannedEndDate', 'Planned End', (row) => (
+        <span className="text-xs whitespace-nowrap">{formatDate(row.plannedEndDate)}</span>
+      )),
+      cell<JobRow>('actualStartDate', 'Actual Start', (row) => (
+        <span className="text-xs whitespace-nowrap">{formatDate(row.actualStartDate)}</span>
+      )),
+      cell<JobRow>('actualEndDate', 'Actual End', (row) => (
+        <span className="text-xs whitespace-nowrap">{formatDate(row.actualEndDate)}</span>
+      )),
+      numericCell<JobRow>('lines', 'Lines', (row) => (
         <span className="tabular-nums">{row._count?.serviceCodes ?? 0}</span>
       )),
     ],
     [registerQuery],
+  );
+
+  const initialColumnVisibility = useMemo(
+    () => ({
+      job: true,
+      status: true,
+      priority: false,
+      description: true,
+      client: false,
+      contract: false,
+      workOrder: true,
+      purchaseOrder: true,
+      area: false,
+      project: true,
+      supervisor: true,
+      plannedStartDate: false,
+      plannedEndDate: false,
+      actualStartDate: false,
+      actualEndDate: false,
+      lines: true,
+    }),
+    [],
   );
 
   const filters: DataTableFilter<JobRow>[] = [
@@ -282,6 +347,7 @@ export function JobRegister() {
         to need. See `DataTable` for the one behaviour every register now has.
       */}
       <DataTable<JobRow>
+        tableId="jobs-register"
         data={rows}
         columns={columns}
         rowKey={(row) => row.id}
@@ -292,6 +358,28 @@ export function JobRegister() {
         filters={filters}
         caption="Jobs"
         emptyMessage="No jobs match the current search and filters."
+        initialColumnVisibility={initialColumnVisibility}
+        onRowClick={(row) => setInspectingJobId(row.id)}
+        renderRowActions={(row) => (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setInspectingJobId(row.id)}
+            title={`Inspect Job #${row.id}`}
+            aria-label={`Inspect Job #${row.id}`}
+            className="hover:bg-muted"
+          >
+            <Eye className="size-3.5 text-muted-foreground" />
+          </Button>
+        )}
+        emptyAction={
+          canWrite ? (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus aria-hidden="true" className="size-4 mr-1.5" />
+              Create First Job
+            </Button>
+          ) : undefined
+        }
         isLoading={jobs.isLoading}
         actions={
           canWrite ? (
@@ -308,6 +396,15 @@ export function JobRegister() {
           onPageIndexChange: goToPage,
           onPageSizeChange: setPageSize,
         }}
+      />
+
+      <JobInspectionSheet
+        jobId={inspectingJobId}
+        open={inspectingJobId !== null}
+        onOpenChange={(open) => {
+          if (!open) setInspectingJobId(null);
+        }}
+        onJobUpdated={() => void jobs.refetch()}
       />
 
       {adding && (

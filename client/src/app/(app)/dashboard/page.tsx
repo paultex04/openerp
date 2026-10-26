@@ -15,7 +15,7 @@
  * operational dashboard without empty shells or locked panels.
  */
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import {
   AlertTriangle,
@@ -259,6 +259,14 @@ export default function DashboardPage() {
                   icon={TrendingUp}
                   href="/billing"
                   tone="positive"
+                  visual={
+                    !loading && (
+                      <Sparkline
+                        data={financials.revenue.trailingTrend.map((t) => t.revenue)}
+                        tone="positive"
+                      />
+                    )
+                  }
                 />
 
                 <MetricTile
@@ -271,6 +279,28 @@ export default function DashboardPage() {
                   }
                   icon={Briefcase}
                   href="/operations"
+                  visual={
+                    !loading && (
+                      <div className="w-16 flex flex-col gap-1 items-end">
+                        <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                          {Math.round(
+                            (financials.wip.activeJobsWithWip /
+                              (financials.wip.totalActiveJobs || 1)) *
+                              100,
+                          )}
+                          %
+                        </span>
+                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.min(100, Math.round((financials.wip.activeJobsWithWip / (financials.wip.totalActiveJobs || 1)) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  }
                 />
 
                 <MetricTile
@@ -290,6 +320,30 @@ export default function DashboardPage() {
                         ? 'neutral'
                         : 'negative'
                   }
+                  visual={
+                    !loading && (
+                      <div className="w-16 flex flex-col gap-1 items-end">
+                        <span className="text-[10px] font-mono text-muted-foreground">
+                          Target ≥ 20%
+                        </span>
+                        <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={cn(
+                              'h-full rounded-full transition-all duration-500',
+                              financials.margins.overallGrossMarginPct >= 20
+                                ? 'bg-emerald-500'
+                                : financials.margins.overallGrossMarginPct >= 10
+                                  ? 'bg-amber-500'
+                                  : 'bg-rose-500',
+                            )}
+                            style={{
+                              width: `${Math.min(100, Math.max(5, (financials.margins.overallGrossMarginPct / 40) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  }
                 />
 
                 <MetricTile
@@ -298,6 +352,13 @@ export default function DashboardPage() {
                   caption={loading ? null : `${financials.vatLiability.currentPeriodLabel}`}
                   icon={Receipt}
                   href="/billing"
+                  visual={
+                    !loading && (
+                      <Badge variant="outline" className="font-mono text-[10px] px-1.5 py-0 h-5">
+                        15% Output
+                      </Badge>
+                    )
+                  }
                 />
               </div>
 
@@ -348,39 +409,51 @@ export default function DashboardPage() {
                       </Empty>
                     ) : (
                       <ul className="divide-y divide-border/60">
-                        {topContracts.map((contract, idx) => (
-                          <li
-                            key={contract.id}
-                            className="flex items-center justify-between py-2.5 gap-2"
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-semibold text-muted-foreground">
-                                {idx + 1}
-                              </span>
-                              <div className="min-w-0 truncate">
-                                <Link
-                                  href={`/commercial?tab=contracts&search=${contract.number}`}
-                                  className="font-medium text-xs truncate hover:underline flex items-center gap-1"
-                                >
-                                  {contract.number}
-                                  <ArrowUpRight className="size-3 text-muted-foreground shrink-0" />
-                                </Link>
-                                <p className="text-[11px] text-muted-foreground truncate">
-                                  {contract.clientName}
-                                </p>
+                        {topContracts.map((contract, idx) => {
+                          const peakRevenue = topContracts[0]?.totalRevenue || 1;
+                          const ratio = Math.min(
+                            100,
+                            Math.max(4, Math.round((contract.totalRevenue / peakRevenue) * 100)),
+                          );
+                          return (
+                            <li key={contract.id} className="py-2.5 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-semibold text-muted-foreground">
+                                    {idx + 1}
+                                  </span>
+                                  <div className="min-w-0 truncate">
+                                    <Link
+                                      href={`/commercial?tab=contracts&search=${contract.number}`}
+                                      className="font-medium text-xs truncate hover:underline flex items-center gap-1"
+                                    >
+                                      {contract.number}
+                                      <ArrowUpRight className="size-3 text-muted-foreground shrink-0" />
+                                    </Link>
+                                    <p className="text-[11px] text-muted-foreground truncate">
+                                      {contract.clientName}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="font-mono text-xs font-semibold tabular-nums">
+                                    {formatZar(contract.totalRevenue)}
+                                  </p>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {contract.activeJobsCount} active{' '}
+                                    {contract.activeJobsCount === 1 ? 'job' : 'jobs'}
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-mono text-xs font-semibold tabular-nums">
-                                {formatZar(contract.totalRevenue)}
-                              </p>
-                              <span className="text-[10px] text-muted-foreground">
-                                {contract.activeJobsCount} active{' '}
-                                {contract.activeJobsCount === 1 ? 'job' : 'jobs'}
-                              </span>
-                            </div>
-                          </li>
-                        ))}
+                              <div className="h-1 w-full bg-muted/60 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-primary/70 rounded-full transition-all duration-500"
+                                  style={{ width: `${ratio}%` }}
+                                />
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </CardContent>
@@ -539,6 +612,7 @@ export default function DashboardPage() {
                       </Empty>
                     ) : (
                       <DataTable<ExpiringAmendmentSummary>
+                        tableId="dashboard-expiring-amendments"
                         caption="Contract amendments within 90 days of expiry"
                         data={expiringAmendments}
                         columns={expiringColumns}
@@ -587,6 +661,7 @@ export default function DashboardPage() {
                     </Empty>
                   ) : (
                     <DataTable<InvoiceRow>
+                      tableId="dashboard-pending-invoices"
                       caption="Invoices awaiting money"
                       data={pendingInvoices}
                       columns={pendingInvoiceColumns}
@@ -628,9 +703,73 @@ export default function DashboardPage() {
   );
 }
 
+/** Formats compact currency labels for chart Y-axes (e.g. R 120k, R 1.5M). */
+function formatCompactZar(amount: number): string {
+  if (amount >= 1_000_000) {
+    return `R ${(amount / 1_000_000).toFixed(1)}M`;
+  }
+  if (amount >= 1_000) {
+    return `R ${(amount / 1_000).toFixed(0)}k`;
+  }
+  return `R ${Math.round(amount)}`;
+}
+
+/** Micro SVG trend sparkline for KPI tiles. */
+function Sparkline({
+  data,
+  tone = 'positive',
+}: {
+  data: number[];
+  tone?: 'positive' | 'neutral' | 'negative';
+}) {
+  const gradientId = useId();
+  if (!data || data.length < 2) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const width = 80;
+  const height = 24;
+  const points = data.map((val, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((val - min) / range) * (height - 4) - 2;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const pathD = `M ${points.join(' L ')}`;
+  const areaD = `M 0,${height} L ${points.join(' L ')} L ${width},${height} Z`;
+
+  const strokeColor =
+    tone === 'negative'
+      ? 'var(--color-negative, #ef4444)'
+      : tone === 'positive'
+        ? 'var(--color-primary, #3b82f6)'
+        : 'var(--color-muted-foreground, #888888)';
+
+  return (
+    <div className="h-6 w-20 shrink-0">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.25" />
+            <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+        <path d={areaD} fill={`url(#${gradientId})`} />
+        <path
+          d={pathD}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
 /**
  * Monthly Revenue Bar Chart Component.
- * Responsive, accessible SVG/HTML bar chart showing trailing 12 months with tooltips.
+ * Responsive, accessible SVG/HTML bar chart with reference gridlines, currency scale and hover stats.
  */
 function MonthlyRevenueChart({ trend }: { trend: RevenueMonthlyTrend[] }) {
   const maxRevenue = useMemo(() => {
@@ -638,53 +777,87 @@ function MonthlyRevenueChart({ trend }: { trend: RevenueMonthlyTrend[] }) {
     return max > 0 ? max : 10_000;
   }, [trend]);
 
+  const yTicks = [
+    { label: formatCompactZar(maxRevenue), pct: 100 },
+    { label: formatCompactZar(maxRevenue * 0.75), pct: 75 },
+    { label: formatCompactZar(maxRevenue * 0.5), pct: 50 },
+    { label: formatCompactZar(maxRevenue * 0.25), pct: 25 },
+    { label: 'R 0', pct: 0 },
+  ];
+
   return (
-    <div className="w-full">
-      <div className="flex h-36 items-end gap-1.5 sm:gap-2.5 pt-4">
-        {trend.map((bucket) => {
-          const heightPercent = Math.max(Math.round((bucket.revenue / maxRevenue) * 100), 4);
-          const isCurrent = bucket.revenue > 0;
+    <div className="w-full space-y-2">
+      <div className="relative flex h-48 w-full gap-3 pt-2">
+        {/* Y-Axis scale */}
+        <div className="flex flex-col justify-between text-right text-[10px] font-mono text-muted-foreground/80 w-12 shrink-0 py-0.5 select-none">
+          {yTicks.map((tick) => (
+            <span key={tick.pct} className="tabular-nums">
+              {tick.label}
+            </span>
+          ))}
+        </div>
 
-          return (
-            <div
-              key={bucket.month}
-              className="group relative flex-1 flex flex-col items-center h-full justify-end"
-            >
-              {/* Tooltip on hover */}
-              <div className="absolute bottom-full mb-1.5 hidden group-hover:flex flex-col items-center z-20 pointer-events-none">
-                <div className="rounded bg-popover px-2 py-1 text-[11px] font-medium text-popover-foreground shadow-md border whitespace-nowrap">
-                  <p className="font-semibold">{bucket.label}</p>
-                  <p className="text-primary font-mono">{formatZar(bucket.revenue)}</p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {bucket.invoiceCount} {bucket.invoiceCount === 1 ? 'invoice' : 'invoices'}
-                  </p>
-                </div>
-                <div className="size-1.5 rotate-45 bg-popover border-r border-b -mt-1" />
-              </div>
-
-              {/* Bar */}
+        {/* Chart plot area */}
+        <div className="relative flex-1 h-full">
+          {/* Horizontal reference gridlines */}
+          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+            {yTicks.map((tick) => (
               <div
-                style={{ height: `${heightPercent}%` }}
-                className={cn(
-                  'w-full rounded-t transition-all duration-300',
-                  isCurrent
-                    ? 'bg-primary/80 group-hover:bg-primary'
-                    : 'bg-muted-foreground/15 group-hover:bg-muted-foreground/30',
-                )}
+                key={tick.pct}
+                className="w-full border-b border-dashed border-border/50"
               />
-            </div>
-          );
-        })}
+            ))}
+          </div>
+
+          {/* Bar columns */}
+          <div className="relative z-10 flex h-full items-end gap-1.5 sm:gap-2.5 px-1">
+            {trend.map((bucket) => {
+              const heightPercent = Math.max(Math.round((bucket.revenue / maxRevenue) * 100), 4);
+              const isCurrent = bucket.revenue > 0;
+
+              return (
+                <div
+                  key={bucket.month}
+                  className="group relative flex-1 flex flex-col items-center h-full justify-end"
+                >
+                  {/* Tooltip on hover */}
+                  <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center z-30 pointer-events-none animate-in fade-in-0 zoom-in-95 duration-100">
+                    <div className="rounded-md bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-lg border whitespace-nowrap">
+                      <p className="font-semibold text-foreground">{bucket.label}</p>
+                      <p className="text-primary font-mono font-semibold">{formatZar(bucket.revenue)}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {bucket.invoiceCount} {bucket.invoiceCount === 1 ? 'tax invoice' : 'tax invoices'} ·{' '}
+                        {Math.round((bucket.revenue / maxRevenue) * 100)}% of peak
+                      </p>
+                    </div>
+                    <div className="size-1.5 rotate-45 bg-popover border-r border-b -mt-1" />
+                  </div>
+
+                  {/* Bar with gradient and active hover */}
+                  <div
+                    style={{ height: `${heightPercent}%` }}
+                    className={cn(
+                      'w-full rounded-t-sm transition-all duration-300',
+                      isCurrent
+                        ? 'bg-gradient-to-t from-primary/70 via-primary/85 to-primary group-hover:from-primary group-hover:to-primary/90 shadow-xs'
+                        : 'bg-muted-foreground/15 group-hover:bg-muted-foreground/30',
+                    )}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* X-axis labels */}
-      <div className="flex justify-between border-t border-border/60 pt-2 text-[10px] text-muted-foreground font-mono">
+      {/* X-axis labels aligned under bars */}
+      <div className="flex pl-15 pr-1 justify-between pt-1 text-[10px] text-muted-foreground font-mono">
         {trend.map((bucket, index) => (
           <span
             key={bucket.month}
             className={cn(
               'flex-1 text-center truncate px-0.5',
-              index % 2 === 1 && 'hidden sm:inline', // On mobile, show alternate months to avoid overlap
+              index % 2 === 1 && 'hidden sm:inline',
             )}
           >
             {bucket.label.split(' ')[0]}
@@ -702,6 +875,7 @@ function MetricTile({
   icon: Icon,
   href,
   tone = 'neutral',
+  visual,
 }: {
   label: string;
   value: string | null;
@@ -709,34 +883,43 @@ function MetricTile({
   icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
   href: string;
   tone?: 'neutral' | 'positive' | 'negative';
+  visual?: React.ReactNode;
 }) {
   return (
-    <Card className="transition-shadow hover:shadow-sm">
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
-        <SectionHeading>{label}</SectionHeading>
-        <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <p
-          className={cn(
-            'text-2xl leading-9 font-semibold tabular-nums',
-            tone === 'negative' && 'text-negative',
-            tone === 'positive' && 'text-positive',
+    <Card className="transition-all duration-200 hover:shadow-md hover:border-primary/30 flex flex-col justify-between">
+      <div>
+        <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-2">
+          <SectionHeading>{label}</SectionHeading>
+          <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <p
+              className={cn(
+                'text-2xl leading-none font-semibold tabular-nums tracking-tight',
+                tone === 'negative' && 'text-negative',
+                tone === 'positive' && 'text-positive',
+              )}
+            >
+              {value ?? <Skeleton className="h-8 w-24" />}
+            </p>
+            {visual}
+          </div>
+          {caption !== null && (
+            <p className="text-xs leading-relaxed text-muted-foreground">{caption}</p>
           )}
-        >
-          {value ?? <Skeleton className="h-9 w-24" />}
-        </p>
-        {caption !== null && (
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{caption}</p>
-        )}
+        </CardContent>
+      </div>
+      <div className="px-6 pb-4 pt-1 border-t border-border/40 mt-2">
         <Link
           href={href}
-          className="mt-3 inline-block text-xs font-medium underline-offset-4 hover:underline"
+          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors underline-offset-4 hover:underline"
         >
-          View detail
+          <span>View breakdown</span>
+          <ArrowUpRight className="size-3" />
           <span className="sr-only"> for {label.toLowerCase()}</span>
         </Link>
-      </CardContent>
+      </div>
     </Card>
   );
 }
