@@ -18,10 +18,10 @@
  * take a `render` prop rather than Radix's `asChild`. See ADR-006.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Gauge, UserRound } from 'lucide-react';
+import { UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams, useRouter } from 'next/navigation';
-import { Suspense, useMemo } from 'react';
+import { Suspense } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Breadcrumb,
@@ -31,7 +31,6 @@ import {
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,21 +41,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarHeader,
   SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSkeleton,
   SidebarProvider,
-  SidebarRail,
-  SidebarSeparator,
-  SidebarTrigger,
-  useSidebar,
 } from '@/components/ui/sidebar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
@@ -68,10 +54,12 @@ import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { QuickThemeToggle } from '@/components/theme-toggle';
 import { CommandPalette } from '@/components/command-palette';
 import { NotificationCenter } from '@/components/notifications/notification-center';
+import { DualRailProvider } from '@/lib/nav-store';
+import { DualRailSidebar, DualRailTrigger } from '@/components/navigation/DualRailSidebar';
 import { api } from '@/lib/api';
 import { avatarImageUrl, avatarTint, initials } from '@/lib/avatar';
-import { breadcrumbFor, visibleSections, type NavSection } from '@/lib/nav';
-import { useCollapsedSections, useSidebarOpen } from '@/lib/shell-preferences';
+import { breadcrumbFor } from '@/lib/nav';
+import { useSidebarOpen } from '@/lib/shell-preferences';
 import { cn } from '@/lib/utils';
 
 /** `commercial_qs` -> "Commercial QS"; acronyms stay uppercase. */
@@ -90,50 +78,22 @@ function humanise(roles: readonly string[]): string {
     .join(', ');
 }
 
-/**
- * True when every query filter named by `href` is present and equal in `search`.
- *
- * This is what stops "Contracts & Amendments" and "Cost Parameters" - the same
- * path, a different `tab` - from both lighting up as active.
- */
-function filtersMatch(href: string, search: string): boolean {
-  const [, query] = href.split('?');
-  if (!query) return true;
-  const current = new URLSearchParams(search);
-  for (const [key, value] of new URLSearchParams(query)) {
-    if (current.get(key) !== value) return false;
-  }
-  return true;
-}
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   useSessionRefresh();
-  const { user, permissions, loading } = usePermissions();
-  const sections = useMemo(() => visibleSections(permissions), [permissions]);
+  const { user, loading } = usePermissions();
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  /*
-   * Both persisted values are read through `useSyncExternalStore` rather than
-   * seeded in an effect: they exist before React does, and seeding them in an
-   * effect would cascade an extra render on every mount and let the rail snap
-   * into place after first paint. See `lib/shell-preferences.ts`.
-   */
   const [sidebarOpen, setSidebarOpen] = useSidebarOpen();
-  const [collapsed, toggleSection] = useCollapsedSections();
 
   const logout = useMutation({
     mutationFn: () => api.post<{ ok: true }>('/api/auth/logout'),
     onSuccess: () => {
-      // Clear before leaving: otherwise the next person at this machine sees the
-      // previous session's data flash past while queries revalidate.
       queryClient.clear();
       router.push('/login');
       router.refresh();
     },
     onError: () =>
-      // The cookie is cleared server-side regardless. A failed call must not
-      // strand the user in a half-signed-out state.
       toast.add({
         title: 'Sign-out request failed',
         description: 'Continuing anyway. Close the browser if this is a shared machine.',
@@ -142,117 +102,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    /*
-     * `h-dvh overflow-hidden` is what makes "fill the screen" possible at all.
-     *
-     * shadcn's SidebarProvider sets only `min-h-svh`, a *minimum*. A flex child
-     * under a minimum-height parent still sizes to its content, so every
-     * `flex-1` below it collapses to zero and a filling table ends up with no
-     * height at all. A definite height lets `SidebarInset` take the remainder and
-     * the page's `flex-1` resolve to real pixels.
-     */
-    <SidebarProvider
-      open={sidebarOpen}
-      onOpenChange={setSidebarOpen}
-      className="h-dvh overflow-hidden"
-    >
-      <AppSidebar
-        sections={sections}
-        collapsed={collapsed}
-        onToggleSection={toggleSection}
-        loading={loading}
-      />
+    <DualRailProvider>
+      <SidebarProvider
+        open={sidebarOpen}
+        onOpenChange={setSidebarOpen}
+        className="h-dvh overflow-hidden flex flex-row"
+      >
+        <DualRailSidebar />
 
-      {/*
-        `SidebarInset` already renders a <main>. Wrapping the page in another
-        one produced two main landmarks - a real accessibility defect, since the
-        main landmark is what a screen-reader user jumps to and a duplicate makes
-        that target ambiguous. The id therefore lives on SidebarInset, which is
-        the element that actually *is* the landmark.
-      */}
-      <SidebarInset id="main-content" className="min-w-0 overflow-hidden">
-        {/*
-          The shell is a fixed-height flex chain so a page can fill the viewport
-          exactly: viewport = header + content, and the content area is the only
-          thing that scrolls.
+        <SidebarInset id="main-content" className="min-w-0 overflow-hidden flex-1">
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+            <DualRailTrigger className="-ml-1" />
 
-          The `min-h-0` on the content wrapper is load-bearing. In a flex column a
-          child defaults to `min-height: auto`, which refuses to shrink below its
-          content - so a long table would push the page taller than the screen
-          and the shell would scroll as a whole, taking the sticky header with it
-          and leaving the table's own scroll region redundant.
-        */}
-        <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-          <SidebarTrigger className="-ml-1" />
-
-          {/*
-            The breadcrumb resolves against the query string, so it must sit
-            below its own Suspense boundary - `useSearchParams` opts a client
-            component out of static prerendering and Next fails the build
-            otherwise. Scoping the boundary this narrowly keeps the header,
-            sidebar chrome and user menu painting immediately instead of
-            replacing the whole shell with a spinner.
-          */}
-          <Suspense fallback={<Skeleton className="h-4 w-40" />}>
-            <BreadcrumbTrail />
-          </Suspense>
-
-          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-            {loading && <Spinner className="size-4 text-muted-foreground" />}
-            <CommandPalette />
-            <NotificationCenter />
-            <ChatToggle />
-            <QuickThemeToggle />
-            <ThemePicker />
-            <ThemeAnnouncer />
-            <UserMenu
-              email={user?.user.email}
-              displayName={
-                user?.employee ? `${user.employee.name} ${user.employee.surname}`.trim() : undefined
-              }
-              avatarUrl={avatarImageUrl(user?.user.avatarUpdatedAt)}
-              roles={user?.roles.map((role) => role.key) ?? []}
-              loggingOut={logout.isPending}
-              onLogout={() => logout.mutate()}
-            />
-          </div>
-        </header>
-
-        <div id="main-scroll-container" className="min-h-0 flex-1 overflow-y-auto">
-          {/*
-            `h-full`, not `min-h-full`. The inner wrapper must be exactly the
-            scroll container's height so a page's `flex-1` child resolves against
-            a definite box; `min-h-full` lets the box grow with content, which
-            reintroduces the indefinite height the chain is trying to avoid.
-          */}
-          <div className="flex h-full flex-col p-4 sm:p-6">
-            {/*
-            Pages read their tab and filters from the URL, so each of them needs
-            this boundary too. The layout declares the same one for the page
-            itself; this one exists because AppShell renders above the layout's
-            boundary and must not opt itself out of prerendering.
-          */}
-            <Suspense
-              fallback={
-                <div className="flex min-h-64 items-center justify-center">
-                  <Spinner className="size-6 text-muted-foreground" />
-                  <span className="sr-only">Loading…</span>
-                </div>
-              }
-            >
-              {children}
+            <Suspense fallback={<Skeleton className="h-4 w-40" />}>
+              <BreadcrumbTrail />
             </Suspense>
-          </div>
-        </div>
-      </SidebarInset>
 
-      {/*
-        The dock is a sibling of the inset rather than a child of it, so pinned it
-        is a real flex column that pushes the content; unpinned it renders
-        `fixed`, so it leaves the layout completely alone.
-      */}
-      <ChatDock />
-    </SidebarProvider>
+            <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+              {loading && <Spinner className="size-4 text-muted-foreground" />}
+              <CommandPalette />
+              <NotificationCenter />
+              <ChatToggle />
+              <QuickThemeToggle />
+              <ThemePicker />
+              <ThemeAnnouncer />
+              <UserMenu
+                email={user?.user.email}
+                displayName={
+                  user?.employee ? `${user.employee.name} ${user.employee.surname}`.trim() : undefined
+                }
+                avatarUrl={avatarImageUrl(user?.user.avatarUpdatedAt)}
+                roles={user?.roles.map((role) => role.key) ?? []}
+                loggingOut={logout.isPending}
+                onLogout={() => logout.mutate()}
+              />
+            </div>
+          </header>
+
+          <div id="main-scroll-container" className="min-h-0 flex-1 overflow-y-auto">
+            <div className="flex h-full flex-col p-4 sm:p-6">
+              <Suspense
+                fallback={
+                  <div className="flex min-h-64 items-center justify-center">
+                    <Spinner className="size-6 text-muted-foreground" />
+                    <span className="sr-only">Loading…</span>
+                  </div>
+                }
+              >
+                {children}
+              </Suspense>
+            </div>
+          </div>
+        </SidebarInset>
+
+        <ChatDock />
+      </SidebarProvider>
+    </DualRailProvider>
   );
 }
 
@@ -276,11 +181,6 @@ function BreadcrumbTrail() {
           {trail ? (
             <>
               <BreadcrumbLink render={<Link href="/dashboard" />}>OpenERP</BreadcrumbLink>
-              {/*
-                A literal separator rather than BreadcrumbSeparator: that
-                component carries its own accessible role, and nesting a
-                decorative glyph between two items is what it is for.
-              */}
               <span aria-hidden="true" className="mx-1 text-muted-foreground">
                 /
               </span>
@@ -294,230 +194,6 @@ function BreadcrumbTrail() {
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
-  );
-}
-
-/** Placeholder rows while the real navigation resolves. */
-function SidebarMenuSkeletonList() {
-  return (
-    <SidebarMenu>
-      {[0, 1, 2].map((row) => (
-        <SidebarMenuItem key={row}>
-          <SidebarMenuSkeleton showIcon />
-        </SidebarMenuItem>
-      ))}
-    </SidebarMenu>
-  );
-}
-
-/**
- * The permission-filtered navigation list.
- *
- * Separated from `AppSidebar` so the one `useSearchParams()` call it needs sits
- * under a Suspense boundary: a hook read higher up would opt the entire shell
- * out of static prerendering and Next would fail the build on every route.
- */
-function NavSectionList({
-  sections,
-  collapsed,
-  onToggleSection,
-  loading,
-}: {
-  sections: NavSection[];
-  collapsed: ReadonlySet<string>;
-  onToggleSection: (key: string) => void;
-  loading: boolean;
-}) {
-  const pathname = usePathname();
-  const search = useSearchParams().toString();
-  const { open } = useSidebar();
-
-  if (loading && sections.length === 0) {
-    return <p className="px-2 py-3 text-xs text-muted-foreground">Loading navigation…</p>;
-  }
-
-  if (!loading && sections.length === 0) {
-    return (
-      <p className="px-2 py-3 text-xs text-muted-foreground">
-        Your roles grant no navigation. Contact an administrator.
-      </p>
-    );
-  }
-
-  return (
-    <>
-      {sections.map((section) => {
-        const isCollapsed = collapsed.has(section.key);
-        return (
-          // Controlled: `open` comes from persisted state, and the trigger's
-          // own toggle is routed back through `onOpenChange` so the two cannot
-          // disagree. Without that, the disclosure animates but never persists.
-          <Collapsible
-            key={section.key}
-            open={!isCollapsed}
-            onOpenChange={() => onToggleSection(section.key)}
-          >
-            <SidebarGroup>
-              {/*
-                A real button, not a styled div: this is a disclosure control
-                and must be reachable and operable from the keyboard. shadcn's
-                SidebarGroupLabel renders a div, so the trigger carries the
-                label's styling itself.
-              */}
-              <CollapsibleTrigger
-                className={cn(
-                  'flex h-8 w-full items-center gap-2 rounded-md px-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase',
-                  'hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-                  !open && 'justify-center',
-                )}
-                aria-label={open ? section.label : undefined}
-              >
-                <section.icon aria-hidden="true" className="size-4 shrink-0" />
-                {open && (
-                  <>
-                    <span className="truncate">{section.label}</span>
-                    <ChevronDown
-                      aria-hidden="true"
-                      className={cn(
-                        'ml-auto size-3.5 shrink-0 transition-transform duration-200',
-                        isCollapsed && '-rotate-90',
-                      )}
-                    />
-                  </>
-                )}
-              </CollapsibleTrigger>
-            </SidebarGroup>
-
-            <CollapsibleContent>
-              {/*
-                The indent, and why it is here rather than on the button.
-
-                `SidebarMenu` ships `p-2` and `SidebarMenuButton` ships `p-2` with
-                a 16px icon and a `gap-2`. The section header is `px-2` with its own
-                16px icon and the same gap. Both labels therefore began at exactly
-                2rem from the sidebar edge - identical x, no hierarchy at all, which
-                is why the submenu read as more top-level items rather than as
-                children of one.
-
-                Padding the *container* is the right lever: it moves the icon and the
-                label together, which padding the button alone would not (the button's
-                icon would stay put and only the text shift, so the row would look
-                misaligned rather than indented).
-
-                `pl-5` is 1.25rem against the default 0.5rem, a 0.75rem step that
-                reads as a level without wasting width. Reset to `p-2` when the
-                sidebar collapses to the icon rail, or the icons would drift right of
-                centre - the button's own `p-2!` cannot undo a parent's padding.
-              */}
-              <SidebarMenu className="pl-5 group-data-[collapsible=icon]:p-2">
-                {section.items.map((item) => {
-                  const [hrefPath] = item.href.split('?');
-                  const isActive =
-                    (pathname === hrefPath ||
-                      (hrefPath === '/operations' && pathname.startsWith('/operations/'))) &&
-                    filtersMatch(item.href, search);
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        tooltip={item.label}
-                        render={<Link href={item.href} />}
-                      >
-                        <item.icon aria-hidden="true" />
-                        <span>{item.label}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </CollapsibleContent>
-          </Collapsible>
-        );
-      })}
-    </>
-  );
-}
-
-function AppSidebar({
-  sections,
-  collapsed,
-  onToggleSection,
-  loading,
-}: {
-  sections: NavSection[];
-  collapsed: ReadonlySet<string>;
-  onToggleSection: (key: string) => void;
-  loading: boolean;
-}) {
-  const { open } = useSidebar();
-  const pathname = usePathname();
-
-  return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <div className="flex h-8 items-center gap-2 px-2">
-          <div
-            aria-hidden="true"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground"
-          >
-            OE
-          </div>
-          {open && (
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold leading-tight">OpenERP</p>
-              <p className="truncate text-[11px] leading-tight text-muted-foreground">
-                EC&amp;I Contracting
-              </p>
-            </div>
-          )}
-        </div>
-      </SidebarHeader>
-
-      <SidebarContent>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={pathname === '/dashboard'}
-              tooltip="Dashboard"
-              render={<Link href="/dashboard" />}
-            >
-              <Gauge aria-hidden="true" />
-              <span>Dashboard</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-
-        <SidebarSeparator />
-
-        {/*
-          Active-state highlighting compares against the query string, so this
-          subtree reads `useSearchParams` and is given its own boundary. The
-          header, brand block and user menu above it paint without waiting.
-        */}
-        <Suspense fallback={<SidebarMenuSkeletonList />}>
-          <NavSectionList
-            sections={sections}
-            collapsed={collapsed}
-            onToggleSection={onToggleSection}
-            loading={loading}
-          />
-        </Suspense>
-      </SidebarContent>
-
-      <SidebarFooter>
-        {/*
-          Hidden in icon mode. The rail is ~48px wide there, so this sentence
-          wrapped one word per line down the side of the screen, which is the most
-          visible layout bug in collapsed mode.
-        */}
-        {open && (
-          <p className="px-2 text-[11px] leading-relaxed text-muted-foreground">
-            Session held in an HTTP-only cookie.
-          </p>
-        )}
-      </SidebarFooter>
-      <SidebarRail />
-    </Sidebar>
   );
 }
 
