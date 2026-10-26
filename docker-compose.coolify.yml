@@ -82,10 +82,10 @@ services:
       - garage-data:/var/lib/garage/data
     healthcheck:
       test: ['CMD', '/garage', '-c', '/etc/garage.toml', 'status']
-      interval: 10s
-      timeout: 5s
+      interval: 15s
+      timeout: 10s
       retries: 5
-      start_period: 15s
+      start_period: 25s
 
   api:
     build:
