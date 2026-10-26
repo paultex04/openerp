@@ -73,8 +73,15 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
       // Never let a cached response mask a 401.
       cache: 'no-store',
       redirect: 'manual',
+      signal: request.signal,
     });
   } catch {
+    // If the client aborted the connection (e.g. navigated away or closed the tab),
+    // return a clean 499 Client Closed Request rather than logging an unreachable server error.
+    if (request.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
+
     return NextResponse.json(
       {
         error: 'API_UNREACHABLE',
