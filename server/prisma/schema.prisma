@@ -118,6 +118,29 @@ enum ConversationKind {
 }
 
 // ---------------------------------------------------------------------------
+// Tasks Module (Work-related task tracking & collaboration)
+// ---------------------------------------------------------------------------
+
+enum TaskStatus {
+  TODO        @map("Todo")
+  IN_PROGRESS @map("In Progress")
+  BLOCKED     @map("Blocked")
+  DONE        @map("Done")
+  CANCELLED   @map("Cancelled")
+
+  @@map("task_status_enum")
+}
+
+enum TaskPriority {
+  LOW    @map("Low")
+  MEDIUM @map("Medium")
+  HIGH   @map("High")
+  URGENT @map("Urgent")
+
+  @@map("task_priority_enum")
+}
+
+// ---------------------------------------------------------------------------
 // Organisation
 // ---------------------------------------------------------------------------
 
@@ -389,6 +412,7 @@ model Project {
   contract  Contract          @relation(fields: [contractId], references: [id])
   amendment ContractAmendment @relation(fields: [amendmentId], references: [id])
   jobs      Job[]
+  tasks     Task[]
 
   @@index([contractId])
   @@index([amendmentId])
@@ -477,6 +501,7 @@ model Job {
   assignments   JobAssignment[]
   invoices      Invoice[]
   timesheetEntries TimesheetEntry[]
+  tasks         Task[]
 
   @@index([projectId])
   @@index([amendmentId])
@@ -705,6 +730,13 @@ model AppUser {
   timesheetsDecided   Timesheet[] @relation("TimesheetDecidedBy")
   conversationMembers ConversationMember[]
   messages            Message[]            @relation("MessageSender")
+  tasksCreated        Task[]               @relation("TaskCreator")
+  tasksCompleted      Task[]               @relation("TaskCompleter")
+  taskAssignments     TaskAssignee[]
+  taskProjects        TaskProject[]
+  taskComments        TaskComment[]
+  taskActivities      TaskActivity[]
+  taskAssigned        TaskAssignee[]       @relation("TaskAssigner")
 
   @@index([isActive])
   @@map("app_user")
@@ -894,4 +926,163 @@ model MessageAttachment {
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@map("message_attachment")
+}
+
+// ---------------------------------------------------------------------------
+// Task Management
+// ---------------------------------------------------------------------------
+
+/// Standalone task project/workspace list (e.g., "General", "Safety", "Internal IT")
+model TaskProject {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  description String?
+  color       String?  @default("#3b82f6") @db.VarChar(30)
+  icon        String?  @default("Folder") @db.VarChar(50)
+  isArchived  Boolean  @default(false) @map("is_archived")
+  creatorId   Int      @map("creator_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  creator     AppUser  @relation(fields: [creatorId], references: [id])
+  tasks       Task[]
+
+  @@index([creatorId])
+  @@map("task_project")
+}
+
+model Task {
+  id            Int          @id @default(autoincrement())
+  title         String       @db.VarChar(255)
+  description   String?      @db.Text
+  status        TaskStatus   @default(TODO)
+  priority      TaskPriority @default(MEDIUM)
+  dueDate       DateTime?    @map("due_date") @db.Timestamptz(3)
+  dueHasTime    Boolean      @default(false) @map("due_has_time")
+  isPrivate     Boolean      @default(false) @map("is_private")
+  sortOrder     Int          @default(0) @map("sort_order")
+
+  // Organizational scoping
+  taskProjectId Int?         @map("task_project_id")
+  erpProjectId  Int?         @map("erp_project_id")
+  jobId         Int?         @map("job_id")
+  parentId      Int?         @map("parent_id")
+
+  // Actors
+  creatorId     Int          @map("creator_id")
+  completedById Int?         @map("completed_by_id")
+  completedAt   DateTime?    @map("completed_at") @db.Timestamptz(3)
+
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(3)
+
+  // Relations
+  creator       AppUser             @relation("TaskCreator", fields: [creatorId], references: [id])
+  completedBy   AppUser?            @relation("TaskCompleter", fields: [completedById], references: [id])
+  taskProject   TaskProject?        @relation(fields: [taskProjectId], references: [id], onDelete: SetNull)
+  erpProject    Project?            @relation(fields: [erpProjectId], references: [id], onDelete: SetNull)
+  job           Job?                @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  parent        Task?               @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks      Task[]              @relation("Subtasks")
+
+  assignees     TaskAssignee[]
+  checklists    TaskChecklistItem[]
+  tags          TaskTagAssignment[]
+  comments      TaskComment[]
+  activities    TaskActivity[]
+
+  @@index([taskProjectId])
+  @@index([erpProjectId])
+  @@index([jobId])
+  @@index([parentId])
+  @@index([creatorId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@map("task")
+}
+
+model TaskAssignee {
+  id           Int      @id @default(autoincrement())
+  taskId       Int      @map("task_id")
+  userId       Int      @map("user_id")
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(3)
+  assignedById Int?     @map("assigned_by_id")
+
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user         AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy   AppUser? @relation("TaskAssigner", fields: [assignedById], references: [id])
+
+  @@unique([taskId, userId])
+  @@index([userId])
+  @@map("task_assignee")
+}
+
+model TaskChecklistItem {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  title     String   @db.VarChar(255)
+  isDone    Boolean  @default(false) @map("is_done")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_checklist_item")
+}
+
+model TaskTag {
+  id        Int                 @id @default(autoincrement())
+  name      String              @unique @db.VarChar(50)
+  color     String              @default("#64748b") @db.VarChar(30)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  tasks     TaskTagAssignment[]
+
+  @@map("task_tag")
+}
+
+model TaskTagAssignment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  tagId     Int      @map("tag_id")
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag       TaskTag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, tagId])
+  @@index([tagId])
+  @@map("task_tag_assignment")
+}
+
+model TaskComment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  authorId  Int      @map("author_id")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    AppUser  @relation(fields: [authorId], references: [id])
+
+  @@index([taskId])
+  @@map("task_comment")
+}
+
+model TaskActivity {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  actorId   Int      @map("actor_id")
+  action    String   @db.VarChar(50)
+  details   Json?    @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  actor     AppUser  @relation(fields: [actorId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("task_activity")
 }

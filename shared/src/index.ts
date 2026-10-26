@@ -16,3 +16,4 @@ export * from './deliverables';
 export * from './invoice-status';
 export * from './costing';
 export * from './schemas/analytics';
+export * from './schemas/tasks';

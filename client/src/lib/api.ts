@@ -874,3 +874,109 @@ export type {
   ContractRevenueLeader,
   ExpiringAmendmentSummary,
 } from '@openerp/shared';
+
+// ---------------------------------------------------------------------------
+// Tasks Module Types
+// ---------------------------------------------------------------------------
+
+export interface TaskUserSummary {
+  id: number;
+  email: string;
+  name: string;
+  avatarUpdatedAt: string | null;
+}
+
+export interface TaskTagRow {
+  id: number;
+  name: string;
+  color: string;
+}
+
+export interface TaskProjectRow {
+  id: number;
+  name: string;
+  description: string | null;
+  color: string;
+  icon: string;
+  isArchived: boolean;
+  creator: TaskUserSummary;
+  activeTaskCount: number;
+  createdAt: string;
+}
+
+export interface TaskAssigneeRow {
+  id: number;
+  userId: number;
+  user: TaskUserSummary;
+  assignedAt?: string;
+  assignedBy?: TaskUserSummary | null;
+}
+
+export interface TaskChecklistRow {
+  id: number;
+  title: string;
+  isDone: boolean;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface TaskCommentRow {
+  id: number;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  author: TaskUserSummary;
+}
+
+export interface TaskActivityRow {
+  id: number;
+  action: string;
+  details: Record<string, unknown> | null;
+  createdAt: string;
+  actor: TaskUserSummary;
+}
+
+export interface TaskSummaryRow {
+  id: number;
+  title: string;
+  description: string | null;
+  status: 'Todo' | 'In Progress' | 'Blocked' | 'Done' | 'Cancelled';
+  priority: 'Low' | 'Medium' | 'High' | 'Urgent';
+  dueDate: string | null;
+  dueHasTime: boolean;
+  isPrivate: boolean;
+  sortOrder: number;
+  taskProjectId: number | null;
+  erpProjectId: number | null;
+  jobId: number | null;
+  parentId: number | null;
+  creator: TaskUserSummary;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  assignees: TaskAssigneeRow[];
+  tags: TaskTagRow[];
+  taskProject: { id: number; name: string; color: string; icon: string } | null;
+  erpProject: { id: number; code: string; description: string | null } | null;
+  job: { id: number; workOrder: string | null } | null;
+  checklistCount: number;
+  checklistDoneCount: number;
+  subtaskCount: number;
+  commentCount: number;
+}
+
+export interface TaskDetailRow extends TaskSummaryRow {
+  completedBy: TaskUserSummary | null;
+  checklists: TaskChecklistRow[];
+  subtasks: Array<{
+    id: number;
+    title: string;
+    status: 'Todo' | 'In Progress' | 'Blocked' | 'Done' | 'Cancelled';
+    priority: 'Low' | 'Medium' | 'High' | 'Urgent';
+    dueDate: string | null;
+    assignees: TaskUserSummary[];
+  }>;
+  comments: TaskCommentRow[];
+  activities: TaskActivityRow[];
+  parent: { id: number; title: string; status: 'Todo' | 'In Progress' | 'Blocked' | 'Done' | 'Cancelled' } | null;
+}

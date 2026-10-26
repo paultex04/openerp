@@ -28,6 +28,7 @@ import {
   FolderKanban,
   HardHat,
   ListChecks,
+  ListTodo,
   MessageSquare,
   Receipt,
   ScrollText,
@@ -177,11 +178,15 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     key: 'collaboration',
     label: 'Collaboration',
     icon: MessageSquare,
-    // Chat is cross-cutting, but the section waits until chat actually exists:
-    // the dock in the header is the primary way in, and this is the full-page
-    // view someone reaches for on purpose.
-    anyOf: ['chat.read'],
+    // Cross-cutting collaboration features
+    anyOf: ['chat.read', 'task.read'],
     items: [
+      {
+        href: '/tasks',
+        label: 'Tasks',
+        icon: ListTodo,
+        anyOf: ['task.read'],
+      },
       {
         href: '/messages',
         label: 'Messages',

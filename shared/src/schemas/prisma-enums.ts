@@ -28,9 +28,13 @@ import {
   serviceCodeCategoryValues,
   shiftTypeValues,
   timesheetStatusValues,
+  taskStatusValues,
+  taskPriorityValues,
   type InvoiceStatus,
   type ShiftType,
   type TimesheetStatus,
+  type TaskStatus,
+  type TaskPriority,
 } from './enums';
 
 /** Compile-time exhaustiveness guard. */
@@ -151,6 +155,21 @@ export const TIMESHEET_STATUS = buildMapping(timesheetStatusValues, [
   'REJECTED',
 ]);
 
+export const TASK_STATUS = buildMapping(taskStatusValues, [
+  'TODO',
+  'IN_PROGRESS',
+  'BLOCKED',
+  'DONE',
+  'CANCELLED',
+]);
+
+export const TASK_PRIORITY = buildMapping(taskPriorityValues, [
+  'LOW',
+  'MEDIUM',
+  'HIGH',
+  'URGENT',
+]);
+
 // ---------------------------------------------------------------------------
 // Convenience typed accessors for the most frequently converted fields.
 // ---------------------------------------------------------------------------
@@ -237,3 +256,19 @@ export type PrismaContractAmendmentStatus =
 
 export type PrismaCostParameterCategory =
   'PPE' | 'TRANSPORT' | 'EQUIPMENT' | 'OVERHEADS' | 'MARGIN' | 'MATERIAL_MARKUP';
+
+export type PrismaTaskStatus = 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE' | 'CANCELLED';
+export function taskStatusToKey(label: string): PrismaTaskStatus {
+  return TASK_STATUS.toKey(label) as PrismaTaskStatus;
+}
+export function taskStatusFromKey(key: string): TaskStatus {
+  return TASK_STATUS.toLabel(key) as TaskStatus;
+}
+
+export type PrismaTaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export function taskPriorityToKey(label: string): PrismaTaskPriority {
+  return TASK_PRIORITY.toKey(label) as PrismaTaskPriority;
+}
+export function taskPriorityFromKey(key: string): TaskPriority {
+  return TASK_PRIORITY.toLabel(key) as TaskPriority;
+}

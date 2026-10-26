@@ -83,3 +83,11 @@ export type InvoiceStatus = z.infer<typeof invoiceStatusSchema>;
 export const timesheetStatusValues = ['Draft', 'Submitted', 'Approved', 'Rejected'] as const;
 export const timesheetStatusSchema = z.enum(timesheetStatusValues);
 export type TimesheetStatus = z.infer<typeof timesheetStatusSchema>;
+
+export const taskStatusValues = ['Todo', 'In Progress', 'Blocked', 'Done', 'Cancelled'] as const;
+export const taskStatusSchema = z.enum(taskStatusValues);
+export type TaskStatus = z.infer<typeof taskStatusSchema>;
+
+export const taskPriorityValues = ['Low', 'Medium', 'High', 'Urgent'] as const;
+export const taskPrioritySchema = z.enum(taskPriorityValues);
+export type TaskPriority = z.infer<typeof taskPrioritySchema>;

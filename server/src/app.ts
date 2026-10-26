@@ -27,6 +27,7 @@ import { initJobQueue, stopJobQueue } from './queue/index.js';
 import { initBackgroundWorkers } from './queue/workers.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerAnalyticsRoutes } from './routes/analytics.js';
+import { registerTaskRoutes } from './routes/tasks.js';
 
 export interface BuildAppOptions {
   config?: Config;
@@ -139,6 +140,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // ---- Executive & Financial Analytics Dashboard (Phase 4) ---------------
   await registerAnalyticsRoutes(app);
+
+  // ---- Task Tracking Module (Todoist-style) ------------------------------
+  await registerTaskRoutes(app);
 
   // ---- Deliberately protected probe --------------------------------------
   // Phase 1 has no domain routes yet. These two routes exist so the RBAC guard

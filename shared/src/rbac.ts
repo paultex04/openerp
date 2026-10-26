@@ -79,6 +79,7 @@ export const PERMISSION_CATEGORIES = [
   'invoice',
   'timesheet',
   'chat',
+  'task',
   'organisation',
   'admin',
 ] as const;
@@ -205,6 +206,11 @@ export const PERMISSIONS: readonly PermissionDefinition[] = [
   P('contracttype.archive', 'organisation', 'Archive and restore employee contract types.'),
   P('contact.archive', 'organisation', 'Archive and restore client contacts.'),
 
+  // --- Tasks --------------------------------------------------------------
+  P('task.read', 'task', 'View tasks, task projects, checklists and comments.'),
+  P('task.write', 'task', 'Create and edit tasks, checklists, task projects and comments.'),
+  P('task.delete', 'task', 'Delete tasks and task projects.'),
+
   // --- Administration ------------------------------------------------------
   P('admin.user.read', 'admin', 'View application users.'),
   P('admin.user.write', 'admin', 'Create users, link employees and reset credentials.'),
@@ -230,10 +236,16 @@ const keysOf = (...prefixes: string[]): string[] =>
  */
 const CHAT_GRANTS: string[] = ['chat.read', 'chat.write'];
 
+/**
+ * Tasks are cross-cutting: every role that can sign in gets read/write task authority.
+ */
+const TASK_GRANTS: string[] = ['task.read', 'task.write'];
+
 /** Everything the commercial side of the business may touch. */
 const COMMERCIAL_GRANTS: string[] = [
   ...keysOf('contract.', 'amendment.', 'costparameter.', 'ratemaster.', 'servicecode.', 'recipe.'),
   ...CHAT_GRANTS,
+  ...TASK_GRANTS,
   'project.read',
   'job.read',
   'deliverable.read',
@@ -250,6 +262,7 @@ const COMMERCIAL_GRANTS: string[] = [
 /** The PM owns scoping but has no commercial rate authority. */
 const PROJECT_MANAGER_GRANTS: string[] = [
   ...CHAT_GRANTS,
+  ...TASK_GRANTS,
   'project.read',
   'project.write',
   'job.read',
@@ -274,6 +287,7 @@ const PROJECT_MANAGER_GRANTS: string[] = [
 /** Field supervisors are restricted to their assigned jobs and to actuals. */
 const SITE_SUPERVISOR_GRANTS: string[] = [
   ...CHAT_GRANTS,
+  ...TASK_GRANTS,
   'job.read.assigned',
   'deliverable.read',
   'deliverable.write.actual',
@@ -287,6 +301,7 @@ const SITE_SUPERVISOR_GRANTS: string[] = [
 /** Billing clerks read operations but own everything from pack-ready onward. */
 const BILLING_CLERK_GRANTS: string[] = [
   ...CHAT_GRANTS,
+  ...TASK_GRANTS,
   'job.read',
   'deliverable.read',
   'invoice.read',
