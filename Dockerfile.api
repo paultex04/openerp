@@ -47,7 +47,8 @@ COPY client/package.json ./client/
 
 # `--ignore-scripts` because the only install-time script that matters is
 # Prisma's engine download, and it needs a schema that does not exist yet.
-RUN npm ci --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts
 
 # -----------------------------------------------------------------------------
 # Stage 2 — build
@@ -127,7 +128,8 @@ COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
 COPY server/package.json ./server/
 COPY client/package.json ./client/
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev --ignore-scripts
 
 # Prisma's generated client and its engine. Regenerated here rather than copied
 # from the build stage because `node_modules` was reinstalled above.
