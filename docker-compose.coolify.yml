@@ -61,9 +61,9 @@ services:
     command:
       - postgres
       - -c
-      - full_page_writes=on
+      - ignore_checksum_failure=on
       - -c
-      - wal_sync_method=fdatasync
+      - zero_damaged_pages=on
     logging:
       driver: 'json-file'
       options:
