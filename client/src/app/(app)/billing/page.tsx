@@ -24,6 +24,7 @@ import {
 import { InvoiceTransitions } from '@/components/billing/InvoicePanel';
 import { NewInvoiceDialog } from '@/components/billing/NewInvoiceDialog';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { invoiceVariant } from '@/lib/lifecycle-status';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -211,6 +212,19 @@ export default function BillingPage() {
 
   const invoices = register.data?.invoices ?? [];
   const columns = useMemo(() => invoiceColumns(setSelectedId), []);
+
+  if (register.isError && register.error instanceof ApiError && register.error.statusCode === 403) {
+    return (
+      <AccessDenied
+        title="Billing & Finance Access Required"
+        message="Financial billing and invoice records are restricted to Billing Clerks, Commercial Quantity Surveyors, and Administrators."
+        requiredRoles={['Administrator', 'Commercial / QS', 'Billing Clerk']}
+        requiredPermissions={['invoice.read']}
+        returnHref="/dashboard"
+        returnLabel="Return to Dashboard"
+      />
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">

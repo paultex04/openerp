@@ -1,4 +1,5 @@
 import { AppShell } from '@/components/app-shell';
+import { RouteGuard } from '@/components/auth/route-guard';
 import { ChatGate } from '@/components/chat/chat-gate';
 import { Spinner } from '@/components/ui/spinner';
 import type { ReactNode } from 'react';
@@ -33,7 +34,7 @@ export default function AuthenticatedLayout({ children }: { children: ReactNode 
             </div>
           }
         >
-          {children}
+          <RouteGuard>{children}</RouteGuard>
         </Suspense>
       </AppShell>
     </ChatGate>

@@ -14,6 +14,8 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '@/components/ui/toast';
+import { usePermissions } from '@/components/auth/usePermissions';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { api, type LoggableJob, type TimesheetEmployee } from '@/lib/api';
 import {
   addDays,
@@ -43,6 +45,9 @@ const DEFAULT_LABOUR_TYPES = [
 
 export default function CrewMatrixPage() {
   const queryClient = useQueryClient();
+  const { canAny, loading: authLoading } = usePermissions();
+  const hasAccess = canAny('timesheet.write', 'timesheet.approve', 'project.write', 'job.write');
+
   const [periodStart, setPeriodStart] = useState<string>(currentMonday());
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [employeeSearch, setEmployeeSearch] = useState('');
@@ -52,6 +57,7 @@ export default function CrewMatrixPage() {
   const jobsQuery = useQuery({
     queryKey: ['timesheet-jobs-matrix'],
     queryFn: () => api.get<{ jobs: LoggableJob[] }>('/api/timesheets/jobs', { limit: 100 }),
+    enabled: hasAccess,
   });
   const jobs = jobsQuery.data?.jobs ?? [];
 
@@ -66,8 +72,22 @@ export default function CrewMatrixPage() {
     queryKey: ['timesheet-employees-matrix'],
     queryFn: () =>
       api.get<{ employees: TimesheetEmployee[] }>('/api/timesheets/employees', { limit: 200 }),
+    enabled: hasAccess,
   });
   const employees = employeesQuery.data?.employees ?? [];
+
+  if (!authLoading && !hasAccess) {
+    return (
+      <AccessDenied
+        title="Crew Matrix Access Required"
+        message="The Weekly Crew Timesheet Matrix is restricted to Site Supervisors, Project Managers, and Timesheet Approvers."
+        requiredRoles={['Administrator', 'Project Manager', 'Site Supervisor']}
+        requiredPermissions={['timesheet.write', 'timesheet.approve']}
+        returnHref="/timesheets"
+        returnLabel="Return to Timesheets"
+      />
+    );
+  }
 
   // Days of the active week (Mon - Sun)
   const days: WeekDay[] = useMemo(() => weekDays(periodStart), [periodStart]);

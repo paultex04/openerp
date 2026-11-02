@@ -24,7 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
-import { Alert } from '@/components/ui/alert';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -160,16 +160,13 @@ export default function TasksPage() {
 
   if (!canAny('task.read')) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-4">
-        <header>
-          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-          <p className="text-sm text-muted-foreground">Work-related task tracking and assignments.</p>
-        </header>
-        <Alert>
-          Your account does not have access to view tasks. Ask an administrator for the{' '}
-          <code className="font-mono">task.read</code> permission.
-        </Alert>
-      </div>
+      <AccessDenied
+        title="Tasks Access Required"
+        message="Your account does not have access to view or manage tasks. Contact an administrator to request task permissions."
+        requiredPermissions={['task.read']}
+        returnHref="/dashboard"
+        returnLabel="Return to Dashboard"
+      />
     );
   }
 

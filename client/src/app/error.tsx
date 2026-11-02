@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Check, Copy, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { AccessDenied } from '@/components/auth/access-denied';
 
 export default function ErrorBoundary({
   error,
   reset,
 }: {
-  error: Error & { digest?: string };
+  error: Error & { digest?: string; statusCode?: number; status?: number; code?: string };
   reset: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -16,6 +17,25 @@ export default function ErrorBoundary({
   useEffect(() => {
     console.error('Unhandled Next.js Route Error:', error);
   }, [error]);
+
+  const isForbidden =
+    error.statusCode === 403 ||
+    error.status === 403 ||
+    error.code === 'FORBIDDEN' ||
+    error.message?.toLowerCase().includes('forbidden') ||
+    error.message?.toLowerCase().includes('unauthorized');
+
+  if (isForbidden) {
+    return (
+      <AccessDenied
+        title="Access Forbidden"
+        message={error.message || 'You do not have the required permissions to access this resource.'}
+        incidentRef={error.digest}
+        returnHref="/dashboard"
+        returnLabel="Return to Dashboard"
+      />
+    );
+  }
 
   const copyErrorReport = () => {
     const report = [

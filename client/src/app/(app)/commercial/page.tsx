@@ -19,6 +19,7 @@ import {
   type EngineParameters,
   type RateCardRow,
 } from '@/lib/api';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { Badge } from '@/components/ui/badge';
 import { statusVariant } from '@/lib/lifecycle-status';
@@ -272,13 +273,14 @@ export default function CommercialPage() {
 
   if (visibleTabs.length === 0) {
     return (
-      <div className="mx-auto max-w-2xl py-16 text-center">
-        <h1 className="text-lg font-semibold">Commercial access required</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Your roles do not include any commercial permission. Commercial screens are limited to
-          Administrator and Commercial / Quantity Surveyor.
-        </p>
-      </div>
+      <AccessDenied
+        title="Commercial Module Access Required"
+        message="Your account roles do not include any commercial permissions. Commercial screens are restricted to Administrators and Commercial Quantity Surveyors."
+        requiredRoles={['Administrator', 'Commercial / QS']}
+        requiredPermissions={['contract.read', 'costparameter.read', 'ratemaster.read', 'servicecode.read']}
+        returnHref="/dashboard"
+        returnLabel="Return to Dashboard"
+      />
     );
   }
 

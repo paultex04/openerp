@@ -22,6 +22,13 @@ export class ApiError extends Error {
   }
 
   /**
+   * Alias for `status` for HTTP convention compatibility.
+   */
+  get statusCode(): number {
+    return this.status;
+  }
+
+  /**
    * Returns true if this error was caused by a network outage or offline state.
    */
   get isOffline(): boolean {

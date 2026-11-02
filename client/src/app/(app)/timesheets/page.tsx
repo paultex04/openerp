@@ -24,8 +24,8 @@
  * a screen of 403s. The API re-checks every call; this only avoids the round trip.
  */
 import { useSearchParams } from 'next/navigation';
-import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { useUrlParam } from '@/hooks/use-url-param';
 import { ApprovalsPanel } from '@/components/timesheets/approvals-panel';
@@ -106,16 +106,24 @@ export default function TimesheetsPage() {
       </nav>
 
       {visible.length === 0 && (
-        <Alert>
-          Your account holds no timesheet permission. Ask an administrator for the access you need.
-        </Alert>
+        <AccessDenied
+          title="Timesheets Access Required"
+          message="Your account holds no timesheet permissions. Contact an administrator to request access."
+          requiredPermissions={['timesheet.read.own', 'timesheet.write.own', 'timesheet.read', 'timesheet.approve']}
+          returnHref="/dashboard"
+          returnLabel="Return to Dashboard"
+        />
       )}
 
       {refuse ? (
-        <Alert>
-          You do not have permission to open “{requested?.label ?? tab}”. It needs{' '}
-          <code className="font-mono">{requested?.anyOf.join(' or ')}</code>.
-        </Alert>
+        <AccessDenied
+          title={`Restricted Tab: ${requested?.label ?? tab}`}
+          message={`You do not have permission to open the "${requested?.label ?? tab}" timesheet view.`}
+          requiredPermissions={requested?.anyOf}
+          returnHref="/timesheets"
+          returnLabel="Return to Timesheets"
+          className="min-h-[45vh]"
+        />
       ) : (
         <>
           {activeTab === 'enter' && <TimesheetEntryPanel />}

@@ -37,7 +37,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Eye, Plus } from 'lucide-react';
-import { api, type JobListResponse, type JobRow } from '@/lib/api';
+import { api, ApiError, type JobListResponse, type JobRow } from '@/lib/api';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { DataTable, type DataTableFilter } from '@/components/data-table/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -176,6 +177,19 @@ export function JobRegister() {
 
   const rows = jobs.data?.jobs ?? [];
   const total = jobs.data?.total ?? 0;
+
+  if (jobs.isError && jobs.error instanceof ApiError && jobs.error.statusCode === 403) {
+    return (
+      <AccessDenied
+        title="Operations Access Required"
+        message="Job operations management is restricted to authorized project managers, engineers, and administrators."
+        requiredRoles={['Administrator', 'Project Manager', 'Director']}
+        requiredPermissions={['job.read', 'job.read.assigned']}
+        returnHref="/dashboard"
+        returnLabel="Return to Dashboard"
+      />
+    );
+  }
 
   // The filter offers whatever the workflow currently contains - a status an
   // administrator added appears here, a deleted one disappears, and the labels

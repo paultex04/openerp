@@ -30,6 +30,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, type JobDetail as JobDetailData } from '@/lib/api';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -118,6 +119,17 @@ export function JobDetail({ jobId, onClose }: { jobId: number; onClose: () => vo
   }
 
   if (detail.isError) {
+    if (detail.error instanceof ApiError && detail.error.statusCode === 403) {
+      return (
+        <AccessDenied
+          title="Job Access Restricted"
+          message="You do not have permission to view this job record."
+          returnHref="/operations"
+          returnLabel="Back to Jobs"
+          className="min-h-[50vh]"
+        />
+      );
+    }
     return (
       <div className="space-y-2">
         <p className="text-sm text-destructive">

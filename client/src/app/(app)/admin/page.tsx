@@ -26,8 +26,8 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
-import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { useUrlParam } from '@/hooks/use-url-param';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { UsersPanel } from '@/components/admin/users-panel';
@@ -209,17 +209,25 @@ export default function AdminPage() {
       </nav>
 
       {visibleGroups.length === 0 && (
-        <Alert className="border-warning/40 bg-warning/5 text-warning-foreground">
-          Your account holds no administration permission. Ask an administrator for the access you
-          need.
-        </Alert>
+        <AccessDenied
+          title="Administrator Access Required"
+          message="Your account holds no administration permissions. System administration is strictly restricted to authorized system administrators."
+          requiredRoles={['Administrator']}
+          requiredPermissions={['admin.user.read', 'admin.role.read']}
+          returnHref="/dashboard"
+          returnLabel="Return to Dashboard"
+        />
       )}
 
       {refuse ? (
-        <Alert className="border-warning/40 bg-warning/5 text-warning-foreground">
-          You do not have permission to open “{requested?.label ?? tab}”. It needs{' '}
-          <code className="font-mono">{requested?.anyOf.join(' or ')}</code>.
-        </Alert>
+        <AccessDenied
+          title={`Restricted Section: ${requested?.label ?? tab}`}
+          message={`You do not have permission to view the "${requested?.label ?? tab}" administrative section.`}
+          requiredPermissions={requested?.anyOf}
+          returnHref="/admin"
+          returnLabel="Return to Admin Overview"
+          className="min-h-[45vh]"
+        />
       ) : (
         <>
           {activeTab === 'requests' && <AccessRequestsPanel />}

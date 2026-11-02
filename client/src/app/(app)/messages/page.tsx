@@ -7,8 +7,8 @@
  * read a long thread or hold two conversations, and because a shareable URL is
  * needed for a link in an email or a bookmark.
  */
-import { Alert } from '@/components/ui/alert';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { AccessDenied } from '@/components/auth/access-denied';
 import { ChatPanel } from '@/components/chat/chat-panel';
 
 export default function MessagesPage() {
@@ -22,6 +22,18 @@ export default function MessagesPage() {
     );
   }
 
+  if (!canAny('chat.read')) {
+    return (
+      <AccessDenied
+        title="Messages Access Required"
+        message="Your account does not have team chat and messaging privileges enabled. Ask an administrator for chat permissions."
+        requiredPermissions={['chat.read']}
+        returnHref="/dashboard"
+        returnLabel="Return to Dashboard"
+      />
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <header>
@@ -32,14 +44,7 @@ export default function MessagesPage() {
         </p>
       </header>
 
-      {canAny('chat.read') ? (
-        <ChatPanel variant="page" />
-      ) : (
-        <Alert>
-          Your account does not have chat access. Ask an administrator for the{' '}
-          <code className="font-mono">chat.read</code> permission.
-        </Alert>
-      )}
+      <ChatPanel variant="page" />
     </div>
   );
 }
