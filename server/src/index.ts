@@ -26,12 +26,53 @@
  */
 import './load-env.js';
 
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
-import { prisma } from './db/client.js';
+import { prisma, dbPool } from './db/client.js';
+
+async function bootstrapDatabase(): Promise<void> {
+  try {
+    const check = await dbPool.query<{ present: boolean }>(
+      `SELECT to_regclass('public.employee_contract_type') IS NOT NULL AS present`,
+    );
+    if (!check.rows[0]?.present) {
+      console.log('[boot] Database is empty. Automatically initializing schema from schema.sql...');
+      const schemaSqlPath = resolve(process.cwd(), 'server/prisma/schema.sql');
+      const altPath = resolve(process.cwd(), 'prisma/schema.sql');
+      const target = existsSync(schemaSqlPath) ? schemaSqlPath : altPath;
+      if (existsSync(target)) {
+        const sql = readFileSync(target, 'utf8');
+        const client = await dbPool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query(sql);
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS schema_migration_ledger (
+              name text PRIMARY KEY,
+              checksum text NOT NULL,
+              applied_at timestamptz NOT NULL DEFAULT now()
+            )
+          `);
+          await client.query('COMMIT');
+          console.log('[boot] Schema initialized successfully!');
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => {});
+          throw err;
+        } finally {
+          client.release();
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[boot] Could not verify/initialize schema on boot:', err instanceof Error ? err.message : err);
+  }
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  await bootstrapDatabase();
   const app = await buildApp({ config });
 
   const shutdown = async (signal: string): Promise<void> => {
