@@ -44,7 +44,19 @@ import { recordWrite, type WriteAuditEntry } from '../audit/service.js';
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-if (process.env.DATABASE_URL === undefined || process.env.DATABASE_URL === '') {
+// Auto-resolve DATABASE_URL if missing or set to build-time placeholder
+if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('placeholder@localhost')) {
+  const host = process.env.DB_HOST || (process.env.NODE_ENV === 'production' ? 'db' : 'localhost');
+  const port = process.env.DB_PORT || '5432';
+  const user = process.env.POSTGRES_USER || process.env.DB_USER || 'openerp';
+  const pass = process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD;
+  const db = process.env.POSTGRES_DB || process.env.DB_NAME || 'openerp';
+  if (pass) {
+    process.env.DATABASE_URL = `postgresql://${user}:${pass}@${host}:${port}/${db}?schema=public`;
+  }
+}
+
+if (process.env.DATABASE_URL === undefined || process.env.DATABASE_URL === '' || process.env.DATABASE_URL.includes('placeholder@localhost')) {
   // Fail at import rather than at the first query. `pg` treats a missing
   // connection string as `postgres://<os-user>@localhost:5432`, so the symptom
   // would otherwise be a confusing "Can't reach database server at localhost"

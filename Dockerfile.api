@@ -122,6 +122,7 @@ ENV NODE_ENV=production \
 ARG DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public"
 ENV DATABASE_URL="${DATABASE_URL}"
 
+
 # Runtime dependencies only. The build stage above already ran the full install,
 # so devDependencies are not needed here and would only inflate the image.
 COPY package.json package-lock.json ./
@@ -168,6 +169,10 @@ COPY --from=build /app/server/dist ./server/dist
 # a writable directory would be theatre. If you later add file uploads or local
 # caching, add a `RUN chown -R node:node /app/data` and a `VOLUME` here.
 # -----------------------------------------------------------------------------
+# Copy the entrypoint script and ensure executable permissions
+COPY server/scripts/docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 USER node
 
 EXPOSE 4000
@@ -179,7 +184,5 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:4000/health || exit 1
 
-# `exec form` so node becomes PID 1 and receives SIGTERM directly. Without the
-# exec form, the shell becomes PID 1, ignores the signal, and the container is
-# SIGKILLed after the grace period — which in turn kills in-flight requests.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "server/dist/index.js"]

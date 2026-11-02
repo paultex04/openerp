@@ -46,10 +46,24 @@ export function parseEnv(src) {
 }
 
 export function loadEnvFile(path = resolve(repoRoot, '.env')) {
-  if (!existsSync(path)) return {};
-  const parsed = parseEnv(readFileSync(path, 'utf8'));
-  for (const [k, v] of Object.entries(parsed)) {
-    if (process.env[k] === undefined) process.env[k] = v;
+  if (existsSync(path)) {
+    const parsed = parseEnv(readFileSync(path, 'utf8'));
+    for (const [k, v] of Object.entries(parsed)) {
+      if (process.env[k] === undefined) process.env[k] = v;
+    }
   }
-  return parsed;
+
+  // Auto-resolve DATABASE_URL if missing or set to build-time placeholder
+  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('placeholder@localhost')) {
+    const host = process.env.DB_HOST || (process.env.NODE_ENV === 'production' ? 'db' : 'localhost');
+    const port = process.env.DB_PORT || '5432';
+    const user = process.env.POSTGRES_USER || process.env.DB_USER || 'openerp';
+    const pass = process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD;
+    const db = process.env.POSTGRES_DB || process.env.DB_NAME || 'openerp';
+    if (pass) {
+      process.env.DATABASE_URL = `postgresql://${user}:${pass}@${host}:${port}/${db}?schema=public`;
+    }
+  }
+
+  return process.env;
 }

@@ -225,150 +225,157 @@ async function initialise(migrations) {
 
 async function main() {
   console.log(dim(`\nOpenERP migrations from ${migrationsDir}\n`));
-  await ensureLedger();
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query('SELECT pg_advisory_lock(84729103)');
+    await ensureLedger();
 
-  const { rows: applied } = await pool.query(
-    `SELECT name, checksum, applied_at FROM ${LEDGER} ORDER BY name`,
-  );
-  const byName = new Map(applied.map((row) => [row.name, row]));
+    const { rows: applied } = await pool.query(
+      `SELECT name, checksum, applied_at FROM ${LEDGER} ORDER BY name`,
+    );
+    const byName = new Map(applied.map((row) => [row.name, row]));
 
-  const migrations = discover();
-  const outstanding = migrations.filter((m) => !byName.has(m.name));
+    const migrations = discover();
+    const outstanding = migrations.filter((m) => !byName.has(m.name));
 
-  // ---------------------------------------------------------------------------
-  // A database with no application schema. Two opposite situations arrive here,
-  // and the ledger is what tells them apart.
-  // ---------------------------------------------------------------------------
-  if (!(await hasApplicationSchema())) {
-    if (applied.length > 0) {
-      // No schema, but a ledger that says migrations ran. Something outside this
-      // script removed the tables, and guessing which of the two is right would
-      // either resurrect a database nobody wants or overwrite one they do.
-      console.error(
-        red('\nThe ledger records applied migrations, but the database has no schema.\n'),
+    // ---------------------------------------------------------------------------
+    // A database with no application schema. Two opposite situations arrive here,
+    // and the ledger is what tells them apart.
+    // ---------------------------------------------------------------------------
+    if (!(await hasApplicationSchema())) {
+      if (applied.length > 0) {
+        // No schema, but a ledger that says migrations ran. Something outside this
+        // script removed the tables, and guessing which of the two is right would
+        // either resurrect a database nobody wants or overwrite one they do.
+        console.error(
+          red('\nThe ledger records applied migrations, but the database has no schema.\n'),
+        );
+        console.error(
+          dim(
+            'Refusing to guess which of the two is correct. Restore the database, or\n' +
+              `drop ${LEDGER} to build a new one from schema.sql.\n`,
+          ),
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      console.log(
+        `${yellow('This database is empty.')}\n` +
+          dim(
+            '  Building it from server/prisma/schema.sql, then recording the\n' +
+              '  migrations as already present - that schema already contains them,\n' +
+              '  so running them would collide with the tables it creates.\n',
+          ),
       );
+
+      if (dry) {
+        console.log(`  ${yellow('would init')}  the whole schema from ${dim(schemaSqlPath)}`);
+        console.log(`  ${yellow('would record')} ${migrations.length} migration(s) as applied`);
+        console.log(
+          `\n${yellow('Dry run. Nothing was written.')} ${dim('Re-run without --dry to do it.')}\n`,
+        );
+        return;
+      }
+
+      await initialise(migrations);
+      console.log(
+        `\n${green(`Initialised from schema.sql; recorded ${migrations.length} migration(s).`)}`,
+      );
+      console.log(dim('Next: node server/dist/seed.js, or `npm run seed` from a checkout.\n'));
+      return;
+    }
+
+    if (init) {
+      console.error(red('\n--init refused: this database already has an application schema.\n'));
       console.error(
         dim(
-          'Refusing to guess which of the two is correct. Restore the database, or\n' +
-            `drop ${LEDGER} to build a new one from schema.sql.\n`,
+          'Initialising is not additive - it would collide with the tables already\n' +
+            'there. To converge an existing schema, use `npm run db:push`.\n',
         ),
       );
       process.exitCode = 1;
       return;
     }
 
-    console.log(
-      `${yellow('This database is empty.')}\n` +
-        dim(
-          '  Building it from server/prisma/schema.sql, then recording the\n' +
-            '  migrations as already present - that schema already contains them,\n' +
-            '  so running them would collide with the tables it creates.\n',
-        ),
-    );
+    for (const migration of migrations) {
+      const record = byName.get(migration.name);
+      if (!record) {
+        console.log(`  ${dry ? yellow('would apply') : green('applying ')} ${migration.name}`);
+        continue;
+      }
+      if (record.checksum !== migration.checksum) {
+        console.log(
+          `  ${yellow('CHANGED')} ${migration.name} ${dim(
+            `was ${record.checksum.slice(0, 8)}, file is now ${migration.checksum.slice(0, 8)}`,
+          )}`,
+        );
+        console.log(
+          `          ${dim(
+            'An applied migration was edited. The database did not change; this is reported, not enforced.',
+          )}`,
+        );
+      } else {
+        console.log(`  ${dim('applied ')} ${migration.name}`);
+      }
+    }
+
+    if (outstanding.length === 0) {
+      console.log(`\n${green('Schema is up to date.')}\n`);
+      return;
+    }
+
+    if (baseline) {
+      if (applied.length > 0) {
+        console.error(
+          red(
+            '\n--baseline refused: the ledger already has entries, so it is the source of truth.\n',
+          ),
+        );
+        console.error(
+          dim('A file that has not run cannot be recorded as having run. Run it instead.\n'),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      console.log(
+        `\n${yellow('Recording as applied WITHOUT running:')} ${dim(
+          'use this only for a database that already carries these migrations',
+        )}\n`,
+      );
+      for (const migration of outstanding) {
+        await pool.query('INSERT INTO schema_migration_ledger (name, checksum) VALUES ($1, $2)', [
+          migration.name,
+          migration.checksum,
+        ]);
+        console.log(`  ${green('recorded ')} ${migration.name}`);
+      }
+      console.log(
+        `\n${green('Baseline recorded.')} ${dim(
+          'Verify the schema actually matches before trusting this - the migration was NOT run.',
+        )}\n`,
+      );
+      return;
+    }
 
     if (dry) {
-      console.log(`  ${yellow('would init')}  the whole schema from ${dim(schemaSqlPath)}`);
-      console.log(`  ${yellow('would record')} ${migrations.length} migration(s) as applied`);
       console.log(
-        `\n${yellow('Dry run. Nothing was written.')} ${dim('Re-run without --dry to do it.')}\n`,
+        `\n${yellow(`${outstanding.length} migration(s) outstanding. Re-run without --dry.`)}\n`,
       );
       return;
     }
 
-    await initialise(migrations);
-    console.log(
-      `\n${green(`Initialised from schema.sql; recorded ${migrations.length} migration(s).`)}`,
-    );
-    console.log(dim('Next: node server/dist/seed.js, or `npm run seed` from a checkout.\n'));
-    return;
-  }
-
-  if (init) {
-    console.error(red('\n--init refused: this database already has an application schema.\n'));
-    console.error(
-      dim(
-        'Initialising is not additive - it would collide with the tables already\n' +
-          'there. To converge an existing schema, use `npm run db:push`.\n',
-      ),
-    );
-    process.exitCode = 1;
-    return;
-  }
-
-  for (const migration of migrations) {
-    const record = byName.get(migration.name);
-    if (!record) {
-      console.log(`  ${dry ? yellow('would apply') : green('applying ')} ${migration.name}`);
-      continue;
-    }
-    if (record.checksum !== migration.checksum) {
-      console.log(
-        `  ${yellow('CHANGED')} ${migration.name} ${dim(
-          `was ${record.checksum.slice(0, 8)}, file is now ${migration.checksum.slice(0, 8)}`,
-        )}`,
-      );
-      console.log(
-        `          ${dim(
-          'An applied migration was edited. The database did not change; this is reported, not enforced.',
-        )}`,
-      );
-    } else {
-      console.log(`  ${dim('applied ')} ${migration.name}`);
-    }
-  }
-
-  if (outstanding.length === 0) {
-    console.log(`\n${green('Schema is up to date.')}\n`);
-    return;
-  }
-
-  if (baseline) {
-    if (applied.length > 0) {
-      console.error(
-        red(
-          '\n--baseline refused: the ledger already has entries, so it is the source of truth.\n',
-        ),
-      );
-      console.error(
-        dim('A file that has not run cannot be recorded as having run. Run it instead.\n'),
-      );
-      process.exitCode = 1;
-      return;
-    }
-    console.log(
-      `\n${yellow('Recording as applied WITHOUT running:')} ${dim(
-        'use this only for a database that already carries these migrations',
-      )}\n`,
-    );
     for (const migration of outstanding) {
-      await pool.query('INSERT INTO schema_migration_ledger (name, checksum) VALUES ($1, $2)', [
-        migration.name,
-        migration.checksum,
-      ]);
-      console.log(`  ${green('recorded ')} ${migration.name}`);
+      console.log(`\n  ${dim(`--- ${migration.name} ---`)}`);
+      await applyMigration(migration);
+      console.log(`  ${green('applied ')} ${migration.name}`);
     }
-    console.log(
-      `\n${green('Baseline recorded.')} ${dim(
-        'Verify the schema actually matches before trusting this - the migration was NOT run.',
-      )}\n`,
-    );
-    return;
-  }
 
-  if (dry) {
-    console.log(
-      `\n${yellow(`${outstanding.length} migration(s) outstanding. Re-run without --dry.`)}\n`,
-    );
-    return;
+    console.log(`\n${green(`Applied ${outstanding.length} migration(s).`)}\n`);
+  } finally {
+    await lockClient.query('SELECT pg_advisory_unlock(84729103)').catch(() => {});
+    lockClient.release();
   }
-
-  for (const migration of outstanding) {
-    console.log(`\n  ${dim(`--- ${migration.name} ---`)}`);
-    await applyMigration(migration);
-    console.log(`  ${green('applied ')} ${migration.name}`);
-  }
-
-  console.log(`\n${green(`Applied ${outstanding.length} migration(s).`)}\n`);
 }
 
 main()

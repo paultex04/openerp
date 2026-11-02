@@ -126,9 +126,14 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
+      POSTGRES_USER: openerp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: openerp
       # Internal service name, not localhost: localhost inside this container is
       # the API container itself.
       DATABASE_URL: postgresql://openerp:${POSTGRES_PASSWORD}@db:5432/openerp?schema=public
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@contractor.co.za}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?set AUTH_JWT_SECRET in .env}
       AUTH_JWT_EXPIRES_IN: ${AUTH_JWT_EXPIRES_IN:-15m}
       # Hard-set, NOT interpolated from the shared `.env`. Two reasons:
