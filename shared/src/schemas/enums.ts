@@ -91,3 +91,7 @@ export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export const taskPriorityValues = ['Low', 'Medium', 'High', 'Urgent'] as const;
 export const taskPrioritySchema = z.enum(taskPriorityValues);
 export type TaskPriority = z.infer<typeof taskPrioritySchema>;
+
+export const accessRequestStatusValues = ['Pending', 'Approved', 'Rejected'] as const;
+export const accessRequestStatusSchema = z.enum(accessRequestStatusValues);
+export type AccessRequestStatus = z.infer<typeof accessRequestStatusSchema>;

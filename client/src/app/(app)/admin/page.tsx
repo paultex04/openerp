@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { useUrlParam } from '@/hooks/use-url-param';
 import { usePermissions } from '@/components/auth/usePermissions';
 import { UsersPanel } from '@/components/admin/users-panel';
+import { AccessRequestsPanel } from '@/components/admin/access-requests-panel';
 import { AuditPanel } from '@/components/admin/audit-panel';
 import { RolesPanel } from '@/components/admin/roles-panel';
 import { WorkflowPanel } from '@/components/admin/workflow-panel';
@@ -47,6 +48,7 @@ import {
 import { api } from '@/lib/api';
 
 type Tab =
+  | 'requests'
   | 'users'
   | 'roles'
   | 'workflow'
@@ -62,6 +64,7 @@ type Tab =
 
 /** Whitelist for the `tab` query parameter. */
 const TAB_KEYS: readonly Tab[] = [
+  'requests',
   'users',
   'roles',
   'workflow',
@@ -92,6 +95,7 @@ const TAB_GROUPS: ReadonlyArray<{ label: string; tabs: TabDef[] }> = [
   {
     label: 'Access',
     tabs: [
+      { key: 'requests', label: 'Access Requests', anyOf: ['admin.user.read'] },
       { key: 'users', label: 'Users', anyOf: ['admin.user.read'] },
       { key: 'roles', label: 'Roles & permissions', anyOf: ['admin.role.read'] },
     ],
@@ -124,8 +128,16 @@ export default function AdminPage() {
   // URL-backed so each admin screen is deep-linkable from the sidebar and the
   // audit trail can be linked directly at a reviewer.
   const [tab, setTab] = useUrlParam<Tab>('tab', TAB_KEYS, 'users');
-  const { permissions, loading } = usePermissions();
+  const { permissions, loading, can } = usePermissions();
   const me = useMe();
+
+  const pendingCountQuery = useQuery({
+    queryKey: ['admin-access-requests-pending-count'],
+    queryFn: () => api.get<{ count: number }>('/api/admin/access-requests/pending-count'),
+    enabled: can('admin.user.read'),
+    refetchInterval: 30_000,
+  });
+  const pendingCount = pendingCountQuery.data?.count ?? 0;
 
   const allowed = (def: TabDef) => def.anyOf.some((p) => permissions.includes(p));
   const visibleGroups = TAB_GROUPS.map((group) => ({
@@ -182,8 +194,14 @@ export default function AdminPage() {
                 variant={activeTab === def.key ? 'default' : 'ghost'}
                 aria-current={activeTab === def.key ? 'page' : undefined}
                 onClick={() => setTab(def.key)}
+                className="gap-1.5"
               >
-                {def.label}
+                <span>{def.label}</span>
+                {def.key === 'requests' && pendingCount > 0 && (
+                  <span className="rounded-full bg-amber-500/20 px-1.5 py-0.2 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                    {pendingCount}
+                  </span>
+                )}
               </Button>
             ))}
           </div>
@@ -204,6 +222,7 @@ export default function AdminPage() {
         </Alert>
       ) : (
         <>
+          {activeTab === 'requests' && <AccessRequestsPanel />}
           {activeTab === 'users' && <UsersPanel myId={me.data?.user.id} />}
           {activeTab === 'roles' && <RolesPanel />}
           {activeTab === 'workflow' && <WorkflowPanel />}

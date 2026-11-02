@@ -17,6 +17,7 @@ import {
   ClipboardCheck,
   FileSpreadsheet,
   FileWarning,
+  UserCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -36,7 +37,7 @@ import { formatDate, formatZar } from '@/lib/format';
 
 interface NotificationItem {
   id: string;
-  type: 'invoice' | 'timesheet' | 'amendment';
+  type: 'invoice' | 'timesheet' | 'amendment' | 'access_request';
   title: string;
   description: string;
   timestamp?: string;
@@ -51,6 +52,7 @@ export function NotificationCenter() {
 
   const mayReadInvoices = can('invoice.read');
   const mayApproveTimesheets = can('timesheet.approve');
+  const mayReadUsers = can('admin.user.read');
 
   // 1. Invoices awaiting approval (Submitted)
   const submittedInvoicesQuery = useQuery({
@@ -72,6 +74,23 @@ export function NotificationCenter() {
   const analyticsQuery = useQuery({
     queryKey: ['dashboard-analytics'],
     queryFn: () => api.get<DashboardAnalyticsResponse>('/api/analytics/dashboard'),
+    staleTime: 30_000,
+  });
+
+  // 4. Access requests awaiting admin review
+  const accessRequestsQuery = useQuery({
+    queryKey: ['admin-access-requests-pending-notifications'],
+    queryFn: () =>
+      api.get<{
+        requests: Array<{
+          id: number;
+          fullName: string;
+          email: string;
+          department: string | null;
+          createdAt: string;
+        }>;
+      }>('/api/admin/access-requests', { status: 'Pending' }),
+    enabled: mayReadUsers,
     staleTime: 30_000,
   });
 
@@ -124,11 +143,27 @@ export function NotificationCenter() {
       }
     }
 
+    // Pending access requests
+    const accessRequests = accessRequestsQuery.data?.requests ?? [];
+    for (const req of accessRequests) {
+      list.push({
+        id: `access-req-${req.id}`,
+        type: 'access_request',
+        title: `Access request from ${req.fullName}`,
+        description: `${req.department ? `${req.department} · ` : ''}${req.email}`,
+        timestamp: formatDate(req.createdAt),
+        badge: 'Access Request',
+        badgeVariant: 'warning',
+        href: '/admin?tab=requests',
+      });
+    }
+
     return list;
   }, [
     submittedInvoicesQuery.data,
     timesheetApprovalsQuery.data,
     analyticsQuery.data?.operations?.expiringAmendments,
+    accessRequestsQuery.data?.requests,
   ]);
 
   const unreadCount = items.length;
@@ -197,9 +232,11 @@ export function NotificationCenter() {
                   ? FileSpreadsheet
                   : item.type === 'timesheet'
                     ? ClipboardCheck
-                    : item.badgeVariant === 'destructive'
-                      ? AlertTriangle
-                      : FileWarning;
+                    : item.type === 'access_request'
+                      ? UserCheck
+                      : item.badgeVariant === 'destructive'
+                        ? AlertTriangle
+                        : FileWarning;
 
               return (
                 <Link

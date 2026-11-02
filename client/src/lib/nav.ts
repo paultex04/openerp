@@ -35,6 +35,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   TrendingUp,
+  UserCheck,
   UserRound,
   Users,
   type LucideIcon,
@@ -211,6 +212,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       'contact.read',
     ],
     items: [
+      {
+        href: '/admin?tab=requests',
+        label: 'Access Requests',
+        icon: UserCheck,
+        anyOf: ['admin.user.read'],
+      },
       {
         href: '/admin?tab=users',
         label: 'User Directory & Employee Links',

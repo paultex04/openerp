@@ -17,3 +17,4 @@ export * from './invoice-status';
 export * from './costing';
 export * from './schemas/analytics';
 export * from './schemas/tasks';
+export * from './schemas/access-requests';

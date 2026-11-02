@@ -55,6 +55,7 @@ const MODEL_LABELS: Record<string, string> = {
   RolePermission: 'role permission grant',
   Timesheet: 'timesheet',
   TimesheetEntry: 'timesheet line',
+  AccessRequest: 'access request',
 };
 
 export function modelLabel(model: string): string {

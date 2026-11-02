@@ -24,8 +24,18 @@
  * emergency this system should not create for itself.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import crypto from 'node:crypto';
 import { z } from 'zod';
-import { PERMISSIONS, ROLE_ADMINISTRATOR, ROLE_KEYS, ROLE_PERMISSIONS } from '@openerp/shared';
+import {
+  PERMISSIONS,
+  ROLE_ADMINISTRATOR,
+  ROLE_KEYS,
+  ROLE_PERMISSIONS,
+  approveAccessRequestSchema,
+  rejectAccessRequestSchema,
+  accessRequestStatusFromKey,
+  accessRequestStatusToKey,
+} from '@openerp/shared';
 import { prisma } from '../db/client.js';
 import { HttpError } from '../auth/plugin.js';
 import { hashPassword, PasswordPolicyError } from '../auth/password.js';
@@ -690,6 +700,256 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
         ),
         // Surfaced so a silently failing audit hook cannot go unnoticed.
         auditWriteFailures: auditFailureCount(),
+      };
+    },
+  );
+
+  // =======================================================================
+  // Access Requests (Self-Service User Provisioning)
+  // =======================================================================
+
+  app.get(
+    '/api/admin/access-requests',
+    { preHandler: [app.authenticate, app.requirePermission('admin.user.read')] },
+    async (request: FastifyRequest) => {
+      const query = z
+        .object({
+          status: z.enum(['Pending', 'Approved', 'Rejected', 'All']).optional(),
+        })
+        .parse(request.query ?? {});
+
+      const where: { status?: any } = {};
+      if (query.status && query.status !== 'All') {
+        where.status = accessRequestStatusToKey(query.status);
+      }
+
+      const requests = await prisma.accessRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          reviewedBy: {
+            select: {
+              id: true,
+              email: true,
+              employee: { select: { name: true, surname: true } },
+            },
+          },
+          createdUser: {
+            select: {
+              id: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      return {
+        requests: requests.map((r) => ({
+          id: r.id,
+          fullName: r.fullName,
+          email: r.email,
+          phone: r.phone,
+          department: r.department,
+          jobTitle: r.jobTitle,
+          reason: r.reason,
+          status: accessRequestStatusFromKey(r.status),
+          adminNotes: r.adminNotes,
+          reviewedById: r.reviewedById,
+          reviewedAt: r.reviewedAt?.toISOString() ?? null,
+          createdUserId: r.createdUserId,
+          createdAt: r.createdAt.toISOString(),
+          updatedAt: r.updatedAt.toISOString(),
+          reviewedBy: r.reviewedBy
+            ? {
+                id: r.reviewedBy.id,
+                email: r.reviewedBy.email,
+                name: `${r.reviewedBy.employee.name} ${r.reviewedBy.employee.surname}`,
+              }
+            : null,
+          createdUser: r.createdUser
+            ? {
+                id: r.createdUser.id,
+                email: r.createdUser.email,
+              }
+            : null,
+        })),
+      };
+    },
+  );
+
+  app.get(
+    '/api/admin/access-requests/pending-count',
+    { preHandler: [app.authenticate, app.requirePermission('admin.user.read')] },
+    async () => {
+      const count = await prisma.accessRequest.count({
+        where: { status: 'PENDING' },
+      });
+      return { count };
+    },
+  );
+
+  app.post(
+    '/api/admin/access-requests/:id/approve',
+    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    async (request: FastifyRequest) => {
+      const { id } = idParam.parse(request.params);
+      const body = approveAccessRequestSchema.parse(request.body);
+      const principal = request.principal!;
+
+      const reqRecord = await prisma.accessRequest.findUnique({
+        where: { id },
+      });
+      if (!reqRecord) {
+        throw new HttpError(404, 'NOT_FOUND', 'Access request not found.');
+      }
+      if (reqRecord.status !== 'PENDING') {
+        throw new HttpError(
+          409,
+          'NOT_PENDING',
+          `Access request is already ${accessRequestStatusFromKey(reqRecord.status)}.`,
+        );
+      }
+
+      // Check if user already exists
+      const existingUser = await prisma.appUser.findUnique({
+        where: { email: reqRecord.email },
+      });
+      if (existingUser) {
+        throw new HttpError(
+          409,
+          'ACCOUNT_EXISTS',
+          `An account with email ${reqRecord.email} already exists.`,
+        );
+      }
+
+      // Resolve roles
+      const roles = await resolveRoles(body.roleKeys);
+
+      // Determine employee
+      let employee = await prisma.employee.findUnique({
+        where: { email: reqRecord.email },
+      });
+
+      if (!employee) {
+        let contractTypeId = body.contractTypeId;
+        if (!contractTypeId) {
+          const firstContractType = await prisma.employeeContractType.findFirst({
+            where: { isArchived: false },
+            orderBy: { id: 'asc' },
+          });
+          if (!firstContractType) {
+            throw new HttpError(
+              422,
+              'NO_CONTRACT_TYPE',
+              'No active employee contract type exists. Please configure one in master data first.',
+            );
+          }
+          contractTypeId = firstContractType.id;
+        }
+
+        const nameParts = reqRecord.fullName.trim().split(/\s+/);
+        const firstName = nameParts[0] || 'User';
+        const lastName = nameParts.slice(1).join(' ') || firstName;
+
+        employee = await prisma.employee.create({
+          data: {
+            name: firstName,
+            surname: lastName,
+            email: reqRecord.email,
+            mobile: reqRecord.phone ?? null,
+            startDate: new Date(),
+            contractTypeId,
+            rate: body.rate ?? 150.0,
+          },
+        });
+      }
+
+      // Password: use provided or generate strong temporary password
+      const temporaryPassword =
+        body.temporaryPassword ?? `Temp#${crypto.randomBytes(4).toString('hex')}!Aa1`;
+      const passwordHash = await hashPassword(temporaryPassword);
+
+      const result = await prisma.$transaction(async (tx) => {
+        const newUser = await tx.appUser.create({
+          data: {
+            employeeId: employee.id,
+            email: reqRecord.email,
+            passwordHash,
+            isActive: true,
+            roles: {
+              create: roles.map((r) => ({
+                roleId: r.id,
+                assignedBy: principal.userId,
+              })),
+            },
+          },
+          select: {
+            id: true,
+            email: true,
+            employeeId: true,
+          },
+        });
+
+        await tx.accessRequest.update({
+          where: { id },
+          data: {
+            status: 'APPROVED',
+            reviewedById: principal.userId,
+            reviewedAt: new Date(),
+            createdUserId: newUser.id,
+            adminNotes: body.adminNotes ?? null,
+          },
+        });
+
+        return newUser;
+      });
+
+      return {
+        ok: true,
+        userId: result.id,
+        email: result.email,
+        employeeId: result.employeeId,
+        temporaryPassword,
+        message: 'Access request approved and user account provisioned successfully.',
+      };
+    },
+  );
+
+  app.post(
+    '/api/admin/access-requests/:id/reject',
+    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    async (request: FastifyRequest) => {
+      const { id } = idParam.parse(request.params);
+      const body = rejectAccessRequestSchema.parse(request.body);
+      const principal = request.principal!;
+
+      const reqRecord = await prisma.accessRequest.findUnique({
+        where: { id },
+      });
+      if (!reqRecord) {
+        throw new HttpError(404, 'NOT_FOUND', 'Access request not found.');
+      }
+      if (reqRecord.status !== 'PENDING') {
+        throw new HttpError(
+          409,
+          'NOT_PENDING',
+          `Access request is already ${accessRequestStatusFromKey(reqRecord.status)}.`,
+        );
+      }
+
+      await prisma.accessRequest.update({
+        where: { id },
+        data: {
+          status: 'REJECTED',
+          reviewedById: principal.userId,
+          reviewedAt: new Date(),
+          adminNotes: body.adminNotes,
+        },
+      });
+
+      return {
+        ok: true,
+        message: 'Access request rejected.',
       };
     },
   );

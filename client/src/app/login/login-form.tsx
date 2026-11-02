@@ -35,6 +35,8 @@ import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
 import { DemoAccounts } from '@/components/login/demo-accounts';
+import { RequestAccessDialog } from '@/components/login/request-access-dialog';
+import { CheckStatusDialog } from '@/components/login/check-status-dialog';
 import { api, ApiError } from '@/lib/api';
 
 export default function LoginForm() {
@@ -43,6 +45,8 @@ export default function LoginForm() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
 
   // Where to land after signing in. Preserved so a user bounced
   // off a deep link reaches the page they actually asked for.
@@ -111,7 +115,8 @@ export default function LoginForm() {
               Precision engineering from estimate to invoice.
             </h1>
             <p className="text-sm leading-relaxed text-primary-foreground/80 text-pretty">
-              Unified project lifecycle, commercial rate buildup, site tracking, and automated financial billing.
+              Unified project lifecycle, commercial rate buildup, site tracking, and automated
+              financial billing.
             </p>
           </div>
 
@@ -188,10 +193,18 @@ export default function LoginForm() {
           <CardContent>
             <form onSubmit={submit} className="space-y-4" noValidate>
               {searchParams.get('expired') === '1' && !error && (
-                <Alert role="status" className="border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200">
-                  <ShieldCheck aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-400" />
+                <Alert
+                  role="status"
+                  className="border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                >
+                  <ShieldCheck
+                    aria-hidden="true"
+                    className="size-4 text-amber-600 dark:text-amber-400"
+                  />
                   <AlertTitle>Session expired</AlertTitle>
-                  <AlertDescription>Your session has expired. Please sign in again.</AlertDescription>
+                  <AlertDescription>
+                    Your session has expired. Please sign in again.
+                  </AlertDescription>
                 </Alert>
               )}
 
@@ -265,6 +278,24 @@ export default function LoginForm() {
                   </>
                 )}
               </Button>
+
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 px-1">
+                <button
+                  type="button"
+                  onClick={() => setRequestDialogOpen(true)}
+                  className="hover:text-primary transition-colors cursor-pointer underline-offset-4 hover:underline"
+                >
+                  Request access
+                </button>
+                <span className="text-muted-foreground/30">•</span>
+                <button
+                  type="button"
+                  onClick={() => setStatusDialogOpen(true)}
+                  className="hover:text-primary transition-colors cursor-pointer underline-offset-4 hover:underline"
+                >
+                  Check request status
+                </button>
+              </div>
             </form>
           </CardContent>
 
@@ -283,6 +314,19 @@ export default function LoginForm() {
           </CardFooter>
         </Card>
       </div>
+
+      <RequestAccessDialog
+        open={requestDialogOpen}
+        onOpenChange={setRequestDialogOpen}
+        onSwitchToCheckStatus={() => setStatusDialogOpen(true)}
+      />
+
+      <CheckStatusDialog
+        open={statusDialogOpen}
+        onOpenChange={setStatusDialogOpen}
+        onSelectEmail={(selectedEmail) => setEmail(selectedEmail)}
+        onSwitchToRequest={() => setRequestDialogOpen(true)}
+      />
     </main>
   );
 }

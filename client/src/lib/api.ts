@@ -978,5 +978,17 @@ export interface TaskDetailRow extends TaskSummaryRow {
   }>;
   comments: TaskCommentRow[];
   activities: TaskActivityRow[];
-  parent: { id: number; title: string; status: 'Todo' | 'In Progress' | 'Blocked' | 'Done' | 'Cancelled' } | null;
+  parent: {
+    id: number;
+    title: string;
+    status: 'Todo' | 'In Progress' | 'Blocked' | 'Done' | 'Cancelled';
+  } | null;
 }
+
+export type {
+  CreateAccessRequestInput,
+  ApproveAccessRequestInput,
+  RejectAccessRequestInput,
+  AccessRequestRow,
+  AccessRequestStatusResponse,
+} from '@openerp/shared';

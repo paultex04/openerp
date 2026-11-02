@@ -16,7 +16,12 @@ import { prisma } from '../db/client.js';
 import { fakeVerify, hashPassword, verifyPassword } from '../auth/password.js';
 import { HttpError, unauthorized } from '../auth/plugin.js';
 import type { Config } from '../config.js';
-import { ROLES } from '@openerp/shared';
+import {
+  ROLES,
+  createAccessRequestSchema,
+  emailSchema,
+  accessRequestStatusFromKey,
+} from '@openerp/shared';
 
 const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email('A valid email address is required.'),
@@ -250,6 +255,109 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
 
   // ---- GET /api/auth/roles (public catalogue for the login page) --------
   app.get('/api/auth/roles', async (_request, reply) => reply.code(200).send({ roles: ROLES }));
+
+  // ---- POST /api/auth/access-requests (submit public access request) ------
+  app.post(
+    '/api/auth/access-requests',
+    {
+      config: config.isTest ? {} : { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const body = createAccessRequestSchema.parse(request.body);
+
+      // Check if an active account is already registered with this email
+      const existingUser = await prisma.appUser.findUnique({
+        where: { email: body.email },
+        select: { id: true, isActive: true },
+      });
+      if (existingUser && existingUser.isActive) {
+        throw new HttpError(
+          409,
+          'ACCOUNT_EXISTS',
+          'An active account is already registered with this email address. Please sign in or contact an administrator.',
+        );
+      }
+
+      // Check if a pending request is already waiting for review
+      const existingPending = await prisma.accessRequest.findFirst({
+        where: {
+          email: body.email,
+          status: 'PENDING',
+        },
+        select: { id: true },
+      });
+      if (existingPending) {
+        throw new HttpError(
+          409,
+          'REQUEST_PENDING',
+          'An access request for this email address is already pending review by system administrators.',
+        );
+      }
+
+      const accessRequest = await prisma.accessRequest.create({
+        data: {
+          fullName: body.fullName,
+          email: body.email,
+          phone: body.phone,
+          department: body.department,
+          jobTitle: body.jobTitle ?? null,
+          reason: body.reason,
+          status: 'PENDING',
+        },
+      });
+
+      return reply.code(201).send({
+        ok: true,
+        id: accessRequest.id,
+        message: 'Access request submitted successfully. A system administrator will review it.',
+      });
+    },
+  );
+
+  // ---- GET /api/auth/access-requests/status (check status by email) --------
+  app.get(
+    '/api/auth/access-requests/status',
+    {
+      config: config.isTest ? {} : { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const query = z.object({ email: emailSchema }).parse(request.query);
+
+      const latest = await prisma.accessRequest.findFirst({
+        where: { email: query.email },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          department: true,
+          jobTitle: true,
+          reason: true,
+          status: true,
+          adminNotes: true,
+          reviewedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!latest) {
+        return reply.code(200).send({ found: false, request: null });
+      }
+
+      return reply.code(200).send({
+        found: true,
+        request: {
+          ...latest,
+          status: accessRequestStatusFromKey(latest.status),
+          reviewedAt: latest.reviewedAt?.toISOString() ?? null,
+          createdAt: latest.createdAt.toISOString(),
+          updatedAt: latest.updatedAt.toISOString(),
+        },
+      });
+    },
+  );
 }
 
 /**

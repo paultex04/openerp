@@ -121,6 +121,14 @@ enum ConversationKind {
 // Tasks Module (Work-related task tracking & collaboration)
 // ---------------------------------------------------------------------------
 
+enum AccessRequestStatus {
+  PENDING  @map("Pending")
+  APPROVED @map("Approved")
+  REJECTED @map("Rejected")
+
+  @@map("access_request_status_enum")
+}
+
 enum TaskStatus {
   TODO        @map("Todo")
   IN_PROGRESS @map("In Progress")
@@ -737,6 +745,8 @@ model AppUser {
   taskComments        TaskComment[]
   taskActivities      TaskActivity[]
   taskAssigned        TaskAssignee[]       @relation("TaskAssigner")
+  accessRequestsReviewed AccessRequest[]   @relation("AccessRequestReviewer")
+  accessRequestsCreated  AccessRequest[]   @relation("AccessRequestCreatedUser")
 
   @@index([isActive])
   @@map("app_user")
@@ -1085,4 +1095,32 @@ model TaskActivity {
 
   @@index([taskId, createdAt])
   @@map("task_activity")
+}
+
+// ---------------------------------------------------------------------------
+// Access Requests (Self-Service User Access Workflow)
+// ---------------------------------------------------------------------------
+
+model AccessRequest {
+  id            Int                 @id @default(autoincrement())
+  fullName      String              @map("full_name") @db.VarChar(150)
+  email         String              @db.VarChar(255)
+  phone         String?             @db.VarChar(50)
+  department    String?             @db.VarChar(100)
+  jobTitle      String?             @map("job_title") @db.VarChar(100)
+  reason        String              @db.Text
+  status        AccessRequestStatus @default(PENDING)
+  adminNotes    String?             @map("admin_notes") @db.Text
+  reviewedById  Int?                @map("reviewed_by_id")
+  reviewedAt    DateTime?           @map("reviewed_at") @db.Timestamptz(3)
+  createdUserId Int?                @map("created_user_id")
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  reviewedBy    AppUser?            @relation("AccessRequestReviewer", fields: [reviewedById], references: [id])
+  createdUser   AppUser?            @relation("AccessRequestCreatedUser", fields: [createdUserId], references: [id])
+
+  @@index([email])
+  @@index([status])
+  @@map("access_request")
 }

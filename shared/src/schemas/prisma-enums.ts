@@ -30,11 +30,13 @@ import {
   timesheetStatusValues,
   taskStatusValues,
   taskPriorityValues,
+  accessRequestStatusValues,
   type InvoiceStatus,
   type ShiftType,
   type TimesheetStatus,
   type TaskStatus,
   type TaskPriority,
+  type AccessRequestStatus,
 } from './enums';
 
 /** Compile-time exhaustiveness guard. */
@@ -163,11 +165,12 @@ export const TASK_STATUS = buildMapping(taskStatusValues, [
   'CANCELLED',
 ]);
 
-export const TASK_PRIORITY = buildMapping(taskPriorityValues, [
-  'LOW',
-  'MEDIUM',
-  'HIGH',
-  'URGENT',
+export const TASK_PRIORITY = buildMapping(taskPriorityValues, ['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+
+export const ACCESS_REQUEST_STATUS = buildMapping(accessRequestStatusValues, [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -271,4 +274,12 @@ export function taskPriorityToKey(label: string): PrismaTaskPriority {
 }
 export function taskPriorityFromKey(key: string): TaskPriority {
   return TASK_PRIORITY.toLabel(key) as TaskPriority;
+}
+
+export type PrismaAccessRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export function accessRequestStatusToKey(label: string): PrismaAccessRequestStatus {
+  return ACCESS_REQUEST_STATUS.toKey(label) as PrismaAccessRequestStatus;
+}
+export function accessRequestStatusFromKey(key: string): AccessRequestStatus {
+  return ACCESS_REQUEST_STATUS.toLabel(key) as AccessRequestStatus;
 }
