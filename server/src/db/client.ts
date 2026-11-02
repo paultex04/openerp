@@ -39,25 +39,21 @@
 import { PrismaClient } from '../generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
-import { existsSync } from 'node:fs';
 import { currentAuditActor, SYSTEM_ACTOR, type AuditActor } from '../audit/context.js';
 import { recordWrite, type WriteAuditEntry } from '../audit/service.js';
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-// Auto-resolve or rewrite DATABASE_URL in Docker / production
-const isProdOrDocker = process.env.NODE_ENV === 'production' || existsSync('/.dockerenv');
-const host = process.env.DB_HOST || (isProdOrDocker ? 'db' : 'localhost');
+// Auto-resolve or rewrite DATABASE_URL: never allow placeholder or localhost inside a container
+const host = process.env.DB_HOST || 'db';
 const port = process.env.DB_PORT || '5432';
 const user = process.env.POSTGRES_USER || process.env.DB_USER || 'openerp';
 const pass = process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || 'openerp';
 const db = process.env.POSTGRES_DB || process.env.DB_NAME || 'openerp';
 
-if (!process.env.DATABASE_URL) {
-  if (isProdOrDocker || process.env.POSTGRES_PASSWORD) {
-    process.env.DATABASE_URL = `postgresql://${user}:${pass}@${host}:${port}/${db}?schema=public`;
-  }
-} else if (isProdOrDocker) {
+if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('placeholder@localhost')) {
+  process.env.DATABASE_URL = `postgresql://${user}:${pass}@${host}:${port}/${db}?schema=public`;
+} else if (process.env.DATABASE_URL.includes('@localhost:') || process.env.DATABASE_URL.includes('@127.0.0.1:')) {
   let url = process.env.DATABASE_URL;
   url = url.replace(/@(localhost|127\.0\.0\.1):/, `@${host}:`);
   url = url.replace('placeholder:placeholder', `${user}:${pass}`);
