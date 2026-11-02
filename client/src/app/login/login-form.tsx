@@ -32,6 +32,14 @@ import { useEffect, useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
@@ -63,6 +71,9 @@ export default function LoginForm() {
   // Request Status State
   const [statusEmailInput, setStatusEmailInput] = useState('');
   const [queriedStatusEmail, setQueriedStatusEmail] = useState<string | null>(null);
+
+  // Forgot Password Dialog State
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
 
   // Where to land after signing in.
   const next = safeNext(searchParams.get('next'));
@@ -302,13 +313,10 @@ export default function LoginForm() {
                     </FieldLabel>
                     <button
                       type="button"
-                      onClick={() => {
-                        setActiveTab('status');
-                        setError(null);
-                      }}
+                      onClick={() => setForgotPasswordOpen(true)}
                       className="text-[11px] text-primary hover:underline transition-colors cursor-pointer"
                     >
-                      Pending approval?
+                      Forgot password?
                     </button>
                   </div>
                   <div className="relative">
@@ -672,6 +680,38 @@ export default function LoginForm() {
           <span>Authorized Personnel Only</span>
         </div>
       </div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={forgotPasswordOpen} onOpenChange={setForgotPasswordOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Forgot Password</DialogTitle>
+            <DialogDescription>
+              Security guidance for account access and password resets.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-border/80 bg-muted/40 p-4 text-xs text-muted-foreground space-y-2.5">
+            <p>
+              OpenERP accounts are managed through corporate role-based security. For security
+              reasons, automated public password resets are disabled.
+            </p>
+            <p>
+              Please contact your system administrator or site supervisor to issue a temporary
+              password or reset your credentials.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setForgotPasswordOpen(false)}
+              className="cursor-pointer text-xs"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
