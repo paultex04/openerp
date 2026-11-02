@@ -65,21 +65,27 @@ export async function stopJobQueue(): Promise<void> {
   }
 }
 
+function normalizeQueueName(name: string): string {
+  // pg-boss only permits alphanumeric, underscores, hyphens, periods, or forward slashes.
+  return name.replace(/:/g, '/');
+}
+
 export async function sendJob<T = object>(
   queueName: string,
   data: T,
   options?: { priority?: number; startAfter?: number },
 ): Promise<string | null> {
+  const safeQueue = normalizeQueueName(queueName);
   if (bossInstance) {
-    return await bossInstance.send(queueName, data as object, options);
+    return await bossInstance.send(safeQueue, data as object, options);
   }
 
   // Test mode fallback
   const mockId = `job-mock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const jobEntry = { id: mockId, name: queueName, data };
+  const jobEntry = { id: mockId, name: safeQueue, data };
   testJobs.push(jobEntry);
 
-  const worker = testWorkers.get(queueName);
+  const worker = testWorkers.get(safeQueue);
   if (worker) {
     // Execute worker asynchronously
     setTimeout(() => {
@@ -94,8 +100,9 @@ export async function registerWorker<T = object>(
   queueName: string,
   handler: (job: { id: string; name: string; data: T }) => Promise<void>,
 ): Promise<void> {
+  const safeQueue = normalizeQueueName(queueName);
   if (bossInstance) {
-    await bossInstance.work(queueName, async (jobs) => {
+    await bossInstance.work(safeQueue, async (jobs) => {
       for (const j of jobs) {
         await handler({ id: j.id, name: j.name, data: j.data as T });
       }
@@ -104,7 +111,7 @@ export async function registerWorker<T = object>(
   }
 
   // Test mode fallback
-  testWorkers.set(queueName, handler as JobHandler);
+  testWorkers.set(safeQueue, handler as JobHandler);
 }
 
 /** Test helper: get enqueued jobs */

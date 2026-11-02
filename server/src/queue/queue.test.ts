@@ -27,27 +27,36 @@ describe('background job queue', () => {
   });
 
   it('enqueues a job and records it in test mode', async () => {
-    const jobId = await sendJob('export:invoices', { format: 'csv', year: 2026 });
+    const jobId = await sendJob('export/invoices', { format: 'csv', year: 2026 });
     expect(jobId).toMatch(/^job-mock-/);
 
     const jobs = getTestEnqueuedJobs();
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.name).toBe('export:invoices');
+    expect(jobs[0]?.name).toBe('export/invoices');
     expect(jobs[0]?.data).toEqual({ format: 'csv', year: 2026 });
   });
 
   it('dispatches enqueued jobs to registered worker in test mode', async () => {
     let handledJob: unknown = null;
 
-    await registerWorker('export:timesheets', async (job) => {
+    await registerWorker('export/timesheets', async (job) => {
       handledJob = job.data;
     });
 
-    await sendJob('export:timesheets', { employeeId: 42 });
+    await sendJob('export/timesheets', { employeeId: 42 });
 
     // Wait for async dispatch
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(handledJob).toEqual({ employeeId: 42 });
+  });
+
+  it('normalizes legacy colon queue names to compliant forward slash names', async () => {
+    const jobId = await sendJob('legacy:queue:name', { foo: 'bar' });
+    expect(jobId).toMatch(/^job-mock-/);
+
+    const jobs = getTestEnqueuedJobs();
+    const lastJob = jobs[jobs.length - 1];
+    expect(lastJob?.name).toBe('legacy/queue/name');
   });
 });

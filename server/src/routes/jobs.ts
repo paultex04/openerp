@@ -38,7 +38,7 @@ export async function registerJobRoutes(app: FastifyInstance): Promise<void> {
       const body = exportJobSchema.parse(request.body);
       const principal = request.principal!;
 
-      const jobId = await sendJob(`export:${body.type}`, {
+      const jobId = await sendJob(`export/${body.type}`, {
         type: body.type,
         filters: body.filters ?? {},
         requestedBy: principal.userId,
