@@ -1,36 +1,30 @@
 'use client';
 
 /**
- * Enterprise Sign-In Portal.
+ * Enterprise Sign-In Portal (Option D: Ambient Glassmorphism & Aurora Mesh Orbs).
  *
- * Provides a clean, focused, professional authentication interface.
- * The session lives entirely in an HTTP-only cookie, so this form performs no
- * token handling at all — it posts credentials, the API sets the cookie, and the
- * cookie rides along on subsequent same-origin requests.
+ * Implements Option D with Variation 1A (Deep Cobalt & Electric Cyan):
+ * - Smooth hardware-accelerated animated Aurora Mesh Orbs in the background.
+ * - Frosted glassmorphic card with backdrop-blur-2xl and subtle glass border shine.
+ * - In-card tab switching between Sign In and Request Access.
+ * - Integrated status tracking lookup dialog and demo accounts helper.
  */
 import { useMutation } from '@tanstack/react-query';
 import {
-  Calculator,
+  ArrowRight,
+  CheckCircle2,
   Eye,
   EyeOff,
-  Layers,
   Loader2,
   LogIn,
-  Receipt,
+  Send,
   ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { ThemeAnnouncer, ThemePicker } from '@/components/theme-picker';
@@ -41,21 +35,31 @@ import { api, ApiError } from '@/lib/api';
 
 export default function LoginForm() {
   const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'signin' | 'request'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Embedded Request Access Form State
+  const [reqFullName, setReqFullName] = useState('');
+  const [reqEmail, setReqEmail] = useState('');
+  const [reqPhone, setReqPhone] = useState('');
+  const [reqDepartment, setReqDepartment] = useState('');
+  const [reqReason, setReqReason] = useState('');
+  const [reqSuccess, setReqSuccess] = useState<string | null>(null);
+
+  // Dialog states for deep dive / status lookup
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
 
-  // Where to land after signing in. Preserved so a user bounced
-  // off a deep link reaches the page they actually asked for.
+  // Where to land after signing in.
   const next = safeNext(searchParams.get('next'));
 
   const login = useMutation({
     mutationFn: () => api.post<{ ok: true }>('/api/auth/login', { email, password }),
     onSuccess: () => {
-      // Full navigation so the server and proxy re-evaluate the session
       window.location.assign(next);
     },
     onError: (e: Error) => {
@@ -66,10 +70,42 @@ export default function LoginForm() {
     },
   });
 
-  const submit = (event: React.FormEvent) => {
+  const submitLogin = (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
     login.mutate();
+  };
+
+  const submitRequestMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: true; id: number; message: string }>('/api/auth/access-requests', {
+        fullName: reqFullName,
+        email: reqEmail,
+        phone: reqPhone || undefined,
+        department: reqDepartment,
+        reason: reqReason,
+      }),
+    onSuccess: () => {
+      setReqSuccess(reqEmail);
+      setError(null);
+    },
+    onError: (e: Error) => {
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : 'Could not submit access request. Please verify your details.';
+      setError(message);
+    },
+  });
+
+  const handleEmbeddedRequest = (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    if (!reqFullName.trim() || !reqEmail.trim() || !reqDepartment.trim() || !reqReason.trim()) {
+      setError('Please fill in all required fields.');
+      return;
+    }
+    submitRequestMutation.mutate();
   };
 
   useEffect(() => {
@@ -77,147 +113,132 @@ export default function LoginForm() {
   }, []);
 
   return (
-    <main className="relative grid min-h-screen lg:grid-cols-2">
-      {/* Brand Hero Panel (Desktop) */}
-      <aside
+    <main className="relative flex min-h-screen w-full items-center justify-center p-4 sm:p-8 overflow-hidden bg-slate-950 text-slate-100 selection:bg-blue-500/30">
+      {/* CAD Grid Layer */}
+      <div
         aria-hidden="true"
-        className="relative hidden flex-col justify-between overflow-hidden bg-primary p-12 text-primary-foreground lg:flex"
-      >
-        {/* Radial wash background */}
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(60rem 40rem at 15% -10%, color-mix(in oklch, var(--primary-foreground) 16%, transparent), transparent 60%), radial-gradient(40rem 30rem at 90% 110%, color-mix(in oklch, var(--primary-foreground) 10%, transparent), transparent 60%)',
-          }}
-        />
+        className="pointer-events-none absolute inset-0 bg-grid-cad opacity-40"
+      />
 
-        {/* Brand Lockup */}
-        <div className="relative z-10 flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-primary-foreground text-base font-bold text-primary shadow-sm">
-            OE
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tracking-tight">OpenERP</span>
-              <span className="rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
-                Enterprise
-              </span>
+      {/* Aurora Mesh Orbs (Variation 1A: Deep Cobalt & Electric Cyan) */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/* Deep Cobalt Orb */}
+        <div className="animate-aurora-1 absolute top-1/4 left-1/4 h-[480px] w-[480px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-tr from-blue-700/40 to-blue-500/35 blur-[120px]" />
+
+        {/* Electric Cyan Accent Orb */}
+        <div className="animate-aurora-2 absolute bottom-1/4 right-1/4 h-[440px] w-[440px] translate-x-1/2 translate-y-1/2 rounded-full bg-gradient-to-tr from-cyan-500/35 to-blue-600/30 blur-[110px]" />
+
+        {/* Deep Sapphire Auxiliary Orb */}
+        <div className="animate-aurora-3 absolute top-1/2 right-1/3 h-[360px] w-[360px] rounded-full bg-gradient-to-tr from-sky-600/25 to-indigo-700/30 blur-[100px]" />
+      </div>
+
+      {/* Top Controls: Theme Switcher */}
+      <div className="absolute top-5 right-5 z-30 flex items-center gap-2">
+        <ThemePicker />
+        <ThemeAnnouncer />
+      </div>
+
+      {/* Foreground Container */}
+      <div className="w-full max-w-[420px] relative z-20 space-y-4">
+        {/* Option D Frosted Glass Card */}
+        <div className="rounded-3xl border border-white/15 bg-slate-900/60 backdrop-blur-2xl p-7 sm:p-8 shadow-2xl shadow-black/80 relative overflow-hidden transition-all duration-300">
+          {/* Subtle Top Glass Specular Line */}
+          <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+
+          {/* Brand Emblem & Platform Tag */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white font-bold shadow-md shadow-blue-500/30">
+                <Zap className="size-4.5 fill-current" />
+              </div>
+              <div>
+                <span className="font-bold tracking-tight text-white text-base">OpenERP</span>
+                <span className="text-[10px] font-mono text-slate-400 ml-1.5">v2.7.0</span>
+              </div>
             </div>
-            <p className="text-xs text-primary-foreground/70">EC&amp;I Contracting Platform</p>
+            <span className="text-[10px] text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded-full bg-blue-500/10 font-medium">
+              EC&amp;I Platform
+            </span>
           </div>
-        </div>
 
-        {/* Core Value Pillars */}
-        <div className="relative z-10 max-w-lg space-y-6">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight text-balance leading-tight">
-              Precision engineering from estimate to invoice.
+          {/* Card Header */}
+          <div className="space-y-1 mb-4">
+            <h1 className="text-xl font-bold tracking-tight text-white">
+              {activeTab === 'signin' ? 'Welcome Back' : 'Request Access'}
             </h1>
-            <p className="text-sm leading-relaxed text-primary-foreground/80 text-pretty">
-              Unified project lifecycle, commercial rate buildup, site tracking, and automated
-              financial billing.
+            <p className="text-xs text-slate-400">
+              {activeTab === 'signin'
+                ? 'Sign in to access industrial operations & billing.'
+                : 'Submit your details for administrator provisioning.'}
             </p>
           </div>
 
-          <div className="space-y-3 pt-2">
-            <div className="flex items-start gap-3 rounded-xl bg-primary-foreground/10 p-3.5 backdrop-blur-xs border border-primary-foreground/10">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
-                <Calculator className="size-4 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="text-xs font-semibold">Commercial &amp; Estimating</h3>
-                <p className="text-xs text-primary-foreground/75 leading-relaxed">
-                  Dynamic service code recipes, labor tariffs, and live margin modeling.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 rounded-xl bg-primary-foreground/10 p-3.5 backdrop-blur-xs border border-primary-foreground/10">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
-                <Layers className="size-4 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="text-xs font-semibold">Job Lifecycle &amp; Operations</h3>
-                <p className="text-xs text-primary-foreground/75 leading-relaxed">
-                  Live site progress, variation orders, and quality milestone tracking.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3 rounded-xl bg-primary-foreground/10 p-3.5 backdrop-blur-xs border border-primary-foreground/10">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary-foreground/15">
-                <Receipt className="size-4 text-primary-foreground" />
-              </div>
-              <div>
-                <h3 className="text-xs font-semibold">Automated Billing &amp; Matrix</h3>
-                <p className="text-xs text-primary-foreground/75 leading-relaxed">
-                  Crew timesheets, multi-tier approvals, and verified SARS VAT invoicing.
-                </p>
-              </div>
-            </div>
+          {/* In-Card Tab Switcher */}
+          <div className="flex rounded-xl bg-black/40 p-1 border border-white/10 text-xs mb-5">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('signin');
+                setError(null);
+              }}
+              className={`flex-1 py-1.5 rounded-lg font-medium text-center transition-all cursor-pointer ${
+                activeTab === 'signin'
+                  ? 'bg-slate-800/90 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('request');
+                setError(null);
+              }}
+              className={`flex-1 py-1.5 rounded-lg font-medium text-center transition-all cursor-pointer ${
+                activeTab === 'request'
+                  ? 'bg-slate-800/90 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Request Access
+            </button>
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="relative z-10 flex items-center justify-between text-xs text-primary-foreground/60">
-          <div className="flex items-center gap-2">
-            <ShieldCheck aria-hidden="true" className="size-4" />
-            <span>Enterprise security &amp; role-based access control</span>
-          </div>
-          <span>v2.1</span>
-        </div>
-      </aside>
+          {/* Session Expired Banner */}
+          {searchParams.get('expired') === '1' && !error && activeTab === 'signin' && (
+            <Alert
+              role="status"
+              className="mb-4 border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs py-2.5"
+            >
+              <ShieldCheck aria-hidden="true" className="size-4 text-amber-400" />
+              <AlertTitle className="text-xs font-semibold">Session expired</AlertTitle>
+              <AlertDescription className="text-xs text-amber-300/90">
+                Your session has expired. Please sign in again.
+              </AlertDescription>
+            </Alert>
+          )}
 
-      {/* Form Viewport */}
-      <div className="relative flex min-h-screen items-center justify-center p-6 sm:p-10">
-        {/* Subtle Theme Controls in Top-Right */}
-        <div className="absolute top-5 right-5 z-20 flex items-center gap-2">
-          <ThemePicker />
-          <ThemeAnnouncer />
-        </div>
+          {/* Error Banner */}
+          {error && (
+            <Alert variant="destructive" role="alert" className="mb-4 text-xs py-2.5">
+              <LogIn aria-hidden="true" className="size-4" />
+              <AlertTitle className="text-xs font-semibold">
+                {activeTab === 'signin' ? 'Sign-in failed' : 'Submission error'}
+              </AlertTitle>
+              <AlertDescription className="text-xs">{error}</AlertDescription>
+            </Alert>
+          )}
 
-        <Card className="w-full max-w-sm border-border/60 shadow-xl shadow-black/5 dark:shadow-black/20">
-          <CardHeader className="space-y-1.5 pb-4">
-            {/* Mobile Brand Emblem (hidden on desktop where hero aside is visible) */}
-            <div className="mb-2 flex items-center gap-2 lg:hidden">
-              <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-primary-foreground">
-                OE
-              </div>
-              <span className="text-base font-bold">OpenERP</span>
-            </div>
-            <CardTitle className="text-xl font-bold tracking-tight">Sign in</CardTitle>
-            <CardDescription>Enter your credentials to access your workspace.</CardDescription>
-          </CardHeader>
-
-          <CardContent>
-            <form onSubmit={submit} className="space-y-4" noValidate>
-              {searchParams.get('expired') === '1' && !error && (
-                <Alert
-                  role="status"
-                  className="border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200"
-                >
-                  <ShieldCheck
-                    aria-hidden="true"
-                    className="size-4 text-amber-600 dark:text-amber-400"
-                  />
-                  <AlertTitle>Session expired</AlertTitle>
-                  <AlertDescription>
-                    Your session has expired. Please sign in again.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {error && (
-                <Alert variant="destructive" role="alert">
-                  <LogIn aria-hidden="true" className="size-4" />
-                  <AlertTitle>Sign-in failed</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
+          {/* ------------------------------------------------------------- */}
+          {/* TAB 1: SIGN IN VIEW                                          */}
+          {/* ------------------------------------------------------------- */}
+          {activeTab === 'signin' && (
+            <form onSubmit={submitLogin} className="space-y-4" noValidate>
               <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <FieldLabel htmlFor="email" className="text-xs font-medium text-slate-300">
+                  Email Address
+                </FieldLabel>
                 <Input
                   id="email"
                   name="email"
@@ -226,15 +247,30 @@ export default function LoginForm() {
                   required
                   autoFocus
                   inputMode="email"
-                  placeholder="name@company.com"
+                  placeholder="name@contractor.co.za"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   aria-invalid={error ? true : undefined}
+                  className="rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400 focus-visible:ring-blue-400/20 backdrop-blur-sm"
                 />
               </Field>
 
               <Field>
-                <FieldLabel htmlFor="password">Password</FieldLabel>
+                <div className="flex items-center justify-between">
+                  <FieldLabel htmlFor="password" className="text-xs font-medium text-slate-300">
+                    Password
+                  </FieldLabel>
+                  <a
+                    href="#forgot"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setStatusDialogOpen(true);
+                    }}
+                    className="text-[11px] text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Forgot or pending?
+                  </a>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -246,12 +282,12 @@ export default function LoginForm() {
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     aria-invalid={error ? true : undefined}
-                    className="pr-10"
+                    className="pr-10 rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400 focus-visible:ring-blue-400/20 backdrop-blur-sm"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none transition-colors cursor-pointer"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white focus:outline-none transition-colors cursor-pointer"
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
                     tabIndex={-1}
                   >
@@ -260,61 +296,222 @@ export default function LoginForm() {
                 </div>
               </Field>
 
+              <div className="flex items-center gap-2 pt-0.5">
+                <input
+                  type="checkbox"
+                  id="remember-me"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="rounded border-white/20 bg-black/40 text-blue-500 focus:ring-blue-400/30 size-3.5 cursor-pointer"
+                />
+                <label
+                  htmlFor="remember-me"
+                  className="text-xs text-slate-400 select-none cursor-pointer"
+                >
+                  Stay signed in on this device
+                </label>
+              </div>
+
               <Button
                 type="submit"
                 size="lg"
-                className="w-full font-medium h-10 cursor-pointer"
                 disabled={login.isPending}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 font-medium text-white text-xs shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 {login.isPending ? (
                   <>
                     <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                    Signing in…
+                    Authenticating…
                   </>
                 ) : (
                   <>
-                    <LogIn aria-hidden="true" className="size-4" />
-                    Sign in
+                    <span>Continue to Workspace</span>
+                    <ArrowRight className="size-3.5" />
                   </>
                 )}
               </Button>
-
-              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 px-1">
-                <button
-                  type="button"
-                  onClick={() => setRequestDialogOpen(true)}
-                  className="hover:text-primary transition-colors cursor-pointer underline-offset-4 hover:underline"
-                >
-                  Request access
-                </button>
-                <span className="text-muted-foreground/30">•</span>
-                <button
-                  type="button"
-                  onClick={() => setStatusDialogOpen(true)}
-                  className="hover:text-primary transition-colors cursor-pointer underline-offset-4 hover:underline"
-                >
-                  Check request status
-                </button>
-              </div>
             </form>
-          </CardContent>
+          )}
 
-          <CardFooter className="flex-col items-stretch gap-4 pt-0">
-            <DemoAccounts
-              onFill={(nextEmail, nextPassword) => {
-                setEmail(nextEmail);
-                setPassword(nextPassword ?? '');
-                setError(null);
-              }}
-            />
-            <div className="flex items-center justify-center gap-1.5 pt-2 text-xs text-muted-foreground/75">
-              <ShieldCheck className="size-3.5 text-muted-foreground" />
-              <span>Authorized personnel only</span>
+          {/* ------------------------------------------------------------- */}
+          {/* TAB 2: REQUEST ACCESS VIEW                                    */}
+          {/* ------------------------------------------------------------- */}
+          {activeTab === 'request' && (
+            <div className="space-y-4">
+              {reqSuccess ? (
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-center space-y-3">
+                  <div className="inline-flex size-10 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 mx-auto">
+                    <CheckCircle2 className="size-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">Request Submitted</h3>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Your request for <strong>{reqSuccess}</strong> has been sent to system
+                      administrators for review.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStatusDialogOpen(true);
+                    }}
+                    className="w-full text-xs cursor-pointer border-white/20 hover:bg-white/10"
+                  >
+                    Track Request Status
+                  </Button>
+                </div>
+              ) : (
+                <form onSubmit={handleEmbeddedRequest} className="space-y-3" noValidate>
+                  <Field>
+                    <FieldLabel htmlFor="req-name" className="text-xs font-medium text-slate-300">
+                      Full Name *
+                    </FieldLabel>
+                    <Input
+                      id="req-name"
+                      required
+                      placeholder="e.g. Sipho Sithole"
+                      value={reqFullName}
+                      onChange={(e) => setReqFullName(e.target.value)}
+                      className="rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400"
+                    />
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="req-email" className="text-xs font-medium text-slate-300">
+                      Work Email *
+                    </FieldLabel>
+                    <Input
+                      id="req-email"
+                      type="email"
+                      required
+                      placeholder="sipho@contractor.co.za"
+                      value={reqEmail}
+                      onChange={(e) => setReqEmail(e.target.value)}
+                      className="rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400"
+                    />
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field>
+                      <FieldLabel htmlFor="req-dept" className="text-xs font-medium text-slate-300">
+                        Department *
+                      </FieldLabel>
+                      <Input
+                        id="req-dept"
+                        required
+                        placeholder="Operations"
+                        value={reqDepartment}
+                        onChange={(e) => setReqDepartment(e.target.value)}
+                        className="rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400"
+                      />
+                    </Field>
+
+                    <Field>
+                      <FieldLabel
+                        htmlFor="req-phone"
+                        className="text-xs font-medium text-slate-300"
+                      >
+                        Phone (Optional)
+                      </FieldLabel>
+                      <Input
+                        id="req-phone"
+                        placeholder="+27 82 555 1234"
+                        value={reqPhone}
+                        onChange={(e) => setReqPhone(e.target.value)}
+                        className="rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field>
+                    <FieldLabel htmlFor="req-reason" className="text-xs font-medium text-slate-300">
+                      Reason for Access *
+                    </FieldLabel>
+                    <Input
+                      id="req-reason"
+                      required
+                      placeholder="e.g. Site supervisor assigned to Medupi outage project"
+                      value={reqReason}
+                      onChange={(e) => setReqReason(e.target.value)}
+                      className="rounded-xl border-white/10 bg-black/30 text-xs text-white placeholder:text-slate-500 focus-visible:border-blue-400"
+                    />
+                  </Field>
+
+                  <Button
+                    type="submit"
+                    size="lg"
+                    disabled={submitRequestMutation.isPending}
+                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-medium text-white text-xs shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-1"
+                  >
+                    {submitRequestMutation.isPending ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Submitting Request…
+                      </>
+                    ) : (
+                      <>
+                        <Send className="size-3.5" />
+                        Submit Access Request
+                      </>
+                    )}
+                  </Button>
+                </form>
+              )}
             </div>
-          </CardFooter>
-        </Card>
+          )}
+
+          {/* Footer Action Links */}
+          <div className="pt-4 mt-4 border-t border-white/10 flex items-center justify-between text-xs text-slate-400">
+            <button
+              type="button"
+              onClick={() => setStatusDialogOpen(true)}
+              className="text-blue-400 hover:text-blue-300 transition-colors cursor-pointer underline-offset-4 hover:underline"
+            >
+              Check request status
+            </button>
+            <span className="text-slate-600">•</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (activeTab === 'signin') {
+                  setActiveTab('request');
+                } else {
+                  setActiveTab('signin');
+                }
+              }}
+              className="hover:text-slate-200 transition-colors cursor-pointer"
+            >
+              {activeTab === 'signin'
+                ? 'New user? Request access'
+                : 'Already have account? Sign in'}
+            </button>
+          </div>
+
+          {/* Demo Accounts (injected in dev/test only) */}
+          <DemoAccounts
+            onFill={(nextEmail, nextPassword) => {
+              setActiveTab('signin');
+              setEmail(nextEmail);
+              setPassword(nextPassword ?? '');
+              setError(null);
+            }}
+          />
+        </div>
+
+        {/* Security Watermark */}
+        <div className="text-center text-[11px] text-slate-500 flex items-center justify-center gap-3">
+          <span className="flex items-center gap-1.5">
+            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            TLS 1.3 Encrypted
+          </span>
+          <span>•</span>
+          <span>Authorized Personnel Only</span>
+        </div>
       </div>
 
+      {/* Modal Dialogs */}
       <RequestAccessDialog
         open={requestDialogOpen}
         onOpenChange={setRequestDialogOpen}
@@ -324,8 +521,13 @@ export default function LoginForm() {
       <CheckStatusDialog
         open={statusDialogOpen}
         onOpenChange={setStatusDialogOpen}
-        onSelectEmail={(selectedEmail) => setEmail(selectedEmail)}
-        onSwitchToRequest={() => setRequestDialogOpen(true)}
+        onSelectEmail={(selectedEmail) => {
+          setActiveTab('signin');
+          setEmail(selectedEmail);
+        }}
+        onSwitchToRequest={() => {
+          setActiveTab('request');
+        }}
       />
     </main>
   );
