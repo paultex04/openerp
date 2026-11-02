@@ -13,6 +13,7 @@ import type { Config } from '../config.js';
 
 let bossInstance: PgBoss | null = null;
 let isStarted = false;
+const knownQueues = new Set<string>();
 
 // In-memory fallback mock for test mode
 type JobHandler<T = unknown> = (job: { id: string; name: string; data: T }) => Promise<void>;
@@ -21,6 +22,17 @@ const testJobs: Array<{ id: string; name: string; data: unknown }> = [];
 
 export function isQueueActive(): boolean {
   return isStarted;
+}
+
+async function ensureQueue(safeQueue: string): Promise<void> {
+  if (!bossInstance || knownQueues.has(safeQueue)) return;
+  try {
+    await bossInstance.createQueue(safeQueue);
+    knownQueues.add(safeQueue);
+  } catch {
+    // If already exists or concurrent creation
+    knownQueues.add(safeQueue);
+  }
 }
 
 export async function initJobQueue(config: Config): Promise<void> {
@@ -51,6 +63,7 @@ export async function initJobQueue(config: Config): Promise<void> {
 
 export async function stopJobQueue(): Promise<void> {
   isStarted = false;
+  knownQueues.clear();
   testWorkers.clear();
   testJobs.length = 0;
 
@@ -77,6 +90,7 @@ export async function sendJob<T = object>(
 ): Promise<string | null> {
   const safeQueue = normalizeQueueName(queueName);
   if (bossInstance) {
+    await ensureQueue(safeQueue);
     return await bossInstance.send(safeQueue, data as object, options);
   }
 
@@ -102,6 +116,7 @@ export async function registerWorker<T = object>(
 ): Promise<void> {
   const safeQueue = normalizeQueueName(queueName);
   if (bossInstance) {
+    await ensureQueue(safeQueue);
     await bossInstance.work(safeQueue, async (jobs) => {
       for (const j of jobs) {
         await handler({ id: j.id, name: j.name, data: j.data as T });
