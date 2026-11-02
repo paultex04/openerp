@@ -33,6 +33,11 @@ describe('navigation model', () => {
       const crumb = breadcrumbFor('/commercial', 'tab=recipes');
       expect(crumb).not.toBeNull();
       expect(crumb?.item.href).toContain('tab=recipes');
+
+      const diagCrumb = breadcrumbFor('/admin', 'tab=diagnostics');
+      expect(diagCrumb).not.toBeNull();
+      expect(diagCrumb?.section.key).toBe('administration');
+      expect(diagCrumb?.item.label).toBe('System Diagnostics & Health');
     });
 
     it('normalizes detail routes under operations', () => {

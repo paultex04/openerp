@@ -33,6 +33,7 @@ import { usePermissions } from '@/components/auth/usePermissions';
 import { UsersPanel } from '@/components/admin/users-panel';
 import { AccessRequestsPanel } from '@/components/admin/access-requests-panel';
 import { AuditPanel } from '@/components/admin/audit-panel';
+import { DiagnosticsPanel } from '@/components/admin/diagnostics-panel';
 import { RolesPanel } from '@/components/admin/roles-panel';
 import { WorkflowPanel } from '@/components/admin/workflow-panel';
 import {
@@ -60,7 +61,8 @@ type Tab =
   | 'employees'
   | 'brokers'
   | 'contract-types'
-  | 'audit';
+  | 'audit'
+  | 'diagnostics';
 
 /** Whitelist for the `tab` query parameter. */
 const TAB_KEYS: readonly Tab[] = [
@@ -77,6 +79,7 @@ const TAB_KEYS: readonly Tab[] = [
   'brokers',
   'contract-types',
   'audit',
+  'diagnostics',
 ];
 
 interface TabDef {
@@ -117,8 +120,11 @@ const TAB_GROUPS: ReadonlyArray<{ label: string; tabs: TabDef[] }> = [
     ],
   },
   {
-    label: 'Audit',
-    tabs: [{ key: 'audit', label: 'Audit log', anyOf: ['admin.audit.read'] }],
+    label: 'Governance & Health',
+    tabs: [
+      { key: 'audit', label: 'Audit log', anyOf: ['admin.audit.read'] },
+      { key: 'diagnostics', label: 'Diagnostics', anyOf: ['admin.audit.read', 'admin.user.read'] },
+    ],
   },
 ];
 
@@ -243,6 +249,7 @@ export default function AdminPage() {
           {activeTab === 'brokers' && <BrokersPanel />}
           {activeTab === 'contract-types' && <ContractTypesPanel />}
           {activeTab === 'audit' && <AuditPanel />}
+          {activeTab === 'diagnostics' && <DiagnosticsPanel />}
         </>
       )}
     </div>

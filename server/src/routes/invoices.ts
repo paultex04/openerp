@@ -83,7 +83,10 @@ export async function registerInvoiceRoutes(app: FastifyInstance): Promise<void>
    */
   app.get(
     '/api/invoices/:id/pdf',
-    { preHandler: [app.authenticate, app.requirePermission('invoice.read')] },
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('invoice.read')],
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = idParam.parse(request.params);
       const principal = request.principal!;

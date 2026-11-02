@@ -118,3 +118,60 @@ export async function registerWorker<T = object>(
 export function getTestEnqueuedJobs(): Array<{ id: string; name: string; data: unknown }> {
   return [...testJobs];
 }
+
+export async function getQueueDiagnostics(): Promise<{
+  active: boolean;
+  status: 'healthy' | 'disabled' | 'degraded';
+  activeJobs: number;
+  completedJobs: number;
+  failedJobs: number;
+}> {
+  if (!isStarted || !bossInstance) {
+    return {
+      active: false,
+      status: 'disabled',
+      activeJobs: testJobs.length,
+      completedJobs: 0,
+      failedJobs: 0,
+    };
+  }
+
+  try {
+    const db = bossInstance.getDb();
+    if (db && typeof db.executeSql === 'function') {
+      const result = await db.executeSql(
+        `SELECT state, count(*)::int as count FROM pgboss.job GROUP BY state`,
+      );
+      const rows = (result.rows ?? []) as Array<{ state: string; count: number }>;
+      let activeJobs = 0;
+      let completedJobs = 0;
+      let failedJobs = 0;
+      for (const row of rows) {
+        if (row.state === 'active' || row.state === 'created' || row.state === 'retry') {
+          activeJobs += Number(row.count);
+        } else if (row.state === 'completed') {
+          completedJobs += Number(row.count);
+        } else if (row.state === 'failed' || row.state === 'cancelled') {
+          failedJobs += Number(row.count);
+        }
+      }
+      return {
+        active: true,
+        status: failedJobs > 25 ? 'degraded' : 'healthy',
+        activeJobs,
+        completedJobs,
+        failedJobs,
+      };
+    }
+  } catch {
+    // If schema or table does not exist yet
+  }
+
+  return {
+    active: true,
+    status: 'healthy',
+    activeJobs: 0,
+    completedJobs: 0,
+    failedJobs: 0,
+  };
+}

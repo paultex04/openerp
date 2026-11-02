@@ -19,6 +19,7 @@
  * silently never appears.
  */
 import {
+  Activity,
   Boxes,
   Building2,
   ClipboardCheck,
@@ -261,6 +262,12 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'System Audit Log',
         icon: ScrollText,
         anyOf: ['admin.audit.read'],
+      },
+      {
+        href: '/admin?tab=diagnostics',
+        label: 'System Diagnostics & Health',
+        icon: Activity,
+        anyOf: ['admin.audit.read', 'admin.user.read'],
       },
     ],
   },

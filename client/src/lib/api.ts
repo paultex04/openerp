@@ -279,6 +279,51 @@ export interface ProfileUpdateResponse {
   message: string;
 }
 
+export interface SystemDiagnostics {
+  timestamp: string;
+  version: string;
+  uptimeSeconds: number;
+  environment: string;
+  nodeVersion: string;
+  platform: string;
+  memory: {
+    rssMb: number;
+    heapUsedMb: number;
+    heapTotalMb: number;
+  };
+  database: {
+    status: 'healthy' | 'degraded' | 'unhealthy';
+    latencyMs: number;
+    version: string;
+    size: string;
+    pool: {
+      totalCount: number;
+      idleCount: number;
+      waitingCount: number;
+      maxConnections: number;
+    };
+  };
+  storage: {
+    status: 'healthy' | 'degraded' | 'disabled';
+    active: boolean;
+    reachable: boolean;
+    bucket: string;
+    endpoint: string | null;
+    latencyMs: number | null;
+    error?: string;
+  };
+  queue: {
+    status: 'healthy' | 'degraded' | 'disabled';
+    active: boolean;
+    activeJobs: number;
+    completedJobs: number;
+    failedJobs: number;
+  };
+  audit: {
+    failuresCount: number;
+  };
+}
+
 export interface ClientRow {
   id: number;
   name: string;

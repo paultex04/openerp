@@ -38,6 +38,7 @@
  */
 import { PrismaClient } from '../generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import { currentAuditActor, SYSTEM_ACTOR, type AuditActor } from '../audit/context.js';
 import { recordWrite, type WriteAuditEntry } from '../audit/service.js';
 
@@ -65,7 +66,7 @@ if (process.env.DATABASE_URL === undefined || process.env.DATABASE_URL === '') {
  * database that accepts the socket and then never answers would hang the
  * readiness probe instead of failing it.
  */
-const adapter = new PrismaPg({
+export const dbPool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   connectionTimeoutMillis: 5_000,
   max: 25,
@@ -73,6 +74,17 @@ const adapter = new PrismaPg({
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,
 });
+
+const adapter = new PrismaPg(dbPool);
+
+export function getDatabasePoolStats() {
+  return {
+    totalCount: dbPool.totalCount,
+    idleCount: dbPool.idleCount,
+    waitingCount: dbPool.waitingCount,
+    maxConnections: (dbPool as any).options?.max ?? 25,
+  };
+}
 
 const base =
   globalForPrisma.prisma ??

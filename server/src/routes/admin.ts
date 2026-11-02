@@ -36,10 +36,13 @@ import {
   accessRequestStatusFromKey,
   accessRequestStatusToKey,
 } from '@openerp/shared';
-import { prisma } from '../db/client.js';
+import { APP_VERSION } from '../version.js';
+import { prisma, getDatabasePoolStats } from '../db/client.js';
 import { HttpError } from '../auth/plugin.js';
 import { hashPassword, PasswordPolicyError } from '../auth/password.js';
 import { auditFailureCount, auditModels, auditSummary, queryAudit } from '../audit/service.js';
+import { getStorageDiagnostics } from '../storage/index.js';
+import { getQueueDiagnostics } from '../queue/index.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -382,7 +385,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/admin/users',
-    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.user.write')],
+    },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const body = createUserSchema.parse(request.body);
 
@@ -472,7 +478,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/api/admin/users/:id',
-    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.user.write')],
+    },
     async (request: FastifyRequest) => {
       const { id } = idParam.parse(request.params);
       const body = updateUserSchema.parse(request.body);
@@ -790,7 +799,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/admin/access-requests/:id/approve',
-    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.user.write')],
+    },
     async (request: FastifyRequest) => {
       const { id } = idParam.parse(request.params);
       const body = approveAccessRequestSchema.parse(request.body);
@@ -917,7 +929,10 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/admin/access-requests/:id/reject',
-    { preHandler: [app.authenticate, app.requirePermission('admin.user.write')] },
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.user.write')],
+    },
     async (request: FastifyRequest) => {
       const { id } = idParam.parse(request.params);
       const body = rejectAccessRequestSchema.parse(request.body);
@@ -950,6 +965,89 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       return {
         ok: true,
         message: 'Access request rejected.',
+      };
+    },
+  );
+
+  /**
+   * System Diagnostics & Infrastructure Health.
+   * Provides real-time metrics on Database connection pool, Garage S3,
+   * pg-boss queue, memory, and runtime.
+   */
+  app.get(
+    '/api/admin/diagnostics',
+    {
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.audit.read')],
+    },
+    async () => {
+      const dbStart = performance.now();
+      let dbStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+      let dbLatencyMs = 0;
+      let dbVersion = 'PostgreSQL';
+      let dbSize = 'Unknown';
+
+      try {
+        const result = await prisma.$queryRaw<
+          Array<{ version: string; dbsizepretty: string }>
+        >`SELECT version(), pg_size_pretty(pg_database_size(current_database())) as dbsizepretty`;
+        dbLatencyMs = Math.round(performance.now() - dbStart);
+        if (result.length > 0 && result[0]) {
+          dbVersion = result[0].version.split(',')[0] ?? result[0].version;
+          dbSize = result[0].dbsizepretty;
+        }
+      } catch {
+        dbLatencyMs = Math.round(performance.now() - dbStart);
+        dbStatus = 'unhealthy';
+      }
+
+      const poolStats = getDatabasePoolStats();
+      const storageStats = await getStorageDiagnostics();
+      const queueStats = await getQueueDiagnostics();
+      const memoryUsage = process.memoryUsage();
+
+      return {
+        timestamp: new Date().toISOString(),
+        version: APP_VERSION,
+        uptimeSeconds: Math.round(process.uptime()),
+        environment: process.env.NODE_ENV ?? 'development',
+        nodeVersion: process.version,
+        platform: `${process.platform} (${process.arch})`,
+        memory: {
+          rssMb: Math.round(memoryUsage.rss / (1024 * 1024)),
+          heapUsedMb: Math.round(memoryUsage.heapUsed / (1024 * 1024)),
+          heapTotalMb: Math.round(memoryUsage.heapTotal / (1024 * 1024)),
+        },
+        database: {
+          status: dbStatus,
+          latencyMs: dbLatencyMs,
+          version: dbVersion,
+          size: dbSize,
+          pool: poolStats,
+        },
+        storage: {
+          status: storageStats.active
+            ? storageStats.reachable
+              ? 'healthy'
+              : 'degraded'
+            : 'disabled',
+          active: storageStats.active,
+          reachable: storageStats.reachable,
+          bucket: storageStats.bucket,
+          endpoint: storageStats.endpoint,
+          latencyMs: storageStats.latencyMs,
+          error: storageStats.error,
+        },
+        queue: {
+          status: queueStats.status,
+          active: queueStats.active,
+          activeJobs: queueStats.activeJobs,
+          completedJobs: queueStats.completedJobs,
+          failedJobs: queueStats.failedJobs,
+        },
+        audit: {
+          failuresCount: auditFailureCount(),
+        },
       };
     },
   );

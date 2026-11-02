@@ -3,6 +3,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import type { Config } from '../config.js';
 
@@ -132,6 +133,47 @@ export function initStorage(config: Config): void {
 
 export function isS3Active(): boolean {
   return s3Client !== null;
+}
+
+export async function getStorageDiagnostics(): Promise<{
+  active: boolean;
+  reachable: boolean;
+  bucket: string;
+  endpoint: string | null;
+  latencyMs: number | null;
+  error?: string;
+}> {
+  if (!s3Client || !isS3Active()) {
+    return {
+      active: false,
+      reachable: false,
+      bucket: bucketName,
+      endpoint: null,
+      latencyMs: null,
+    };
+  }
+
+  const start = performance.now();
+  try {
+    const command = new HeadBucketCommand({ Bucket: bucketName });
+    await s3Client.send(command);
+    return {
+      active: true,
+      reachable: true,
+      bucket: bucketName,
+      endpoint: process.env.S3_ENDPOINT ?? null,
+      latencyMs: Math.round(performance.now() - start),
+    };
+  } catch (err) {
+    return {
+      active: true,
+      reachable: false,
+      bucket: bucketName,
+      endpoint: process.env.S3_ENDPOINT ?? null,
+      latencyMs: Math.round(performance.now() - start),
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export async function uploadBlob(
