@@ -33,8 +33,17 @@ export function proxy(request: NextRequest) {
   }
 
   if (PUBLIC_PATHS.has(pathname)) {
-    // Already signed in? There is nothing to do on the sign-in page.
-    if (hasSession) {
+    // If the session has expired or the user was redirected to /login, clear the stale
+    // cookie so it does not cause an infinite redirect ping-pong between /login and /dashboard.
+    if (pathname === '/login' && request.nextUrl.searchParams.has('expired')) {
+      const response = NextResponse.next();
+      response.cookies.delete(SESSION_COOKIE);
+      return response;
+    }
+
+    // Already signed in with an active session? Redirect to dashboard, unless user
+    // is explicitly attempting to sign in again.
+    if (hasSession && !request.nextUrl.searchParams.has('expired')) {
       return NextResponse.redirect(new URL('/dashboard', request.url), 302);
     }
     return NextResponse.next();
