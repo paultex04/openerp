@@ -70,6 +70,8 @@ const adapter = new PrismaPg({
   connectionTimeoutMillis: 5_000,
   max: 25,
   idleTimeoutMillis: 30_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
 });
 
 const base =

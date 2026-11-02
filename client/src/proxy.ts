@@ -3,18 +3,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 /**
  * Root routing and the authenticated-area guard.
  *
- * WHY A PROXY: `/` has to decide between `/login` and `/dashboard` before
- * anything renders, and the decision has to be a real HTTP redirect (302) rather
- * than a client-side one that paints the wrong screen first. (Next 16 renamed
- * the `middleware` convention to `proxy`; this file was ported by the official
- * `middleware-to-proxy` codemod.)
+ * Next 16 uses `proxy.ts` instead of `middleware.ts`.
  *
- * WHY A COOKIE PRESENCE CHECK IS ENOUGH HERE: this is a *routing* decision, not
- * an authorisation one. It reads only whether the session cookie exists, and the
- * cookie is HTTP-only so no script - including this - can read its contents. A
- * forged or expired cookie passes this gate and is then rejected by the API,
- * which is where authentication actually happens. Do not move real
- * authorisation into this file.
+ * All routes except `/login`, `/health`, `/metrics`, and static assets require
+ * a session. If no session cookie is present, unauthenticated visitors are
+ * cleanly redirected (302) to `/login?next=...`.
  */
 
 /** Must match the API's `AUTH_COOKIE_NAME` (server/src/config.ts). */
@@ -23,24 +16,10 @@ const SESSION_COOKIE = 'openerp_session';
 /** Routes reachable without a session. */
 const PUBLIC_PATHS = new Set(['/login']);
 
-/**
- * Routes that require a session. Anything not listed and not public is treated
- * as requiring one, so a newly added page is guarded by default rather than
- * accidentally published.
- */
-const PROTECTED_PREFIXES = [
-  '/dashboard',
-  '/commercial',
-  '/operations',
-  '/billing',
-  '/admin',
-  '/profile',
-];
-
-function isProtected(pathname: string): boolean {
-  return PROTECTED_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+function isPublic(pathname: string): boolean {
+  if (PUBLIC_PATHS.has(pathname)) return true;
+  if (pathname.startsWith('/health') || pathname.startsWith('/metrics')) return true;
+  return false;
 }
 
 export function proxy(request: NextRequest) {
@@ -61,8 +40,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (isProtected(pathname) && !hasSession) {
-    // `next` is preserved so the user lands where they intended after signing in.
+  // Any non-public path requires an active session cookie.
+  // Missing or expired cookie redirects cleanly to /login with `next` preserved.
+  if (!isPublic(pathname) && !hasSession) {
     const destination = new URL('/login', request.url);
     destination.searchParams.set('next', `${pathname}${search}`);
     return NextResponse.redirect(destination, 302);
@@ -73,9 +53,7 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   /**
-   * Excludes the API proxy, Next internals and static assets. The matcher is
-   * explicit rather than a blanket regex because a stray match would apply the
-   * auth guard to asset requests and turn a CSS 404 into a redirect to /login.
+   * Excludes the API proxy, Next internals and static assets.
    */
   matcher: [
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',

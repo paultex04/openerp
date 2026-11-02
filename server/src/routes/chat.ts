@@ -343,21 +343,40 @@ export async function registerChatRoutes(app: FastifyInstance, config: Config): 
 
       let closed = false;
       const unsubscribe = subscribe(userId, (event) => {
-        if (!closed) response.write(sseFrame(event.type, event));
+        if (!closed) {
+          try {
+            response.write(sseFrame(event.type, event));
+          } catch {
+            close();
+          }
+        }
       });
       const heartbeat = setInterval(() => {
-        if (!closed) response.write(': keep-alive\n\n');
+        if (!closed) {
+          try {
+            response.write(': keep-alive\n\n');
+          } catch {
+            close();
+          }
+        }
       }, SSE_HEARTBEAT_MS);
+      heartbeat.unref();
 
       const close = () => {
         if (closed) return;
         closed = true;
         clearInterval(heartbeat);
         unsubscribe();
-        response.end();
+        try {
+          response.end();
+        } catch {
+          // Socket already ended or destroyed
+        }
       };
       request.raw.on('close', close);
       request.raw.on('error', close);
+      response.on('close', close);
+      response.on('error', close);
     },
   );
 }

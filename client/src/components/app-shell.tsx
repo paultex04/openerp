@@ -21,7 +21,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Breadcrumb,
@@ -84,6 +84,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [sidebarOpen, setSidebarOpen] = useSidebarOpen();
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // If the user's session expired (e.g. after leaving the browser open for days),
+  // redirect smoothly to login with the expired indicator and preserve their route.
+  useEffect(() => {
+    if (!loading && !user && !loggingOut) {
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login?expired=1&next=${next}`;
+      }
+    }
+  }, [loading, user, loggingOut]);
 
   const handleLogout = async () => {
     setLoggingOut(true);

@@ -162,7 +162,11 @@ export function resetChatBus(): void {
 async function connectListener(connectionString: string): Promise<void> {
   if (listenClient || isClosed) return;
 
-  const client = new pg.Client({ connectionString });
+  const client = new pg.Client({
+    connectionString,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+  });
 
   client.on('notification', (msg) => {
     if (msg.channel === CHAT_CHANNEL && msg.payload) {
@@ -170,22 +174,22 @@ async function connectListener(connectionString: string): Promise<void> {
     }
   });
 
-  client.on('error', () => {
+  const onDisconnect = () => {
     listenClient = null;
     if (!isClosed) {
       scheduleReconnect(connectionString);
     }
-  });
+  };
+
+  client.on('error', onDisconnect);
+  client.on('end', onDisconnect);
 
   try {
     await client.connect();
     await client.query(`LISTEN ${CHAT_CHANNEL}`);
     listenClient = client;
   } catch {
-    listenClient = null;
-    if (!isClosed) {
-      scheduleReconnect(connectionString);
-    }
+    onDisconnect();
   }
 }
 

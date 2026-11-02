@@ -110,7 +110,21 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
     responseHeaders.append('set-cookie', cookieStr);
   }
 
-  return new NextResponse(upstream.body, {
+  let responseBody: BodyInit | null = upstream.body;
+  const contentType = upstream.headers.get('content-type') ?? '';
+  if (responseBody && contentType.includes('text/event-stream')) {
+    // When forwarding Server-Sent Events, wrap in a TransformStream and safely absorb
+    // client aborts/disconnections so Next.js does not log unhandled pipe errors (UND_ERR_SOCKET).
+    const transform = new TransformStream();
+    upstream.body
+      ?.pipeTo(transform.writable)
+      .catch(() => {
+        // Normal client socket closure/abort; safely ignored.
+      });
+    responseBody = transform.readable;
+  }
+
+  return new NextResponse(responseBody, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: responseHeaders,

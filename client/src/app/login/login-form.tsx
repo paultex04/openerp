@@ -161,6 +161,14 @@ export default function LoginForm() {
                 screen-reader user, and this is the one message on the page that
                 must interrupt.
               */}
+              {searchParams.get('expired') === '1' && !error && (
+                <Alert role="status" className="border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200">
+                  <ShieldCheck aria-hidden="true" className="size-4 text-amber-600 dark:text-amber-400" />
+                  <AlertTitle>Session expired</AlertTitle>
+                  <AlertDescription>Your session expired due to inactivity. Please sign in again.</AlertDescription>
+                </Alert>
+              )}
+
               {error && (
                 <Alert variant="destructive" role="alert">
                   <LogIn aria-hidden="true" className="size-4" />
