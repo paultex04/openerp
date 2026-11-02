@@ -51,6 +51,17 @@ services:
   db:
     image: postgres:18-alpine
     restart: unless-stopped
+    # Prevent torn writes: SIGINT triggers PostgreSQL Fast Shutdown (terminates active
+    # clients and cleanly flushes dirty buffers). stop_grace_period gives 60s instead of
+    # Docker's default 10s before issuing SIGKILL.
+    stop_signal: SIGINT
+    stop_grace_period: 60s
+    command:
+      - postgres
+      - -c
+      - full_page_writes=on
+      - -c
+      - wal_sync_method=fdatasync
     environment:
       POSTGRES_USER: openerp
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
