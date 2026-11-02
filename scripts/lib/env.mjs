@@ -53,16 +53,24 @@ export function loadEnvFile(path = resolve(repoRoot, '.env')) {
     }
   }
 
-  // Auto-resolve DATABASE_URL if missing or set to build-time placeholder
-  if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('placeholder@localhost')) {
-    const host = process.env.DB_HOST || (process.env.NODE_ENV === 'production' ? 'db' : 'localhost');
-    const port = process.env.DB_PORT || '5432';
-    const user = process.env.POSTGRES_USER || process.env.DB_USER || 'openerp';
-    const pass = process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD;
-    const db = process.env.POSTGRES_DB || process.env.DB_NAME || 'openerp';
-    if (pass) {
+  // Auto-resolve or rewrite DATABASE_URL in Docker / production
+  const isProdOrDocker = process.env.NODE_ENV === 'production' || existsSync('/.dockerenv');
+  const host = process.env.DB_HOST || (isProdOrDocker ? 'db' : 'localhost');
+  const port = process.env.DB_PORT || '5432';
+  const user = process.env.POSTGRES_USER || process.env.DB_USER || 'openerp';
+  const pass = process.env.POSTGRES_PASSWORD || process.env.DB_PASSWORD || 'openerp';
+  const db = process.env.POSTGRES_DB || process.env.DB_NAME || 'openerp';
+
+  if (!process.env.DATABASE_URL) {
+    if (isProdOrDocker || process.env.POSTGRES_PASSWORD) {
       process.env.DATABASE_URL = `postgresql://${user}:${pass}@${host}:${port}/${db}?schema=public`;
     }
+  } else if (isProdOrDocker) {
+    let url = process.env.DATABASE_URL;
+    url = url.replace(/@(localhost|127\.0\.0\.1):/, `@${host}:`);
+    url = url.replace('placeholder:placeholder', `${user}:${pass}`);
+    url = url.replace('/placeholder', `/${db}`);
+    process.env.DATABASE_URL = url;
   }
 
   return process.env;
