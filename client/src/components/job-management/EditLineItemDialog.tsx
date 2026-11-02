@@ -23,7 +23,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Loader2, TriangleAlert } from 'lucide-react';
-import { api, ApiError, type DeliverableRow } from '@/lib/api';
+import { api, type DeliverableRow } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -34,7 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { formatZar, formatZarRate } from '@/lib/format';
 import { varianceTone } from '@/components/lifecycle/status-badge';
 
@@ -79,11 +79,7 @@ export function EditLineItemDialog({
       onSaved();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not update the line item',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not update the line item'),
   });
 
   const plannedChanged = Number(planned) !== row.plannedQuantity;

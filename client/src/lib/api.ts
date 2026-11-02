@@ -15,10 +15,48 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly details?: unknown,
+    readonly requestId?: string,
   ) {
     super(message);
     this.name = 'ApiError';
   }
+
+  /**
+   * Returns true if this error was caused by a network outage or offline state.
+   */
+  get isOffline(): boolean {
+    return this.status === 0 || this.code === 'NETWORK_OFFLINE';
+  }
+
+  /**
+   * Formats an actionable, support-ready error summary string.
+   */
+  toDiagnosticString(): string {
+    const parts = [`[${this.code}] ${this.message}`];
+    if (this.status > 0) parts.push(`(HTTP ${this.status})`);
+    if (this.requestId) parts.push(`Incident ID: ${this.requestId}`);
+    return parts.join(' · ');
+  }
+}
+
+/**
+ * Normalizes any caught exception into an actionable, support-friendly description.
+ */
+export function getErrorMessage(
+  error: unknown,
+  fallback = 'An unexpected error occurred. Please try again.',
+): { message: string; requestId?: string; code?: string } {
+  if (error instanceof ApiError) {
+    return {
+      message: error.message,
+      requestId: error.requestId,
+      code: error.code,
+    };
+  }
+  if (error instanceof Error && error.message) {
+    return { message: error.message };
+  }
+  return { message: fallback };
 }
 
 /**
@@ -77,14 +115,26 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   const url = `${API_BASE}${buildUrl(path, options.query)}`;
 
-  const response = await fetch(url, {
-    method,
-    headers,
-    // Required so the HTTP-only session cookie travels on a cross-origin call.
-    credentials: 'include',
-    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      // Required so the HTTP-only session cookie travels on a cross-origin call.
+      credentials: 'include',
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    throw new ApiError(
+      0,
+      'NETWORK_OFFLINE',
+      'Unable to reach OpenERP. Please check your internet connection or verify the server status.',
+    );
+  }
 
   return readResponse<T>(response);
 }
@@ -102,12 +152,24 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   const token = readCookie(CSRF_COOKIE);
   if (token) headers[CSRF_HEADER] = token;
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers,
-    credentials: 'include',
-    body: form,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: form,
+    });
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    throw new ApiError(
+      0,
+      'NETWORK_OFFLINE',
+      'Unable to reach OpenERP for file upload. Please check your internet connection.',
+    );
+  }
 
   return readResponse<T>(response);
 }
@@ -117,6 +179,7 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
  * the parsed JSON. Shared so every path fails the same way.
  */
 async function readResponse<T>(response: Response): Promise<T> {
+  const requestId = response.headers.get('x-request-id') ?? undefined;
   if (response.status === 204) return undefined as T;
 
   const text = await response.text();
@@ -124,21 +187,39 @@ async function readResponse<T>(response: Response): Promise<T> {
   try {
     payload = text ? JSON.parse(text) : null;
   } catch {
-    // A non-JSON body means something upstream (proxy, gateway) failed.
+    // Upstream reverse proxy (Coolify / Traefik / Nginx / Cloudflare) returned an HTML error
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new ApiError(
+        response.status,
+        'GATEWAY_UNAVAILABLE',
+        'The OpenERP backend service is temporarily restarting or updating. Please try again in a few moments.',
+        undefined,
+        requestId,
+      );
+    }
     throw new ApiError(
       response.status,
       'INVALID_RESPONSE',
-      `Expected JSON but received ${response.headers.get('content-type') ?? 'an unknown type'}.`,
+      `Expected JSON response but received ${response.headers.get('content-type') ?? 'an unknown type'} (HTTP ${response.status}).`,
+      undefined,
+      requestId,
     );
   }
 
   if (!response.ok) {
-    const envelope = (payload ?? {}) as { error?: string; message?: string; issues?: unknown };
+    const envelope = (payload ?? {}) as {
+      error?: string;
+      code?: string;
+      message?: string;
+      issues?: unknown;
+      requestId?: string;
+    };
     throw new ApiError(
       response.status,
-      envelope.error ?? 'UNKNOWN',
+      envelope.code ?? envelope.error ?? 'UNKNOWN',
       envelope.message ?? `Request failed with status ${response.status}.`,
       envelope.issues,
+      envelope.requestId ?? requestId,
     );
   }
 

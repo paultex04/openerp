@@ -21,8 +21,8 @@ import {
   type AmendmentCostParameters,
   type Tier1Result,
 } from '@openerp/shared';
-import { api, ApiError, type RateCardRow } from '@/lib/api';
-import { toast } from '@/components/ui/toast';
+import { api, type RateCardRow } from '@/lib/api';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -306,11 +306,10 @@ function RateBuildupForm({
       }
     },
     onError: (e: Error) =>
-      toast.add({
-        title: isCreating ? 'Could not create rate card' : 'Could not save rate card',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(
+        e,
+        isCreating ? 'Could not create rate card' : 'Could not save rate card',
+      ),
   });
 
   const field = (

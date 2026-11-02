@@ -62,6 +62,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   const app = Fastify({
     logger: options.logger ?? !config.isTest,
+    requestIdHeader: 'x-request-id',
   });
 
   app.addHook('onClose', async () => {

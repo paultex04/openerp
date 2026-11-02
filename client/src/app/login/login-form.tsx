@@ -85,8 +85,10 @@ export default function LoginForm() {
       window.location.assign(next);
     },
     onError: (e: Error) => {
+      const isApi = e instanceof ApiError;
+      const ref = isApi && e.requestId ? ` (Ref: ${e.requestId})` : '';
       const message =
-        e instanceof ApiError ? e.message : 'Could not reach the server. Try again shortly.';
+        (isApi ? e.message : 'Could not reach the server. Try again shortly.') + ref;
       setError(message);
       setPassword('');
     },
@@ -113,10 +115,12 @@ export default function LoginForm() {
       setError(null);
     },
     onError: (e: Error) => {
+      const isApi = e instanceof ApiError;
+      const ref = isApi && e.requestId ? ` (Ref: ${e.requestId})` : '';
       const message =
-        e instanceof ApiError
+        (isApi
           ? e.message
-          : 'Could not submit access request. Please verify your details.';
+          : 'Could not submit access request. Please verify your details.') + ref;
       setError(message);
     },
   });

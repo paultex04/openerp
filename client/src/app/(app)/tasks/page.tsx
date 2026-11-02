@@ -36,7 +36,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { usePermissions } from '@/components/auth/usePermissions';
 import {
   TaskCreateDialog,
@@ -56,7 +56,6 @@ import {
 } from '@/components/tasks/TaskProjectDialog';
 import {
   api,
-  ApiError,
   type TaskProjectRow,
   type TaskSummaryRow,
 } from '@/lib/api';
@@ -147,11 +146,7 @@ export default function TasksPage() {
       }
     },
     onError: (err: Error) => {
-      toast.add({
-        title: 'Could not archive project',
-        description: err instanceof ApiError ? err.message : err.message,
-        type: 'error',
-      });
+      showErrorToast(err, 'Could not archive project');
     },
   });
 

@@ -199,69 +199,144 @@ async function authPluginImpl(app: FastifyInstance, opts: { config: Config }): P
     }
   });
 
-  /** Normalises thrown errors into a consistent JSON envelope. */
-  app.setErrorHandler((error: FastifyError, _request, reply) => {
-    if (error instanceof HttpError) {
-      return reply.code(error.statusCode).send({ error: error.code, message: error.message });
-    }
+  /** Normalises thrown errors into a consistent JSON envelope with diagnostic metadata. */
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    const requestId = request.id;
+    reply.header('x-request-id', requestId);
 
-    /*
-     * A unique-constraint violation is a caller mistake, not a server fault.
-     *
-     * Prisma raises P2002 for these, which is neither an HttpError nor a 4xx, so
-     * without this it fell through to the generic 500 below. The user saw "An
-     * unexpected error occurred." for the most ordinary mistake there is -
-     * saving a client whose email is already on file - and the real cause only
-     * existed in the server log. A 409 with the offending column named is the
-     * honest answer, and it is the difference between a user fixing their typo and
-     * a support ticket.
-     *
-     * `target` carries the constraint fields, so the message can name the column
-     * rather than shrugging at "a unique constraint failed".
-     */
-    const prismaCode = (error as { code?: unknown }).code;
-    if (prismaCode === 'P2002') {
-      const target = (error as { meta?: { target?: unknown } }).meta?.target;
-      const field = Array.isArray(target) ? target.join(', ') : undefined;
-      return reply.code(409).send({
-        error: 'UNIQUE_CONSTRAINT_VIOLATION',
-        message: field
-          ? `Another record already uses that ${field.replace(/_/g, ' ')}.`
-          : 'Another record already uses that value.',
-        ...(field ? { field } : {}),
+    // 1. Domain errors (HttpError, BillingError, OperationsError, TimesheetError, etc.)
+    const customStatus = (error as { statusCode?: unknown }).statusCode;
+    const customCode = (error as { code?: unknown }).code;
+    if (
+      error instanceof HttpError ||
+      (typeof customStatus === 'number' && typeof customCode === 'string')
+    ) {
+      const status = typeof customStatus === 'number' ? customStatus : 400;
+      const code = typeof customCode === 'string' ? customCode : 'BAD_REQUEST';
+      return reply.code(status).send({
+        error: code,
+        code,
+        message: error.message,
+        requestId,
       });
     }
 
+    // 2. Prisma Database Errors
+    const prismaCode = (error as { code?: unknown }).code;
+    if (typeof prismaCode === 'string' && prismaCode.startsWith('P')) {
+      // P2002: Unique constraint failed
+      if (prismaCode === 'P2002') {
+        const target = (error as { meta?: { target?: unknown } }).meta?.target;
+        const field = Array.isArray(target) ? target.join(', ') : undefined;
+        return reply.code(409).send({
+          error: 'UNIQUE_CONSTRAINT_VIOLATION',
+          code: 'UNIQUE_CONSTRAINT_VIOLATION',
+          message: field
+            ? `Another record already uses that ${field.replace(/_/g, ' ')}.`
+            : 'Another record already uses that value.',
+          ...(field ? { field } : {}),
+          requestId,
+        });
+      }
+
+      // P2003: Foreign key constraint violation
+      if (prismaCode === 'P2003') {
+        const fieldName = (error as { meta?: { field_name?: unknown } }).meta?.field_name;
+        const field = typeof fieldName === 'string' ? fieldName : undefined;
+        return reply.code(409).send({
+          error: 'FOREIGN_KEY_VIOLATION',
+          code: 'RECORD_IN_USE',
+          message:
+            'This record cannot be removed or modified because other active records depend on it.',
+          ...(field ? { field } : {}),
+          requestId,
+        });
+      }
+
+      // P2025: Record to update or delete not found
+      if (prismaCode === 'P2025') {
+        return reply.code(404).send({
+          error: 'RECORD_NOT_FOUND',
+          code: 'RECORD_NOT_FOUND',
+          message: 'The requested record does not exist or has already been removed.',
+          requestId,
+        });
+      }
+
+      // P2024 / P1001: Connection pool timeout or database unreachable
+      if (prismaCode === 'P2024' || prismaCode === 'P1001') {
+        reply.header('retry-after', '5');
+        return reply.code(503).send({
+          error: 'SERVICE_UNAVAILABLE',
+          code: 'DATABASE_UNAVAILABLE',
+          message:
+            'The database is temporarily busy or unreachable. Please try your request again shortly.',
+          requestId,
+        });
+      }
+
+      // P2034: Transaction conflict / serialization failure
+      if (prismaCode === 'P2034') {
+        return reply.code(409).send({
+          error: 'TRANSACTION_CONFLICT',
+          code: 'CONCURRENT_UPDATE',
+          message:
+            'A concurrent database operation conflicted with this action. Please retry.',
+          requestId,
+        });
+      }
+    }
+
+    // 3. Schema validation errors (Zod)
     if (error instanceof ZodError) {
       return reply.code(400).send({
         error: 'VALIDATION_FAILED',
+        code: 'VALIDATION_FAILED',
         message: 'Request payload failed validation.',
         issues: error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-      });
-    }
-    // A password that fails policy is a client input problem, not a server fault.
-    if (error instanceof PasswordPolicyError) {
-      return reply.code(400).send({
-        error: 'PASSWORD_POLICY_VIOLATION',
-        message: error.message,
+        requestId,
       });
     }
 
-    // Honour the status code carried by well-known HTTP errors from plugins
-    // (rate limiting, payload limits, CORS, ...) instead of flattening every
-    // client error into a 500.
+    // 4. Password policy violation
+    if (error instanceof PasswordPolicyError) {
+      return reply.code(400).send({
+        error: 'PASSWORD_POLICY_VIOLATION',
+        code: 'PASSWORD_POLICY_VIOLATION',
+        message: error.message,
+        requestId,
+      });
+    }
+
+    // 5. Plugin HTTP status codes (Rate limits, CORS, Multipart limits, etc.)
     const status = error.statusCode;
     if (typeof status === 'number' && status >= 400 && status < 500) {
       return reply.code(status).send({
         error: error.code ?? 'BAD_REQUEST',
+        code: error.code ?? 'BAD_REQUEST',
         message: error.message,
+        requestId,
       });
     }
 
-    app.log.error({ err: error }, 'unhandled error');
-    return reply
-      .code(500)
-      .send({ error: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred.' });
+    // 6. Unhandled 500 Internal Server Errors
+    app.log.error(
+      {
+        err: error,
+        requestId,
+        url: request.raw.url,
+        method: request.raw.method,
+      },
+      'unhandled server error',
+    );
+
+    return reply.code(500).send({
+      error: 'INTERNAL_SERVER_ERROR',
+      code: 'INTERNAL_SERVER_ERROR',
+      message: 'An unexpected error occurred.',
+      requestId,
+      timestamp: new Date().toISOString(),
+    });
   });
 }
 

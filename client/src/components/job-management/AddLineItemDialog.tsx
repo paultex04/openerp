@@ -27,7 +27,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Loader2, Search } from 'lucide-react';
-import { api, ApiError, type JobDetail } from '@/lib/api';
+import { api, type JobDetail } from '@/lib/api';
 import { useDebounced } from '@/hooks/use-debounced';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { formatZarRate } from '@/lib/format';
 
 interface ServiceCodeOption {
@@ -84,11 +84,7 @@ export function AddLineItemDialog({
       onAdded();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not add the line item',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not add the line item'),
   });
 
   const canSubmit =

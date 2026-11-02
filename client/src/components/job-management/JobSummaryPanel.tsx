@@ -43,10 +43,10 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { api, ApiError, type JobDetail, type TransitionOption } from '@/lib/api';
+import { api, type JobDetail, type TransitionOption } from '@/lib/api';
 import { SectionHeading } from '@/components/lifecycle/status-badge';
 import { Input } from '@/components/ui/input';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { usePermissions } from '@/components/auth/usePermissions';
@@ -392,11 +392,7 @@ function StatusControl({
       onChanged();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not change status',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not change status'),
   });
 
   const options = transitions.data?.transitions ?? [];
@@ -493,11 +489,7 @@ function useJobPatch(jobId: number, onChanged: () => void) {
     onError: (error: Error, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       onChanged();
-      toast.add({
-        title: `Could not save ${variables.label.toLowerCase()}`,
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      });
+      showErrorToast(error, `Could not save ${variables.label.toLowerCase()}`);
     },
   });
 }
@@ -637,11 +629,7 @@ function PrioritySelect({ job, canEdit }: { job: Job; canEdit: boolean }) {
       toast.add({ title: 'Priority updated', type: 'success' });
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not update priority',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not update priority'),
     onSettled: () => setPending(false),
   });
 

@@ -348,7 +348,9 @@ function ApproveDialog({
       onSuccess();
     },
     onError: (err) => {
-      const msg = err instanceof ApiError ? err.message : 'Failed to approve request.';
+      const isApi = err instanceof ApiError;
+      const ref = isApi && err.requestId ? ` (Ref: ${err.requestId})` : '';
+      const msg = (isApi ? err.message : 'Failed to approve request.') + ref;
       setError(msg);
     },
   });
@@ -549,7 +551,9 @@ function RejectDialog({
       onSuccess();
     },
     onError: (err) => {
-      const msg = err instanceof ApiError ? err.message : 'Failed to decline request.';
+      const isApi = err instanceof ApiError;
+      const ref = isApi && err.requestId ? ` (Ref: ${err.requestId})` : '';
+      const msg = (isApi ? err.message : 'Failed to decline request.') + ref;
       setError(msg);
     },
   });

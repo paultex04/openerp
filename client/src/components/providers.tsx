@@ -15,11 +15,13 @@ export function Providers({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 30_000,
             refetchOnWindowFocus: false,
-            // 401 means "signed out", which is a normal state, not a failure to
-            // retry three times.
+            // Don't retry client errors (4xx: 400 validation, 401 unauth, 403 forbidden, 404 not found, 409 conflict, 422 unprocessable).
+            // Only retry network outages (status 0) and transient 5xx server issues.
             retry: (failureCount, error) => {
               const status = (error as { status?: number }).status;
-              if (status === 401 || status === 403) return false;
+              if (typeof status === 'number' && status >= 400 && status < 500) {
+                return false;
+              }
               return failureCount < 2;
             },
           },

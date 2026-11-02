@@ -20,8 +20,12 @@ export async function initBackgroundWorkers(): Promise<void> {
       if (isS3Active()) {
         await uploadBlob(`invoices/tax-inv-${invoiceId}.pdf`, pdfBuffer, 'application/pdf');
       }
-    } catch {
-      // Swallowed in worker so unhandled rejections don't crash the queue runner
+    } catch (err: unknown) {
+      console.error(
+        `[worker:export:invoice-pdf] Failed to render or upload PDF for invoice ${invoiceId}:`,
+        err,
+      );
+      throw err;
     }
   });
 }

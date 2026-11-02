@@ -30,7 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { NumericCell } from '@/components/data-table/NumericCell';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { useDebounced } from '@/hooks/use-debounced';
 import { formatNumber, formatZar, formatZarRate } from '@/lib/format';
 
@@ -115,11 +115,7 @@ export function NewInvoiceDialog({
       onCreated(result.invoice.id);
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not create the invoice',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not create the invoice'),
   });
 
   const rows = jobs.data?.jobs ?? [];

@@ -5,6 +5,7 @@ import { Toast as ToastPrimitive } from '@base-ui/react/toast';
 import { cn } from 'cn';
 
 import { Button } from '@/components/ui/button';
+import { ApiError } from '@/lib/api';
 import {
   XIcon,
   CircleCheckIcon,
@@ -15,6 +16,40 @@ import {
 } from 'lucide-react';
 
 const toast = ToastPrimitive.createToastManager();
+
+/**
+ * Dispatches an error toast with actionable user guidance and optional incident correlation ID.
+ */
+function showErrorToast(
+  error: unknown,
+  fallbackTitle = 'Operation failed',
+  fallbackMessage = 'An unexpected error occurred. Please try again.',
+) {
+  const isApi = error instanceof ApiError;
+  const message = isApi
+    ? error.message
+    : error instanceof Error && error.message
+      ? error.message
+      : fallbackMessage;
+  const requestId = isApi ? error.requestId : undefined;
+
+  toast.add({
+    title: fallbackTitle,
+    description: requestId ? `${message} (Incident Ref: ${requestId})` : message,
+    type: 'error',
+  });
+}
+
+/**
+ * Dispatches a success toast.
+ */
+function showSuccessToast(title: string, description?: string) {
+  toast.add({
+    title,
+    ...(description ? { description } : {}),
+    type: 'success',
+  });
+}
 
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
   return <ToastPrimitive.Provider {...props} />;
@@ -219,4 +254,6 @@ export {
   createToastManager,
   toast,
   useToastManager,
+  showErrorToast,
+  showSuccessToast,
 };

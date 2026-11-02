@@ -39,7 +39,7 @@ import {
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { DataTable, stringFilter } from '@/components/data-table/data-table';
 import { api, ApiError } from '@/lib/api';
 
@@ -109,11 +109,7 @@ export function UsersPanel({ myId }: { myId: number | undefined }) {
       refresh();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not deactivate',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not deactivate account'),
   });
 
   const roleOptions = useMemo(
@@ -423,11 +419,7 @@ function UserDialog({
       onSaved();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: isCreate ? 'Could not create user' : 'Could not update user',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, isCreate ? 'Could not create user' : 'Could not update user'),
   });
 
   const canSubmit = isCreate

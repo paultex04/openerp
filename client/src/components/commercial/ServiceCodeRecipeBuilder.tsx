@@ -18,12 +18,11 @@ import { serviceCodeCategoryValues, type ServiceCodeCategory } from '@openerp/sh
 import { usePermissions } from '@/components/auth/usePermissions';
 import {
   api,
-  ApiError,
   type ComputationResult,
   type RateCardRow,
   type ServiceCodeDetail,
 } from '@/lib/api';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -149,11 +148,7 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
       await invalidate();
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not apply rate',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not apply rate'),
   });
 
   const addLabourLine = useMutation({
@@ -167,22 +162,14 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
       await invalidate();
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not add labour line',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not add labour line'),
   });
 
   const removeLabourLine = useMutation({
     mutationFn: (id: number) => api.delete(`/api/service-code-labour-items/${id}`),
     onSuccess: invalidate,
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not remove line',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not remove line'),
   });
 
   const addMaterialLine = useMutation({
@@ -193,22 +180,14 @@ export function ServiceCodeRecipeBuilder({ amendmentId, canEdit }: Props) {
       await invalidate();
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not add material line',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not add material line'),
   });
 
   const removeMaterialLine = useMutation({
     mutationFn: (id: number) => api.delete(`/api/service-code-material-items/${id}`),
     onSuccess: invalidate,
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not remove line',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not remove line'),
   });
 
   // ---- New-line form state ----------------------------------------------
@@ -649,11 +628,7 @@ function AddServiceCodeDialog({
       }
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not create service code',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not create service code'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -6,7 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/data-table/data-table';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 
 interface RoleRow {
@@ -63,11 +63,7 @@ export function RolesPanel() {
       });
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not save role permissions',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not save role permissions'),
     onSettled: () => setSavingRole(null),
   });
 

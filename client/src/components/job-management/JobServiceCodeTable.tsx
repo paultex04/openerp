@@ -30,14 +30,13 @@ import { useMemo, useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import {
   api,
-  ApiError,
   type DeliverableRow,
   type JobDetail,
   type VarianceSummary,
 } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { NumericCell } from '@/components/data-table/NumericCell';
 import { varianceTone } from '@/components/lifecycle/status-badge';
 import { formatNumber, formatZar, formatZarRate } from '@/lib/format';
@@ -91,11 +90,7 @@ export function JobServiceCodeTable({
       onChanged();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not remove the line item',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not remove the line item'),
   });
 
   return (

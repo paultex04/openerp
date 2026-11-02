@@ -9,6 +9,17 @@ import type { Config } from '../config.js';
 let s3Client: S3Client | null = null;
 let bucketName = 'openerp-attachments';
 
+export class StorageError extends Error {
+  constructor(
+    readonly statusCode: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'StorageError';
+  }
+}
+
 export async function ensureGarageProvisioned(config: Config): Promise<void> {
   if (config.isTest) return;
   if (!config.S3_ENDPOINT || !config.S3_ACCESS_KEY_ID || !config.S3_SECRET_ACCESS_KEY) return;
@@ -129,7 +140,11 @@ export async function uploadBlob(
   contentType: string,
 ): Promise<string> {
   if (!s3Client) {
-    throw new Error('S3 client is not configured; cannot upload to object storage');
+    throw new StorageError(
+      503,
+      'STORAGE_UNAVAILABLE',
+      'S3 client is not configured; cannot upload to object storage.',
+    );
   }
 
   const command = new PutObjectCommand({

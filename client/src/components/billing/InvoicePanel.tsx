@@ -14,9 +14,9 @@
 import { useMutation } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { invoiceVariant } from '@/lib/lifecycle-status';
-import { api, ApiError, type InvoiceTransitionOption } from '@/lib/api';
+import { api, type InvoiceTransitionOption } from '@/lib/api';
 
 const TERMINAL = new Set(['Paid', 'Cancelled']);
 
@@ -43,11 +43,7 @@ export function InvoiceTransitions({
       onTransitioned?.();
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Transition refused',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Transition refused'),
   });
 
   const permitted = transitions.filter((t) => t.allowed);

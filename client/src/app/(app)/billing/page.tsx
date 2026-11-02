@@ -38,7 +38,7 @@ import {
 import { NumericCell } from '@/components/data-table/NumericCell';
 import { DataTable } from '@/components/data-table/data-table';
 import { formatDate, formatNumber, formatPercent, formatZar, formatZarRate } from '@/lib/format';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import {
   Dialog,
   DialogContent,
@@ -367,11 +367,7 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
       void queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not delete',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not delete invoice'),
   });
   const draftSave = useMutation({
     mutationFn: () =>
@@ -384,11 +380,7 @@ function InvoiceDocument({ invoiceId, onClose }: { invoiceId: number; onClose: (
       refresh();
     },
     onError: (error: Error) =>
-      toast.add({
-        title: 'Could not update draft invoice',
-        description: error instanceof ApiError ? error.message : error.message,
-        type: 'error',
-      }),
+      showErrorToast(error, 'Could not update draft invoice'),
   });
 
   useEffect(() => {

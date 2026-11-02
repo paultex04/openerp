@@ -14,7 +14,7 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { costParameterCategoryValues, type CostParameterCategory } from '@openerp/shared';
 import { usePermissions } from '@/components/auth/usePermissions';
-import { toast } from '@/components/ui/toast';
+import { showErrorToast, toast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -92,11 +92,7 @@ function CostParameterForm({ amendmentId, amendmentNumber, canEdit }: Props) {
       await queryClient.invalidateQueries({ queryKey: ['cost-parameters', amendmentId] });
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not save parameters',
-        description: e instanceof ApiError ? e.message : 'Unexpected error.',
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not save parameters'),
   });
 
   const handleChange = (name: string, value: string) =>
@@ -272,11 +268,7 @@ function AddCostParameterDialog({ open, onOpenChange, amendmentId }: AddCostPara
       setNotes('');
     },
     onError: (e: Error) =>
-      toast.add({
-        title: 'Could not create parameter',
-        description: e instanceof ApiError ? e.message : e.message,
-        type: 'error',
-      }),
+      showErrorToast(e, 'Could not create parameter'),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

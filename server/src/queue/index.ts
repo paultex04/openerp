@@ -36,15 +36,14 @@ export async function initJobQueue(config: Config): Promise<void> {
     });
 
     boss.on('error', (err: unknown) => {
-      // Swallowed error to prevent crashing on connection drops
-      void err;
+      console.error('[pg-boss:error] Background job queue error:', err);
     });
 
     await boss.start();
     bossInstance = boss;
     isStarted = true;
-  } catch {
-    // If pg-boss fails to connect on boot, remain graceful
+  } catch (err: unknown) {
+    console.error('[pg-boss:boot] Failed to initialize background job queue:', err);
     bossInstance = null;
     isStarted = false;
   }
