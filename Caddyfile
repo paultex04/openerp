@@ -36,7 +36,8 @@
 # exists to arrive in pieces would defeat it, and this removes any doubt.
 # =============================================================================
 
-{$SITE_ADDRESS:localhost} {
+http://{$SITE_ADDRESS:localhost}, {$SITE_ADDRESS:localhost} {
+	tls internal
 	@notstream not path /api/chat/stream
 	encode @notstream zstd gzip
 
