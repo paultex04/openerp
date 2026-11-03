@@ -94,6 +94,7 @@ const options = {
   entryPoints: {
     index: resolve(root, 'server/src/index.ts'),
     seed: resolve(root, 'server/src/db/seed.ts'),
+    seedDemo: resolve(root, 'server/src/db/seed-demo-data.ts'),
   },
   outdir: resolve(root, 'server/dist'),
   entryNames: '[name]',
