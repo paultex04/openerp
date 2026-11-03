@@ -82,10 +82,10 @@ services:
       # runs a real query. `pg_isready` alone reports ready while the database is
       # still initialising.
       test: ['CMD-SHELL', 'pg_isready -U openerp -d openerp -q || exit 1']
-      interval: 5s
+      interval: 30s
       timeout: 5s
-      retries: 20
-      start_period: 10s
+      retries: 5
+      start_period: 20s
     # No published ports. Reachable as `db:5432` inside this network only.
 
   # -----------------------------------------------------------------------------
@@ -106,7 +106,7 @@ services:
       - garage-data:/var/lib/garage/data
     healthcheck:
       test: ['CMD', '/garage', '-c', '/etc/garage.toml', 'status']
-      interval: 15s
+      interval: 30s
       timeout: 10s
       retries: 5
       start_period: 25s
