@@ -90,12 +90,12 @@ export function loadEnvFile(path?: string): Record<string, string> {
   }
 
   try {
-    const parsed = new URL(process.env.DATABASE_URL);
-    process.env.PGHOST = process.env.PGHOST || parsed.hostname || host;
-    process.env.PGPORT = process.env.PGPORT || parsed.port || port;
-    process.env.PGUSER = process.env.PGUSER || parsed.username || user;
-    process.env.PGPASSWORD = process.env.PGPASSWORD || parsed.password || pass;
-    process.env.PGDATABASE = process.env.PGDATABASE || parsed.pathname.replace(/^\//, '') || db;
+    const dbUrl = new URL(process.env.DATABASE_URL);
+    process.env.PGHOST = process.env.PGHOST || dbUrl.hostname || host;
+    process.env.PGPORT = process.env.PGPORT || dbUrl.port || port;
+    process.env.PGUSER = process.env.PGUSER || dbUrl.username || user;
+    process.env.PGPASSWORD = process.env.PGPASSWORD || dbUrl.password || pass;
+    process.env.PGDATABASE = process.env.PGDATABASE || dbUrl.pathname.replace(/^\//, '') || db;
   } catch {
     process.env.PGHOST = process.env.PGHOST || host;
     process.env.PGPORT = process.env.PGPORT || port;

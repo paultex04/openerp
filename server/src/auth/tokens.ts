@@ -38,6 +38,7 @@ export interface TokenCodecOptions {
 const DEFAULT_ISSUER = 'openerp-api';
 const DEFAULT_AUDIENCE = 'openerp-client';
 const ACCESS_TOKEN_TYPE = 'access';
+const REFRESH_TOKEN_TYPE = 'refresh';
 
 export class TokenCodec {
   private readonly key: Uint8Array;
@@ -63,6 +64,20 @@ export class TokenCodec {
       .setAudience(this.audience)
       .setIssuedAt()
       .setExpirationTime(this.expiresIn)
+      .sign(this.key);
+  }
+
+  async signRefresh(claims: TokenClaims, expiresIn = '7d'): Promise<string> {
+    return new SignJWT({
+      ver: claims.tokenVersion,
+      typ: REFRESH_TOKEN_TYPE,
+    })
+      .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+      .setSubject(String(claims.userId))
+      .setIssuer(this.issuer)
+      .setAudience(this.audience)
+      .setIssuedAt()
+      .setExpirationTime(expiresIn)
       .sign(this.key);
   }
 
@@ -97,6 +112,39 @@ export class TokenCodec {
     }
     if (typeof payload.ver !== 'number') {
       throw new TokenError('Session token is malformed.', 'malformed');
+    }
+
+    return { userId: Number(payload.sub), tokenVersion: payload.ver };
+  }
+
+  async verifyRefresh(token: string): Promise<TokenClaims> {
+    let payload;
+    try {
+      ({ payload } = await jwtVerify(token, this.key, {
+        algorithms: ['HS256'],
+        issuer: this.issuer,
+        audience: this.audience,
+      }));
+    } catch (e) {
+      const err = e as { name?: string; code?: string };
+      if (
+        err.name === 'TokenExpiredError' ||
+        err.name === 'JWTExpired' ||
+        err.code === 'ERR_JWT_EXPIRED'
+      ) {
+        throw new TokenError('Refresh token has expired.', 'expired');
+      }
+      throw new TokenError('Refresh token is not valid.', 'invalid');
+    }
+
+    if (typeof payload.sub !== 'string' || !/^\d+$/.test(payload.sub)) {
+      throw new TokenError('Refresh token is malformed.', 'malformed');
+    }
+    if (payload.typ !== REFRESH_TOKEN_TYPE) {
+      throw new TokenError('Refresh token was issued for a different purpose.', 'wrong_type');
+    }
+    if (typeof payload.ver !== 'number') {
+      throw new TokenError('Refresh token is malformed.', 'malformed');
     }
 
     return { userId: Number(payload.sub), tokenVersion: payload.ver };

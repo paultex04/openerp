@@ -99,7 +99,7 @@ FROM node:26-bookworm-slim AS runtime
 # only curl present it warned that the healthcheck needed a curl or wget command.
 # Both are cheap (busybox-adjacent, no dependency tree) and remove the guesswork.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl wget \
+  && apt-get install -y --no-install-recommends curl wget postgresql-client \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

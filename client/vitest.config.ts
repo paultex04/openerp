@@ -5,6 +5,11 @@ import { dirname, resolve } from 'node:path';
 const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  oxc: {
+    jsx: {
+      runtime: 'automatic',
+    },
+  },
   test: {
     environment: 'node',
     globals: false,

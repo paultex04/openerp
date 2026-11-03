@@ -6,6 +6,7 @@ import { cn } from 'cn';
 
 import { Button } from '@/components/ui/button';
 import { ApiError } from '@/lib/api';
+import { openIncidentReport } from '@/components/support/incident-report-modal';
 import {
   XIcon,
   CircleCheckIcon,
@@ -209,19 +210,38 @@ function ToastIcon({ type }: { type: string | undefined }) {
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager();
 
-  return toasts.map((toastItem) => (
-    <Toast key={toastItem.id} toast={toastItem}>
-      <ToastContent>
-        <ToastIcon type={toastItem.type} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <ToastTitle />
-          <ToastDescription />
-        </div>
-        <ToastAction />
-        <ToastClose />
-      </ToastContent>
-    </Toast>
-  ));
+  return toasts.map((toastItem) => {
+    const isError = toastItem.type === 'error';
+    return (
+      <Toast key={toastItem.id} toast={toastItem}>
+        <ToastContent>
+          <ToastIcon type={toastItem.type} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <ToastTitle />
+            <ToastDescription />
+          </div>
+          {isError && (
+            <button
+              type="button"
+              onClick={() => {
+                const titleStr = typeof toastItem.title === 'string' ? toastItem.title : 'Error';
+                const descStr =
+                  typeof toastItem.description === 'string' ? toastItem.description : '';
+                openIncidentReport({
+                  title: titleStr,
+                  error: descStr,
+                });
+              }}
+              className="text-[11px] font-semibold text-destructive underline-offset-2 hover:underline cursor-pointer shrink-0 self-center px-1.5 py-0.5 rounded transition-colors hover:bg-destructive/10"
+            >
+              Report Issue
+            </button>
+          )}
+          <ToastClose />
+        </ToastContent>
+      </Toast>
+    );
+  });
 }
 
 function Toaster({ children, toastManager = toast, ...props }: ToastPrimitive.Provider.Props) {

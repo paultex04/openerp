@@ -93,6 +93,33 @@ export interface RequestOptions {
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined | null>;
   signal?: AbortSignal;
+  _retry?: boolean;
+}
+
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
+async function attemptSessionRefresh(): Promise<boolean> {
+  if (isRefreshing && refreshPromise) {
+    return refreshPromise;
+  }
+  isRefreshing = true;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        credentials: 'include',
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
@@ -143,7 +170,23 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     );
   }
 
-  return readResponse<T>(response);
+  try {
+    return await readResponse<T>(response);
+  } catch (err) {
+    if (
+      err instanceof ApiError &&
+      err.status === 401 &&
+      !options._retry &&
+      !path.includes('/api/auth/login') &&
+      !path.includes('/api/auth/refresh')
+    ) {
+      const refreshed = await attemptSessionRefresh();
+      if (refreshed) {
+        return apiRequest<T>(path, { ...options, _retry: true });
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -178,7 +221,17 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
     );
   }
 
-  return readResponse<T>(response);
+  try {
+    return await readResponse<T>(response);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      const refreshed = await attemptSessionRefresh();
+      if (refreshed) {
+        return apiUpload<T>(path, form);
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -322,6 +375,16 @@ export interface SystemDiagnostics {
   audit: {
     failuresCount: number;
   };
+}
+
+export interface DatabaseBackupRecord {
+  id: string;
+  filename: string;
+  sizeBytes: number;
+  createdAt: string;
+  storage: 's3' | 'local' | 'both';
+  method: 'pg_dump' | 'sql_fallback';
+  key?: string;
 }
 
 export interface ClientRow {

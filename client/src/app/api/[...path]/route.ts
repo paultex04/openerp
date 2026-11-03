@@ -62,16 +62,16 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
 
   // GET and HEAD must not carry a body.
   const method = request.method;
-  const hasBody = method !== 'GET' && method !== 'HEAD';
-  const bodyBuffer = hasBody ? await request.arrayBuffer() : null;
-  const requestBody = bodyBuffer && bodyBuffer.byteLength > 0 ? bodyBuffer : undefined;
+  const hasBody = method !== 'GET' && method !== 'HEAD' && request.body !== null;
 
   let upstream: Response;
   try {
     upstream = await fetch(target, {
       method,
       headers,
-      ...(requestBody ? { body: requestBody } : {}),
+      body: hasBody ? request.body : undefined,
+      // @ts-expect-error duplex is required by Node.js fetch when body is a ReadableStream
+      duplex: hasBody ? 'half' : undefined,
       // Never let a cached response mask a 401.
       cache: 'no-store',
       redirect: 'manual',

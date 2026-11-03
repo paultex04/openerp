@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Check, Copy, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, Copy, LifeBuoy, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AccessDenied } from '@/components/auth/access-denied';
+import { openIncidentReport } from '@/components/support/incident-report-modal';
 
 export default function ErrorBoundary({
   error,
@@ -99,6 +100,24 @@ export default function ErrorBoundary({
 
           <Button
             type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              openIncidentReport({
+                title: 'Unhandled Route Error',
+                error: error.message,
+                stack: error.stack,
+                incidentRef: error.digest,
+              })
+            }
+            className="flex-1 cursor-pointer gap-1.5 text-xs rounded-xl"
+          >
+            <LifeBuoy className="size-3.5" />
+            Report Issue
+          </Button>
+
+          <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={() => {
@@ -107,7 +126,7 @@ export default function ErrorBoundary({
             className="flex-1 cursor-pointer gap-1.5 text-xs rounded-xl border-border/80"
           >
             <ArrowLeft className="size-3.5" />
-            Go to Dashboard
+            Dashboard
           </Button>
         </div>
 

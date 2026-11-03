@@ -64,4 +64,19 @@ describe('TokenCodec', () => {
     // Signature no longer matches, so this must fail either way.
     await expect(codec.verify(`${header}.${swapped}.${signature}`)).rejects.toThrow(TokenError);
   });
+
+  it('round-trips refresh tokens', async () => {
+    const refreshToken = await codec.signRefresh({ userId: 42, tokenVersion: 3 }, '7d');
+    await expect(codec.verifyRefresh(refreshToken)).resolves.toEqual({ userId: 42, tokenVersion: 3 });
+  });
+
+  it('rejects access tokens when verifying as refresh tokens', async () => {
+    const accessToken = await codec.sign({ userId: 42, tokenVersion: 3 });
+    await expect(codec.verifyRefresh(accessToken)).rejects.toThrow(/different purpose/i);
+  });
+
+  it('rejects refresh tokens when verifying as access tokens', async () => {
+    const refreshToken = await codec.signRefresh({ userId: 42, tokenVersion: 3 });
+    await expect(codec.verify(refreshToken)).rejects.toThrow(/different purpose/i);
+  });
 });

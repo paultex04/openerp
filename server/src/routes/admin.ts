@@ -43,6 +43,11 @@ import { hashPassword, PasswordPolicyError } from '../auth/password.js';
 import { auditFailureCount, auditModels, auditSummary, queryAudit } from '../audit/service.js';
 import { getStorageDiagnostics } from '../storage/index.js';
 import { getQueueDiagnostics } from '../queue/index.js';
+import {
+  createDatabaseBackup,
+  listDatabaseBackups,
+  getBackupBuffer,
+} from '../backup/service.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
@@ -1049,6 +1054,68 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
           failuresCount: auditFailureCount(),
         },
       };
+    },
+  );
+
+  const backupFilenameParam = z.object({
+    filename: z.string().regex(/^openerp-backup-[\w.-]+(\.dump|\.sql)$/, 'Invalid backup filename.'),
+  });
+
+  /**
+   * List existing database backups across S3 and local storage.
+   */
+  app.get(
+    '/api/admin/backups',
+    {
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.audit.read')],
+    },
+    async () => {
+      const backups = await listDatabaseBackups();
+      return { backups };
+    },
+  );
+
+  /**
+   * Run an on-demand database backup.
+   */
+  app.post(
+    '/api/admin/backups/run',
+    {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.user.write')],
+    },
+    async () => {
+      const backup = await createDatabaseBackup();
+      return { success: true, backup };
+    },
+  );
+
+  /**
+   * Download a database backup archive.
+   */
+  app.get(
+    '/api/admin/backups/:filename',
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.audit.read')],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { filename } = backupFilenameParam.parse(request.params);
+      const buffer = await getBackupBuffer(filename);
+      if (!buffer) {
+        throw new HttpError(404, 'NOT_FOUND', 'Backup file not found.');
+      }
+
+      const contentType = filename.endsWith('.sql')
+        ? 'text/plain; charset=utf-8'
+        : 'application/octet-stream';
+
+      return reply
+        .header('Content-Type', contentType)
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .header('Content-Length', buffer.length)
+        .send(buffer);
     },
   );
 }

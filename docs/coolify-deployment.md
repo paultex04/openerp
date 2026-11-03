@@ -651,6 +651,19 @@ show this — rebuild without cache.
 
 ---
 
+## Streaming Proxy, Sliding Refresh & Autonomous Backups
+
+As of v2.7.8, the production stack includes three major runtime resiliency improvements:
+
+1. **Full-Duplex Streaming in Next.js API Proxy (`client/src/app/api/[...path]/route.ts`):**
+   Non-GET/HEAD request bodies stream directly from browser to API as raw `ReadableStream` with `duplex: 'half'`. This completely avoids buffering multipart avatars, task attachments, and documents in Web container memory.
+2. **Sliding Session Refresh (`POST /api/auth/refresh`):**
+   Login issues both an HTTP-only 15-minute access cookie (`openerp_session`) and a 7-day rolling refresh cookie (`openerp_session_refresh`). The web client transparently intercepts 401s or nearing expiries, issues a background refresh, and replays pending queries without session interruption.
+3. **Autonomous In-App Backups via `pg-boss`:**
+   Every night at 02:00 UTC, the API runs `createDatabaseBackup()`, storing compressed dumps in Garage S3 and local storage with 14-day automated retention. Administrators can view, download, or trigger backups from `/admin?tab=diagnostics`.
+
+---
+
 ## Local parity
 
 `docker-compose.yml` builds the same two images against a real Postgres, behind

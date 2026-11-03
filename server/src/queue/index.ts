@@ -129,6 +129,18 @@ export async function registerWorker<T = object>(
   testWorkers.set(safeQueue, handler as JobHandler);
 }
 
+export async function scheduleRecurringJob<T = object>(
+  queueName: string,
+  cron: string,
+  data?: T,
+): Promise<void> {
+  const safeQueue = normalizeQueueName(queueName);
+  if (bossInstance) {
+    await ensureQueue(safeQueue);
+    await bossInstance.schedule(safeQueue, cron, (data ?? {}) as object);
+  }
+}
+
 /** Test helper: get enqueued jobs */
 export function getTestEnqueuedJobs(): Array<{ id: string; name: string; data: unknown }> {
   return [...testJobs];

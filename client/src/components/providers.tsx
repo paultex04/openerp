@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Toaster } from '@/components/ui/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { IncidentReportModal } from '@/components/support/incident-report-modal';
 
 export function Providers({ children }: { children: ReactNode }) {
   // One client per browser session, created lazily so server renders do not
@@ -38,6 +39,7 @@ export function Providers({ children }: { children: ReactNode }) {
           raised by a query that resolves after navigation still survives.
         */}
         <Toaster />
+        <IncidentReportModal />
       </TooltipProvider>
     </QueryClientProvider>
   );

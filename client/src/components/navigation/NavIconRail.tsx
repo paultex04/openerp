@@ -12,6 +12,7 @@ import {
   FolderKanban,
   Gauge,
   History,
+  LifeBuoy,
   ListTodo,
   PanelLeftClose,
   PanelLeftOpen,
@@ -25,6 +26,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useDualRail } from '@/lib/nav-store';
 import { useNavMeta } from '@/hooks/use-nav-meta';
 import { usePermissions } from '@/components/auth/usePermissions';
+import { openIncidentReport } from '@/components/support/incident-report-modal';
 import { cn } from 'cn';
 
 interface RailItem {
@@ -269,6 +271,26 @@ export function NavIconRail() {
 
         {/* Bottom Rail Controls */}
         <div className="flex flex-col items-center gap-2">
+          {/* Help & Support Incident Modal */}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => openIncidentReport({ title: 'User requested support via Nav Rail' })}
+                  className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
+                  aria-label="Report issue or incident"
+                >
+                  <LifeBuoy className="size-4.5" />
+                </button>
+              }
+            />
+            <TooltipContent side="right" sideOffset={12}>
+              <p className="font-medium">Support &amp; Incident Diagnostics</p>
+              <p className="text-[10px] text-muted-foreground">Report bug or generate diagnostic ticket</p>
+            </TooltipContent>
+          </Tooltip>
+
           {/* Pin/Collapse Drawer Toggle */}
           <Tooltip>
             <TooltipTrigger

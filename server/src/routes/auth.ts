@@ -33,9 +33,15 @@ const changePasswordSchema = z.object({
   newPassword: z.string().min(1, 'New password is required.'),
 });
 
-/** Clears the session cookie with options matching how it was set. */
+/** Clears both access and refresh session cookies with matching options. */
 function clearSessionCookie(reply: FastifyReply, config: Config): void {
   reply.clearCookie(config.AUTH_COOKIE_NAME, {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.AUTH_COOKIE_SECURE,
+  });
+  reply.clearCookie(`${config.AUTH_COOKIE_NAME}_refresh`, {
     path: '/',
     httpOnly: true,
     sameSite: 'lax',
@@ -90,6 +96,14 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
         tokenVersion: user.tokenVersion,
       });
 
+      const refreshToken = await app.tokenCodec.signRefresh(
+        {
+          userId: user.id,
+          tokenVersion: user.tokenVersion,
+        },
+        '7d',
+      );
+
       await prisma.appUser.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() },
@@ -101,6 +115,14 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
         sameSite: 'lax',
         secure: config.AUTH_COOKIE_SECURE,
         maxAge: secondsFromDuration(config.AUTH_JWT_EXPIRES_IN),
+      });
+
+      reply.setCookie(`${config.AUTH_COOKIE_NAME}_refresh`, refreshToken, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.AUTH_COOKIE_SECURE,
+        maxAge: secondsFromDuration('7d'),
       });
 
       // Intentionally no token in the body.
@@ -122,14 +144,39 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
   app.post(
     '/api/auth/refresh',
     {
-      preHandler: [app.authenticate],
       config: config.isTest ? {} : { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const principal = request.principal!;
+      const refreshCookieName = `${config.AUTH_COOKIE_NAME}_refresh`;
+      const rawRefresh = request.cookies[refreshCookieName];
+      const rawAccess = request.cookies[config.AUTH_COOKIE_NAME];
+
+      let claims: { userId: number; tokenVersion: number } | null = null;
+
+      if (rawRefresh) {
+        try {
+          claims = await app.tokenCodec.verifyRefresh(rawRefresh);
+        } catch {
+          claims = null;
+        }
+      }
+
+      // Fallback: If refresh cookie is missing, check active access token
+      if (!claims && rawAccess) {
+        try {
+          claims = await app.tokenCodec.verify(rawAccess);
+        } catch {
+          claims = null;
+        }
+      }
+
+      if (!claims) {
+        clearSessionCookie(reply, config);
+        throw unauthorized('Session has expired. Please sign in again.');
+      }
 
       const user = await prisma.appUser.findUnique({
-        where: { id: principal.userId },
+        where: { id: claims.userId },
         select: {
           id: true,
           isActive: true,
@@ -137,9 +184,9 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
         },
       });
 
-      if (!user || !user.isActive) {
+      if (!user || !user.isActive || user.tokenVersion !== claims.tokenVersion) {
         clearSessionCookie(reply, config);
-        throw unauthorized('Account is inactive or no longer exists.');
+        throw unauthorized('Account is inactive, modified, or session was revoked.');
       }
 
       const token = await app.tokenCodec.sign({
@@ -147,12 +194,28 @@ export async function registerAuthRoutes(app: FastifyInstance, config: Config): 
         tokenVersion: user.tokenVersion,
       });
 
+      const refreshToken = await app.tokenCodec.signRefresh(
+        {
+          userId: user.id,
+          tokenVersion: user.tokenVersion,
+        },
+        '7d',
+      );
+
       reply.setCookie(config.AUTH_COOKIE_NAME, token, {
         path: '/',
         httpOnly: true,
         sameSite: 'lax',
         secure: config.AUTH_COOKIE_SECURE,
         maxAge: secondsFromDuration(config.AUTH_JWT_EXPIRES_IN),
+      });
+
+      reply.setCookie(refreshCookieName, refreshToken, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: config.AUTH_COOKIE_SECURE,
+        maxAge: secondsFromDuration('7d'),
       });
 
       return reply.code(200).send({ ok: true });

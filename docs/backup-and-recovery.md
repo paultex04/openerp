@@ -1,124 +1,86 @@
 # OpenERP — Backup & Disaster Recovery Guide
 
-This runbook covers backup, verification, and disaster recovery procedures for the OpenERP PostgreSQL database and container infrastructure.
+This runbook covers automated in-app backups, verification, and disaster recovery procedures for the OpenERP PostgreSQL database and container infrastructure.
 
 ---
 
-## 1. Automated Backups in Coolify
+## 1. Native In-App Automated Backups (Built-In)
 
-Coolify provides native scheduled backups for database containers and Compose services.
+OpenERP includes an autonomous, zero-dependency background backup system powered by PostgreSQL (`pg-boss` background worker queue).
 
-### Option A: Coolify Scheduled Database Backups (Recommended)
+### Key Features
+- **Automated Schedule:** Runs automatically every night at **02:00 UTC** (`0 2 * * *`).
+- **Zero Downtime:** Uses non-blocking `pg_dump` with compressed binary format (`-F c`), falling back to a transactional pure-SQL export if binary utilities are absent.
+- **Dual Redundancy:** Backups are stored in **Garage S3** (`backups/`) and synced to local container disk (`data/backups/`).
+- **14-Day Retention:** Backups older than 14 days are automatically pruned from both S3 and local storage on each cycle.
+- **Web UI Management:** Administrators can view backups, trigger manual on-demand snapshots, and download dumps directly from `/admin?tab=diagnostics`.
 
-1. In the Coolify dashboard, navigate to your project and open the database resource.
-2. Go to the **Backups** tab.
-3. Configure the backup schedule:
-   - **Enabled:** Toggle **ON**
-   - **Frequency (Cron):** `0 2 * * *` _(Runs nightly at 02:00 AM)_
-   - **Storage Destination:** Local storage or S3-compatible bucket (e.g. MinIO, Cloudflare R2, AWS S3).
-   - **Retention:** Set retention period (e.g. 14 to 30 days).
-4. Click **Save Changes** and click **Backup Now** to perform an immediate manual test run. Verify the status shows green (`Success`).
-
----
-
-## 2. Automated Host-Level Backups (Cron on Coolify LXC)
-
-If you are running the unified Compose stack (`docker-compose.coolify.yml`) where Postgres is managed directly within Compose:
-
-### Create Nightly Backup Script
-
-Inside your Coolify LXC (or host shell), create `/opt/scripts/backup-openerp.sh`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-BACKUP_DIR="/var/backups/openerp"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-CONTAINER=$(docker ps --filter "name=db" --format "{{.Names}}" | grep -E "openerp.*db|db" | head -n 1)
-
-mkdir -p "${BACKUP_DIR}"
-
-echo "Starting OpenERP backup for container ${CONTAINER}..."
-docker exec -t "${CONTAINER}" pg_dump -U openerp -d openerp -F c -b -v > "${BACKUP_DIR}/openerp_${TIMESTAMP}.dump"
-
-# Retain backups for 14 days, delete older files
-find "${BACKUP_DIR}" -type f -name "openerp_*.dump" -mtime +14 -delete
-
-echo "Backup complete: ${BACKUP_DIR}/openerp_${TIMESTAMP}.dump"
-```
-
-Make it executable:
-
-```bash
-chmod +x /opt/scripts/backup-openerp.sh
-```
-
-### Schedule in Crontab
-
-Add to root crontab (`crontab -e`):
-
-```text
-0 2 * * * /opt/scripts/backup-openerp.sh >> /var/log/openerp-backup.log 2>&1
-```
+### Triggering an Immediate Manual Backup via Web UI
+1. Log in with an account holding `admin.*` permissions.
+2. Navigate to **Administration** $\rightarrow$ **Diagnostics** tab (`/admin?tab=diagnostics`).
+3. Scroll to the **Automated Database Backups & Snapshots** section.
+4. Click **"Backup Database Now"**.
+5. Once complete, click **"Download"** next to the backup entry to save the archive locally.
 
 ---
 
-## 3. Manual Backup and Restore Runbook
+## 2. In-Service Terminal Commands (Inside Container Shells)
 
-### Taking an Immediate Manual Dump
+When performing maintenance directly inside container shells (e.g., via the Coolify Terminal or LXC console):
 
-From your terminal or inside the Coolify LXC:
+### A. Manual Dump (Run Inside `db` Service Terminal)
+
+Open the **db** container terminal and run:
 
 ```bash
-# Custom compressed format (recommended):
-docker compose -f docker-compose.coolify.yml exec -T db pg_dump -U openerp -d openerp -F c > openerp_manual.dump
+# Compressed binary dump (Recommended)
+pg_dump -U openerp -d openerp -F c -b -v -f /tmp/openerp_manual.dump
 
-# Plain SQL text format:
-docker compose -f docker-compose.coolify.yml exec -T db pg_dump -U openerp -d openerp > openerp_manual.sql
+# Or pure SQL export
+pg_dump -U openerp -d openerp -f /tmp/openerp_manual.sql
 ```
 
-### Restoring a Backup to a Fresh Database
+### B. Restoring a Dump (Run Inside `db` Service Terminal)
 
 > [!CAUTION]
-> Restoring overwrites existing database tables. Ensure all running API instances are stopped before restoring.
+> Restoring overwrites existing database tables. Ensure the `api` service is paused or not serving traffic during restoration.
 
-1. Stop the application services to prevent active connections:
+Open the **db** container terminal:
 
-   ```bash
-   docker compose -f docker-compose.coolify.yml stop api web
-   ```
+```bash
+# 1. Terminate remaining idle connections
+psql -U openerp -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'openerp' AND pid <> pg_backend_pid();"
 
-2. Restore the compressed dump file:
+# 2. Restore compressed dump file
+pg_restore -U openerp -d openerp --clean --if-exists --no-owner --no-privileges /tmp/openerp_manual.dump
 
-   ```bash
-   # Terminate any remaining connections and restore:
-   docker compose -f docker-compose.coolify.yml exec -T db pg_restore \
-     -U openerp \
-     -d openerp \
-     --clean \
-     --if-exists \
-     --no-owner \
-     --no-privileges < openerp_manual.dump
-   ```
+# 3. Verify table counts
+psql -U openerp -d openerp -c "SELECT count(*) FROM app_user;"
+```
 
-3. Restart the API and Web containers:
+### C. Manual Backup Trigger (Run Inside `api` Service Terminal)
 
-   ```bash
-   docker compose -f docker-compose.coolify.yml start api web
-   ```
+If you have an interactive shell inside the **api** container, you can trigger a backup programmatically:
 
-4. Verify application readiness:
-   ```bash
-   curl -fsS http://localhost:4000/health/ready
-   ```
+```bash
+node -e "import('./dist/backup/service.js').then(m => m.createDatabaseBackup()).then(b => console.log('Backup created:', b))"
+```
 
 ---
 
-## 4. Proxmox VE Level Protection (LXC Snapshots)
+## 3. Coolify Platform & Host Backups
 
+### Option A: Coolify Native Scheduled Database Backups
+1. In the Coolify dashboard, navigate to your project and open the database resource.
+2. Go to the **Backups** tab.
+3. Configure:
+   - **Enabled:** Toggle **ON**
+   - **Frequency (Cron):** `0 2 * * *`
+   - **Retention:** 14 to 30 days.
+4. Click **Save Changes** and click **Backup Now** to verify.
+
+### Option B: Proxmox VE Level Protection (LXC Snapshots)
 In addition to database-level dumps, configure Proxmox VE backups for full container disaster recovery:
-
 1. In Proxmox VE, go to **Datacenter** $\rightarrow$ **Backup** $\rightarrow$ **Add**.
 2. Select your Coolify LXC container (e.g. CT 200).
 3. Schedule: **Daily** (e.g. 03:30 AM).

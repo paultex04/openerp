@@ -10,13 +10,16 @@ import {
   Clock,
   Cpu,
   Database,
+  Download,
+  FileArchive,
   HardDrive,
   Layers,
+  Play,
   RefreshCw,
   Server,
   ShieldCheck,
 } from 'lucide-react';
-import { api, type SystemDiagnostics } from '@/lib/api';
+import { api, type SystemDiagnostics, type DatabaseBackupRecord } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,12 +39,40 @@ function formatUptime(seconds: number): string {
 
 export function DiagnosticsPanel() {
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [backupMessage, setBackupMessage] = useState<{ text: string; error?: boolean } | null>(null);
 
   const diagnosticsQuery = useQuery({
     queryKey: ['admin-diagnostics'],
     queryFn: () => api.get<SystemDiagnostics>('/api/admin/diagnostics'),
     refetchInterval: autoRefresh ? 15_000 : false, // Poll every 15s when auto-refresh is on
   });
+
+  const backupsQuery = useQuery({
+    queryKey: ['admin-backups'],
+    queryFn: () => api.get<{ backups: DatabaseBackupRecord[] }>('/api/admin/backups'),
+  });
+
+  const handleRunBackup = async () => {
+    setIsBackingUp(true);
+    setBackupMessage(null);
+    try {
+      const res = await api.post<{ success: boolean; backup: DatabaseBackupRecord }>(
+        '/api/admin/backups/run',
+      );
+      setBackupMessage({
+        text: `Backup successful: ${res.backup.filename} (${Math.round(res.backup.sizeBytes / 1024)} KB via ${res.backup.method})`,
+      });
+      void backupsQuery.refetch();
+    } catch (err) {
+      setBackupMessage({
+        text: err instanceof Error ? err.message : 'Database backup execution failed.',
+        error: true,
+      });
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
 
   const data = diagnosticsQuery.data;
   const isFetching = diagnosticsQuery.isFetching;
@@ -439,6 +470,134 @@ export function DiagnosticsPanel() {
           </div>
         </Card>
       </div>
+
+      {/* 5. Automated Database Backups & Snapshots */}
+      <Card className="rounded-2xl border-border/80 bg-card/80 backdrop-blur-sm shadow-sm space-y-4 p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
+              <FileArchive className="size-5" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-semibold">
+                Automated Database Backups & Snapshots
+              </CardTitle>
+              <p className="text-[11px] text-muted-foreground">
+                Nightly 02:00 schedule via pg-boss · Garage S3 & local storage · 14-day automatic retention
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="default"
+              disabled={isBackingUp}
+              onClick={() => void handleRunBackup()}
+              className="gap-1.5 text-xs h-8"
+            >
+              {isBackingUp ? (
+                <>
+                  <Spinner className="size-3.5" />
+                  Creating Backup…
+                </>
+              ) : (
+                <>
+                  <Play className="size-3.5 fill-current" />
+                  Backup Database Now
+                </>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void backupsQuery.refetch()}
+              className="h-8 px-2"
+              title="Refresh backups list"
+            >
+              <RefreshCw className={cn('size-3.5', backupsQuery.isFetching && 'animate-spin')} />
+            </Button>
+          </div>
+        </div>
+
+        {backupMessage && (
+          <div
+            className={cn(
+              'text-xs px-3 py-2 rounded-lg border',
+              backupMessage.error
+                ? 'bg-destructive/10 border-destructive/30 text-destructive'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400',
+            )}
+          >
+            {backupMessage.text}
+          </div>
+        )}
+
+        <div className="pt-2 border-t border-border/60">
+          {backupsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-6 text-xs text-muted-foreground gap-2">
+              <Spinner className="size-4" />
+              Loading database backups…
+            </div>
+          ) : backupsQuery.data?.backups && backupsQuery.data.backups.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border/40 text-left text-muted-foreground">
+                    <th className="pb-2 font-medium">Backup Filename</th>
+                    <th className="pb-2 font-medium">Created</th>
+                    <th className="pb-2 font-medium">Size</th>
+                    <th className="pb-2 font-medium">Engine</th>
+                    <th className="pb-2 font-medium">Storage</th>
+                    <th className="pb-2 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/20">
+                  {backupsQuery.data.backups.map((b) => (
+                    <tr key={b.id} className="hover:bg-muted/40 transition-colors">
+                      <td className="py-2.5 font-mono text-[11px] font-medium text-foreground">
+                        {b.filename}
+                      </td>
+                      <td className="py-2.5 text-muted-foreground whitespace-nowrap">
+                        {new Date(b.createdAt).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 font-mono text-muted-foreground">
+                        {b.sizeBytes < 1024 * 1024
+                          ? `${Math.round(b.sizeBytes / 1024)} KB`
+                          : `${(b.sizeBytes / (1024 * 1024)).toFixed(2)} MB`}
+                      </td>
+                      <td className="py-2.5">
+                        <Badge variant="outline" className="text-[10px] uppercase font-mono px-1.5 py-0">
+                          {b.method === 'pg_dump' ? 'pg_dump' : 'sql export'}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5">
+                        <Badge variant="secondary" className="text-[10px] capitalize px-1.5 py-0">
+                          {b.storage}
+                        </Badge>
+                      </td>
+                      <td className="py-2.5 text-right">
+                        <a
+                          href={`/api/admin/backups/${encodeURIComponent(b.filename)}`}
+                          download={b.filename}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          <Download className="size-3" />
+                          Download
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-xs text-muted-foreground">
+              No database backups found yet. Click &quot;Backup Database Now&quot; to create a snapshot.
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }

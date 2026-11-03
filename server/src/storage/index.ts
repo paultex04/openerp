@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import dns from 'node:dns/promises';
 import type { Config } from '../config.js';
@@ -323,6 +324,28 @@ export async function downloadBlob(
       return null;
     }
     throw error;
+  }
+}
+
+export async function listBlobs(
+  prefix: string,
+): Promise<Array<{ key: string; sizeBytes: number; lastModified: Date }>> {
+  if (!s3Client) return [];
+  try {
+    const command = new ListObjectsV2Command({
+      Bucket: bucketName,
+      Prefix: prefix,
+    });
+    const res = await s3Client.send(command);
+    return (res.Contents ?? [])
+      .filter((c) => Boolean(c.Key))
+      .map((c) => ({
+        key: c.Key!,
+        sizeBytes: c.Size ?? 0,
+        lastModified: c.LastModified ?? new Date(),
+      }));
+  } catch {
+    return [];
   }
 }
 
