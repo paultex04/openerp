@@ -38,6 +38,13 @@ else
   fi
 fi
 
+# Export libpq / node-postgres environment variables so all subcommands default to DB_HOST
+export PGHOST="${DB_HOST}"
+export PGPORT="5432"
+export PGUSER="${DB_USER}"
+export PGPASSWORD="${DB_PASS}"
+export PGDATABASE="${DB_NAME}"
+
 # 3. Wait for database readiness (up to 30 seconds)
 echo "[entrypoint] Verifying database connectivity at ${DB_HOST}:5432..."
 ATTEMPT=0

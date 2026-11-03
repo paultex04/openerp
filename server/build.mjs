@@ -65,6 +65,9 @@ const EXTERNAL = [
   // the client ships platform-specific artefacts that cannot be inlined.
   '@prisma/client',
   '@prisma/adapter-pg',
+  'pg',
+  'pg-boss',
+  'sharp',
   'bcryptjs',
   // Fastify, zod, jose and friends bundle cleanly, but they are listed so that a
   // future native dependency fails the build visibly rather than mysteriously.

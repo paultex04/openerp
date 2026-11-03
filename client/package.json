@@ -1,6 +1,6 @@
 {
   "name": "@openerp/client",
-  "version": "2.7.0",
+  "version": "2.7.6",
   "private": true,
   "description": "OpenERP web client: Next.js App Router + Tailwind + shadcn/ui + TanStack Table/Query.",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "openerp",
-  "version": "2.7.0",
+  "version": "2.7.6",
   "private": true,
   "description": "Type-safe ERP for industrial electrical & instrumentation (EC&I) contracting: rate buildup, service code recipes, job lifecycle and invoicing.",
   "license": "UNLICENSED",

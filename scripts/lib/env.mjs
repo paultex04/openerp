@@ -70,5 +70,17 @@ export function loadEnvFile(path = resolve(repoRoot, '.env')) {
     process.env.DATABASE_URL = url;
   }
 
+  try {
+    const parsed = new URL(process.env.DATABASE_URL);
+    process.env.PGHOST = process.env.PGHOST || parsed.hostname || host;
+    process.env.PGPORT = process.env.PGPORT || parsed.port || port;
+    process.env.PGUSER = process.env.PGUSER || parsed.username || user;
+    process.env.PGPASSWORD = process.env.PGPASSWORD || parsed.password || pass;
+    process.env.PGDATABASE = process.env.PGDATABASE || parsed.pathname.replace(/^\//, '') || db;
+  } catch {
+    process.env.PGHOST = process.env.PGHOST || host;
+    process.env.PGPORT = process.env.PGPORT || port;
+  }
+
   return process.env;
 }

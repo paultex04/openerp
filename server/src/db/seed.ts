@@ -398,4 +398,7 @@ main()
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   })
-  .finally(() => prisma.$disconnect());
+  .finally(async () => {
+    await prisma.$disconnect().catch(() => {});
+    await dbPool.end().catch(() => {});
+  });

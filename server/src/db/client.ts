@@ -70,6 +70,20 @@ if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('placeholder@
   throw new Error('DATABASE_URL is not set; refusing to fall back to the local Postgres defaults');
 }
 
+// Export native libpq / node-postgres environment variables so any unconfigured pg.Pool / pg.Client
+// (including internal adapter fallbacks) always targets the correct host instead of localhost:5432
+try {
+  const parsed = new URL(process.env.DATABASE_URL);
+  process.env.PGHOST = process.env.PGHOST || parsed.hostname || host;
+  process.env.PGPORT = process.env.PGPORT || parsed.port || port;
+  process.env.PGUSER = process.env.PGUSER || parsed.username || user;
+  process.env.PGPASSWORD = process.env.PGPASSWORD || parsed.password || pass;
+  process.env.PGDATABASE = process.env.PGDATABASE || parsed.pathname.replace(/^\//, '') || db;
+} catch {
+  process.env.PGHOST = process.env.PGHOST || host;
+  process.env.PGPORT = process.env.PGPORT || port;
+}
+
 /**
  * The connection.
  *
@@ -91,6 +105,11 @@ export const dbPool = new pg.Pool({
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,
 });
+
+// Explicitly assign connection properties so any config-ducktyping in adapters finds them
+(dbPool as any).connectionString = process.env.DATABASE_URL;
+(dbPool as any).host = process.env.PGHOST;
+(dbPool as any).port = Number(process.env.PGPORT);
 
 const adapter = new PrismaPg(dbPool);
 
