@@ -1,0 +1,9 @@
+# =============================================================================
+# Caddy Reverse Proxy & TLS Termination
+# =============================================================================
+# Bundles Caddy v2 with its configuration into a self-contained image so
+# Docker Compose does not require host file bind mounts.
+# =============================================================================
+FROM caddy:2-alpine
+
+COPY Caddyfile /etc/caddy/Caddyfile

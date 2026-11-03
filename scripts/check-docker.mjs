@@ -420,7 +420,11 @@ const caddyBlock = serviceBlock('caddy');
 // `api` is reached only through `web`'s `/api/*` proxy.
 check('caddy publishes 80', /ports:[\s\S]*?80:80/.test(caddyBlock));
 check('caddy publishes 443', /ports:[\s\S]*?443:443/.test(caddyBlock));
-check('caddy mounts the Caddyfile', caddyBlock.includes('./Caddyfile:/etc/caddy/Caddyfile'));
+check(
+  'caddy configures the Caddyfile',
+  caddyBlock.includes('./Caddyfile:/etc/caddy/Caddyfile') ||
+    caddyBlock.includes('Dockerfile.caddy'),
+);
 check('caddy waits for the web service', /depends_on:[\s\S]*?web/.test(caddyBlock));
 check('caddy pins a certificate store', caddyBlock.includes('caddy-data:/data'));
 check('web publishes no port', !/^\s+ports:/m.test(webBlock));

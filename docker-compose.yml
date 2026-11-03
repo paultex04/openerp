@@ -265,7 +265,9 @@ services:
   # limit within a day.
   # -----------------------------------------------------------------------------
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
     restart: unless-stopped
     depends_on:
       - web
@@ -277,7 +279,6 @@ services:
       # HTTP/3. Harmless if the host blocks UDP; browsers fall back to HTTP/2.
       - '443:443/udp'
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
 
