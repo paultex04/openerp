@@ -402,8 +402,16 @@ export async function createAttachmentMessage(
   let dbBytes: Uint8Array<ArrayBuffer> | null = null;
 
   if (isS3Active()) {
-    const key = `attachments/conv-${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
-    storageKey = await uploadBlob(key, input.bytes, input.mime);
+    try {
+      const key = `attachments/conv-${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
+      storageKey = await uploadBlob(key, input.bytes, input.mime);
+    } catch (storageErr) {
+      console.warn('[chat] S3 attachment upload failed, falling back to database storage:', storageErr);
+      const ab = new ArrayBuffer(input.bytes.byteLength);
+      const view = new Uint8Array(ab);
+      view.set(input.bytes);
+      dbBytes = view;
+    }
   } else {
     const ab = new ArrayBuffer(input.bytes.byteLength);
     const view = new Uint8Array(ab);

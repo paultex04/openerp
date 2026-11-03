@@ -45,6 +45,26 @@ export PGUSER="${DB_USER}"
 export PGPASSWORD="${DB_PASS}"
 export PGDATABASE="${DB_NAME}"
 
+# 3. Detect active Garage / S3 storage host on Docker network
+GARAGE_HOST="${GARAGE_HOST}"
+if [ -z "$GARAGE_HOST" ]; then
+  for candidate in garage openerp-garage openerp-garage-1 openerp_garage_1 garage-1 s3 minio; do
+    if getent hosts "$candidate" >/dev/null 2>&1; then
+      GARAGE_HOST="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -n "$GARAGE_HOST" ] && [ -n "$S3_ENDPOINT" ]; then
+  ORIG_S3="$S3_ENDPOINT"
+  S3_ENDPOINT=$(echo "$S3_ENDPOINT" | sed -E "s/:\/\/(garage|localhost|127\.0\.0\.1):/:\/\/${GARAGE_HOST}:/g")
+  export S3_ENDPOINT
+  if [ "$ORIG_S3" != "$S3_ENDPOINT" ]; then
+    echo "[entrypoint] Rewrote S3_ENDPOINT to host '${GARAGE_HOST}'"
+  fi
+fi
+
 # 3. Wait for database readiness (up to 30 seconds)
 echo "[entrypoint] Verifying database connectivity at ${DB_HOST}:5432..."
 ATTEMPT=0

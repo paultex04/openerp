@@ -201,9 +201,17 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
       let avatarBytes: Uint8Array<ArrayBuffer> | null = null;
 
       if (isS3Active()) {
-        const key = `avatars/user-${principal.userId}-${avatarUpdatedAt.getTime()}.webp`;
-        await uploadBlob(key, processed, 'image/webp');
-        avatarStorageKey = key;
+        try {
+          const key = `avatars/user-${principal.userId}-${avatarUpdatedAt.getTime()}.webp`;
+          await uploadBlob(key, processed, 'image/webp');
+          avatarStorageKey = key;
+        } catch (storageErr) {
+          request.log.warn({ err: storageErr }, 'S3 avatar upload failed, falling back to inline database storage');
+          const ab = new ArrayBuffer(processed.byteLength);
+          const view = new Uint8Array(ab);
+          view.set(processed);
+          avatarBytes = view;
+        }
       } else {
         const ab = new ArrayBuffer(processed.byteLength);
         const view = new Uint8Array(ab);
@@ -247,18 +255,21 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
         return reply.code(404).send({ error: 'NO_AVATAR', message: 'This account has no avatar.' });
       }
 
-      let buffer: Buffer;
+      let buffer: Buffer | null = null;
       if (user.avatarStorageKey && isS3Active()) {
-        const obj = await downloadBlob(user.avatarStorageKey);
-        if (!obj) {
-          return reply
-            .code(404)
-            .send({ error: 'NO_AVATAR', message: 'Avatar image not found in storage.' });
+        try {
+          const obj = await downloadBlob(user.avatarStorageKey);
+          if (obj) {
+            buffer = obj.buffer;
+          }
+        } catch (downloadErr) {
+          request.log.warn({ err: downloadErr }, 'Failed to load avatar from S3 storage, falling back to database bytes');
         }
-        buffer = obj.buffer;
-      } else if (user.avatarBytes) {
+      }
+      if (!buffer && user.avatarBytes) {
         buffer = Buffer.from(user.avatarBytes);
-      } else {
+      }
+      if (!buffer) {
         return reply
           .code(404)
           .send({ error: 'NO_AVATAR', message: 'Avatar image could not be loaded.' });

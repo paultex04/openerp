@@ -5,9 +5,11 @@ import {
   DeleteObjectCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
+import dns from 'node:dns/promises';
 import type { Config } from '../config.js';
 
 let s3Client: S3Client | null = null;
+let currentConfig: Config | null = null;
 let bucketName = 'openerp-attachments';
 
 export class StorageError extends Error {
@@ -19,6 +21,57 @@ export class StorageError extends Error {
     super(message);
     this.name = 'StorageError';
   }
+}
+
+function createS3ClientInstance(endpoint: string, config: Config): S3Client {
+  return new S3Client({
+    endpoint,
+    region: config.S3_REGION,
+    credentials: {
+      accessKeyId: config.S3_ACCESS_KEY_ID!,
+      secretAccessKey: config.S3_SECRET_ACCESS_KEY!,
+    },
+    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+  });
+}
+
+export async function resolveS3Endpoint(endpoint: string): Promise<string> {
+  try {
+    const url = new URL(endpoint);
+    const host = url.hostname;
+    // Check if the current host resolves
+    try {
+      await dns.lookup(host);
+      return endpoint;
+    } catch {
+      // Host resolution failed. Try common candidate hostnames on Docker networks
+      const candidates = [
+        'garage',
+        'openerp-garage',
+        'openerp-garage-1',
+        'openerp_garage_1',
+        'garage-1',
+        's3',
+        'minio',
+      ];
+      for (const candidate of candidates) {
+        if (candidate === host) continue;
+        try {
+          await dns.lookup(candidate);
+          url.hostname = candidate;
+          console.log(
+            `[storage] Auto-resolved S3 storage host from '${host}' to '${candidate}' (${url.toString()})`,
+          );
+          return url.toString();
+        } catch {
+          // keep searching
+        }
+      }
+    }
+  } catch {
+    // Malformed URL, return original
+  }
+  return endpoint;
 }
 
 export async function ensureGarageProvisioned(config: Config): Promise<void> {
@@ -116,18 +169,25 @@ export async function ensureGarageProvisioned(config: Config): Promise<void> {
 export function initStorage(config: Config): void {
   if (config.S3_ENDPOINT && config.S3_ACCESS_KEY_ID && config.S3_SECRET_ACCESS_KEY) {
     bucketName = config.S3_BUCKET;
-    s3Client = new S3Client({
-      endpoint: config.S3_ENDPOINT,
-      region: config.S3_REGION,
-      credentials: {
-        accessKeyId: config.S3_ACCESS_KEY_ID,
-        secretAccessKey: config.S3_SECRET_ACCESS_KEY,
-      },
-      forcePathStyle: config.S3_FORCE_PATH_STYLE,
-    });
-    void ensureGarageProvisioned(config);
+    currentConfig = config;
+    s3Client = createS3ClientInstance(config.S3_ENDPOINT, config);
+
+    // Asynchronously verify host resolution and provision Garage
+    void (async () => {
+      try {
+        const resolved = await resolveS3Endpoint(config.S3_ENDPOINT!);
+        if (resolved !== config.S3_ENDPOINT) {
+          s3Client = createS3ClientInstance(resolved, config);
+          process.env.S3_ENDPOINT = resolved;
+        }
+        await ensureGarageProvisioned({ ...config, S3_ENDPOINT: resolved });
+      } catch {
+        // Best-effort
+      }
+    })();
   } else {
     s3Client = null;
+    currentConfig = null;
   }
 }
 
@@ -189,15 +249,45 @@ export async function uploadBlob(
     );
   }
 
-  const command = new PutObjectCommand({
-    Bucket: bucketName,
-    Key: key,
-    Body: data,
-    ContentType: contentType,
-  });
+  try {
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: data,
+      ContentType: contentType,
+    });
 
-  await s3Client.send(command);
-  return key;
+    await s3Client.send(command);
+    return key;
+  } catch (err: any) {
+    // If ENOTFOUND, try to resolve candidate hostnames and retry once
+    if (err?.code === 'ENOTFOUND' || err?.message?.includes('ENOTFOUND')) {
+      if (currentConfig?.S3_ENDPOINT) {
+        try {
+          const resolved = await resolveS3Endpoint(currentConfig.S3_ENDPOINT);
+          if (resolved !== currentConfig.S3_ENDPOINT) {
+            s3Client = createS3ClientInstance(resolved, currentConfig);
+            process.env.S3_ENDPOINT = resolved;
+            const retryCommand = new PutObjectCommand({
+              Bucket: bucketName,
+              Key: key,
+              Body: data,
+              ContentType: contentType,
+            });
+            await s3Client.send(retryCommand);
+            return key;
+          }
+        } catch {
+          // fall through to throw original error
+        }
+      }
+    }
+    throw new StorageError(
+      502,
+      'STORAGE_UPLOAD_FAILED',
+      `Failed to upload to object storage: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 export async function downloadBlob(
@@ -222,9 +312,14 @@ export async function downloadBlob(
       contentType: response.ContentType ?? 'application/octet-stream',
     };
   } catch (error: unknown) {
-    // Return null if object does not exist (NoSuchKey)
-    const err = error as { name?: string };
-    if (err.name === 'NoSuchKey' || err.name === 'NotFound') {
+    // Return null if object does not exist or network unavailable
+    const err = error as { name?: string; code?: string; message?: string };
+    if (
+      err.name === 'NoSuchKey' ||
+      err.name === 'NotFound' ||
+      err.code === 'ENOTFOUND' ||
+      err.message?.includes('ENOTFOUND')
+    ) {
       return null;
     }
     throw error;
