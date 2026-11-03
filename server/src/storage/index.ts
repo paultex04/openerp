@@ -313,13 +313,29 @@ export async function downloadBlob(
       contentType: response.ContentType ?? 'application/octet-stream',
     };
   } catch (error: unknown) {
-    // Return null if object does not exist or network unavailable
-    const err = error as { name?: string; code?: string; message?: string };
+    // Return null if object does not exist or network/service is unavailable
+    // so callers seamlessly fall back to local database storage
+    const err = error as {
+      name?: string;
+      code?: string;
+      message?: string;
+      statusCode?: number;
+      $metadata?: { httpStatusCode?: number };
+    };
+    const statusCode = err.statusCode ?? err.$metadata?.httpStatusCode;
     if (
       err.name === 'NoSuchKey' ||
       err.name === 'NotFound' ||
       err.code === 'ENOTFOUND' ||
-      err.message?.includes('ENOTFOUND')
+      err.code === 'ECONNREFUSED' ||
+      err.code === 'ECONNRESET' ||
+      err.code === 'ETIMEDOUT' ||
+      err.message?.includes('ENOTFOUND') ||
+      err.message?.includes('ECONNREFUSED') ||
+      err.message?.includes('fetch failed') ||
+      statusCode === 404 ||
+      statusCode === 502 ||
+      statusCode === 503
     ) {
       return null;
     }

@@ -32,6 +32,15 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { prisma, dbPool } from './db/client.js';
 
+// Global resilience handlers: absorb unexpected connection dropouts and log cleanly
+process.on('uncaughtException', (err: unknown) => {
+  console.error('[process:uncaughtException]', err instanceof Error ? err.stack || err.message : err);
+});
+
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('[process:unhandledRejection]', reason instanceof Error ? reason.stack || reason.message : reason);
+});
+
 async function bootstrapDatabase(): Promise<void> {
   try {
     const check = await dbPool.query<{ present: boolean }>(

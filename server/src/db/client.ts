@@ -106,6 +106,14 @@ export const dbPool = new pg.Pool({
   keepAliveInitialDelayMillis: 10_000,
 });
 
+// Guard against unhandled error events when idle clients close or reset
+dbPool.on('error', (err: unknown) => {
+  console.error(
+    '[db:pool:error] Idle client connection closed or reset:',
+    err instanceof Error ? err.message : err,
+  );
+});
+
 // Explicitly assign connection properties so any config-ducktyping in adapters finds them
 (dbPool as any).connectionString = process.env.DATABASE_URL;
 (dbPool as any).host = process.env.PGHOST;

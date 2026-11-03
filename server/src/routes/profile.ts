@@ -198,7 +198,11 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
 
       const avatarUpdatedAt = new Date();
       let avatarStorageKey: string | null = null;
-      let avatarBytes: Uint8Array<ArrayBuffer> | null = null;
+      // Always preserve bytes in database as a resilient fallback
+      const ab = new ArrayBuffer(processed.byteLength);
+      const view = new Uint8Array(ab);
+      view.set(processed);
+      const avatarBytes: Uint8Array<ArrayBuffer> = view;
 
       if (isS3Active()) {
         try {
@@ -206,17 +210,8 @@ export async function registerProfileRoutes(app: FastifyInstance, config: Config
           await uploadBlob(key, processed, 'image/webp');
           avatarStorageKey = key;
         } catch (storageErr) {
-          request.log.warn({ err: storageErr }, 'S3 avatar upload failed, falling back to inline database storage');
-          const ab = new ArrayBuffer(processed.byteLength);
-          const view = new Uint8Array(ab);
-          view.set(processed);
-          avatarBytes = view;
+          request.log.warn({ err: storageErr }, 'S3 avatar upload failed, continuing with inline database storage');
         }
-      } else {
-        const ab = new ArrayBuffer(processed.byteLength);
-        const view = new Uint8Array(ab);
-        view.set(processed);
-        avatarBytes = view;
       }
 
       /*

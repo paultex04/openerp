@@ -48,7 +48,10 @@ export async function initJobQueue(config: Config): Promise<void> {
     });
 
     boss.on('error', (err: unknown) => {
-      console.error('[pg-boss:error] Background job queue error:', err);
+      console.error(
+        '[pg-boss:error] Background job queue error:',
+        err instanceof Error ? err.message : err,
+      );
     });
 
     await boss.start();

@@ -398,25 +398,20 @@ export async function createAttachmentMessage(
 ): Promise<ChatMessageView> {
   await assertMember(conversationId, principal.userId);
 
+  // Always preserve bytes in database as a resilient fallback
+  const ab = new ArrayBuffer(input.bytes.byteLength);
+  const view = new Uint8Array(ab);
+  view.set(input.bytes);
+  const dbBytes: Uint8Array<ArrayBuffer> = view;
   let storageKey: string | null = null;
-  let dbBytes: Uint8Array<ArrayBuffer> | null = null;
 
   if (isS3Active()) {
     try {
       const key = `attachments/conv-${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.webp`;
       storageKey = await uploadBlob(key, input.bytes, input.mime);
     } catch (storageErr) {
-      console.warn('[chat] S3 attachment upload failed, falling back to database storage:', storageErr);
-      const ab = new ArrayBuffer(input.bytes.byteLength);
-      const view = new Uint8Array(ab);
-      view.set(input.bytes);
-      dbBytes = view;
+      console.warn('[chat] S3 attachment upload failed, continuing with database storage:', storageErr);
     }
-  } else {
-    const ab = new ArrayBuffer(input.bytes.byteLength);
-    const view = new Uint8Array(ab);
-    view.set(input.bytes);
-    dbBytes = view;
   }
 
   const created = await prisma.$transaction(async (tx) => {
@@ -475,9 +470,16 @@ export async function getAttachment(
   await assertMember(attachment.message.conversationId, principal.userId);
 
   if (attachment.storageKey && isS3Active()) {
-    const downloaded = await downloadBlob(attachment.storageKey);
-    if (downloaded) {
-      return { bytes: downloaded.buffer, mime: attachment.mime };
+    try {
+      const downloaded = await downloadBlob(attachment.storageKey);
+      if (downloaded) {
+        return { bytes: downloaded.buffer, mime: attachment.mime };
+      }
+    } catch (downloadErr) {
+      console.warn(
+        `[chat:attachment] Failed to fetch storage key ${attachment.storageKey} from S3, falling back to database bytes:`,
+        downloadErr instanceof Error ? downloadErr.message : downloadErr,
+      );
     }
   }
 
