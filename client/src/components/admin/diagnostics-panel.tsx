@@ -12,6 +12,7 @@ import {
   Database,
   Download,
   FileArchive,
+  FileCode,
   HardDrive,
   Layers,
   Play,
@@ -20,7 +21,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { api, type SystemDiagnostics, type DatabaseBackupRecord } from '@/lib/api';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
@@ -40,7 +41,9 @@ function formatUptime(seconds: number): string {
 export function DiagnosticsPanel() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [isBackingUp, setIsBackingUp] = useState(false);
-  const [backupMessage, setBackupMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [backupMessage, setBackupMessage] = useState<{ text: string; error?: boolean } | null>(
+    null,
+  );
 
   const diagnosticsQuery = useQuery({
     queryKey: ['admin-diagnostics'],
@@ -124,7 +127,8 @@ export function DiagnosticsPanel() {
             System Infrastructure & Diagnostics
           </h2>
           <p className="text-xs text-muted-foreground">
-            Live health telemetry for PostgreSQL, Garage S3, background workers, and container runtime.
+            Live health telemetry for PostgreSQL, Garage S3, background workers, and container
+            runtime.
           </p>
         </div>
 
@@ -348,7 +352,9 @@ export function DiagnosticsPanel() {
               <span
                 className={cn(
                   'font-medium',
-                  data.storage.reachable ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+                  data.storage.reachable
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-muted-foreground',
                 )}
               >
                 {data.storage.reachable ? 'Bucket Accessible' : 'Unreachable / Inactive'}
@@ -464,7 +470,9 @@ export function DiagnosticsPanel() {
                     : 'text-destructive',
                 )}
               >
-                {data.audit.failuresCount === 0 ? '0 Write Failures (Healthy)' : `${data.audit.failuresCount} Failures Detected`}
+                {data.audit.failuresCount === 0
+                  ? '0 Write Failures (Healthy)'
+                  : `${data.audit.failuresCount} Failures Detected`}
               </span>
             </div>
           </div>
@@ -483,12 +491,39 @@ export function DiagnosticsPanel() {
                 Automated Database Backups & Snapshots
               </CardTitle>
               <p className="text-[11px] text-muted-foreground">
-                Nightly 02:00 schedule via pg-boss · Garage S3 & local storage · 14-day automatic retention
+                Nightly 02:00 schedule via pg-boss · Garage S3 & local storage · 14-day automatic
+                retention
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/api/admin/schema/export?format=sql"
+              download
+              className={cn(
+                buttonVariants({ variant: 'outline', size: 'sm' }),
+                'gap-1.5 text-xs h-8 border-border/80 hover:bg-muted',
+              )}
+              title="Download PostgreSQL schema DDL (.sql) for ChartDB, pgAdmin, or documentation"
+            >
+              <Download className="size-3.5 text-primary" />
+              Export Schema (SQL)
+            </a>
+
+            <a
+              href="/api/admin/schema/export?format=json"
+              download
+              className={cn(
+                buttonVariants({ variant: 'outline', size: 'sm' }),
+                'gap-1.5 text-xs h-8 border-border/80 hover:bg-muted',
+              )}
+              title="Download ChartDB Smart Query JSON for direct visual diagram import"
+            >
+              <FileCode className="size-3.5 text-sky-500" />
+              ChartDB JSON
+            </a>
+
             <Button
               size="sm"
               variant="default"
@@ -567,7 +602,10 @@ export function DiagnosticsPanel() {
                           : `${(b.sizeBytes / (1024 * 1024)).toFixed(2)} MB`}
                       </td>
                       <td className="py-2.5">
-                        <Badge variant="outline" className="text-[10px] uppercase font-mono px-1.5 py-0">
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] uppercase font-mono px-1.5 py-0"
+                        >
                           {b.method === 'pg_dump' ? 'pg_dump' : 'sql export'}
                         </Badge>
                       </td>
@@ -593,7 +631,8 @@ export function DiagnosticsPanel() {
             </div>
           ) : (
             <div className="py-6 text-center text-xs text-muted-foreground">
-              No database backups found yet. Click &quot;Backup Database Now&quot; to create a snapshot.
+              No database backups found yet. Click &quot;Backup Database Now&quot; to create a
+              snapshot.
             </div>
           )}
         </div>

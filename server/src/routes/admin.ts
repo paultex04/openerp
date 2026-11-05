@@ -47,6 +47,7 @@ import {
   createDatabaseBackup,
   listDatabaseBackups,
   getBackupBuffer,
+  generateSchemaDumpBuffer,
 } from '../backup/service.js';
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
@@ -1058,7 +1059,9 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   );
 
   const backupFilenameParam = z.object({
-    filename: z.string().regex(/^openerp-backup-[\w.-]+(\.dump|\.sql)$/, 'Invalid backup filename.'),
+    filename: z
+      .string()
+      .regex(/^openerp-backup-[\w.-]+(\.dump|\.sql)$/, 'Invalid backup filename.'),
   });
 
   /**
@@ -1110,6 +1113,31 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
       const contentType = filename.endsWith('.sql')
         ? 'text/plain; charset=utf-8'
         : 'application/octet-stream';
+
+      return reply
+        .header('Content-Type', contentType)
+        .header('Content-Disposition', `attachment; filename="${filename}"`)
+        .header('Content-Length', buffer.length)
+        .send(buffer);
+    },
+  );
+
+  const schemaFormatQuery = z.object({
+    format: z.enum(['sql', 'json']).default('sql'),
+  });
+
+  /**
+   * Export live database schema DDL (SQL) or ChartDB Smart Query (JSON) for ER diagramming.
+   */
+  app.get(
+    '/api/admin/schema/export',
+    {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      preHandler: [app.authenticate, app.requirePermission('admin.audit.read')],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { format } = schemaFormatQuery.parse(request.query || {});
+      const { buffer, filename, contentType } = await generateSchemaDumpBuffer(format);
 
       return reply
         .header('Content-Type', contentType)
