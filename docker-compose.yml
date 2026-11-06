@@ -241,6 +241,7 @@ services:
       NEXT_PUBLIC_DEMO_LOGIN: ''
       NEXT_PUBLIC_DEMO_PASSWORD: ''
       NEXT_PUBLIC_DEMO_ADMIN_PASSWORD: ''
+      __NEXT_SHOW_IGNORE_LISTED: 'true'
     # Deliberately NOT `ports:`. Reachable as `web:3000` from Caddy, and through
     # Caddy from everywhere else. See the note at the top of this file.
 
