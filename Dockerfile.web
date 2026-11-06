@@ -96,7 +96,6 @@ ENV NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL}" \
 # Standalone Docker images require the Webpack builder; Next.js 16.4.1 Turbopack
 # standalone emits chunks that fail in production containers with "SyntaxError: Invalid or unexpected token".
 RUN --mount=type=cache,target=/root/.npm \
-    --mount=type=cache,target=/app/client/.next/cache \
     npm run build:webpack --workspace client
 
 RUN test -f client/.next/BUILD_ID && test -f client/.next/standalone/client/server.js
