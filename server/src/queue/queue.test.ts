@@ -59,4 +59,17 @@ describe('background job queue', () => {
     const lastJob = jobs[jobs.length - 1];
     expect(lastJob?.name).toBe('legacy/queue/name');
   });
+
+  it('does not retain jobs in memory when inactive outside test mode', async () => {
+    await stopJobQueue();
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const result = await sendJob('export/invoices', { huge: 'payload' });
+      expect(result).toBeNull();
+      expect(getTestEnqueuedJobs()).toHaveLength(0);
+    } finally {
+      process.env.NODE_ENV = prevNodeEnv;
+    }
+  });
 });

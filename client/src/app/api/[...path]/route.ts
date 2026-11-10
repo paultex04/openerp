@@ -118,7 +118,7 @@ async function proxy(request: Request, path: string[]): Promise<Response> {
     // When forwarding Server-Sent Events, wrap in a TransformStream and safely absorb
     // client aborts/disconnections so Next.js does not log unhandled pipe errors (UND_ERR_SOCKET).
     const transform = new TransformStream();
-    upstream.body?.pipeTo(transform.writable).catch(() => {
+    upstream.body?.pipeTo(transform.writable, { signal: request.signal }).catch(() => {
       // Normal client socket closure/abort; safely ignored.
     });
     responseBody = transform.readable;

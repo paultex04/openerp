@@ -13,9 +13,11 @@ import type { Config } from '../config.js';
 
 let bossInstance: PgBoss | null = null;
 let isStarted = false;
+let inTestMode = false;
 const knownQueues = new Set<string>();
 
-// In-memory fallback mock for test mode
+// In-memory fallback mock for test mode only
+const MAX_TEST_JOBS = 1000;
 type JobHandler<T = unknown> = (job: { id: string; name: string; data: T }) => Promise<void>;
 const testWorkers = new Map<string, JobHandler<any>>();
 const testJobs: Array<{ id: string; name: string; data: unknown }> = [];
@@ -36,6 +38,7 @@ async function ensureQueue(safeQueue: string): Promise<void> {
 }
 
 export async function initJobQueue(config: Config): Promise<void> {
+  inTestMode = Boolean(config.isTest || process.env.NODE_ENV === 'test');
   if (config.isTest || !config.DATABASE_URL) {
     isStarted = true;
     return;
@@ -66,6 +69,7 @@ export async function initJobQueue(config: Config): Promise<void> {
 
 export async function stopJobQueue(): Promise<void> {
   isStarted = false;
+  inTestMode = false;
   knownQueues.clear();
   testWorkers.clear();
   testJobs.length = 0;
@@ -97,9 +101,18 @@ export async function sendJob<T = object>(
     return await bossInstance.send(safeQueue, data as object, options);
   }
 
-  // Test mode fallback
+  // Never buffer job payloads in memory in production if pg-boss failed to start.
+  if (!inTestMode) {
+    console.warn(`[pg-boss] Queue inactive; dropping job "${safeQueue}".`);
+    return null;
+  }
+
+  // Test mode fallback (bounded)
   const mockId = `job-mock-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const jobEntry = { id: mockId, name: safeQueue, data };
+  if (testJobs.length >= MAX_TEST_JOBS) {
+    testJobs.shift();
+  }
   testJobs.push(jobEntry);
 
   const worker = testWorkers.get(safeQueue);
@@ -127,6 +140,8 @@ export async function registerWorker<T = object>(
     });
     return;
   }
+
+  if (!inTestMode) return;
 
   // Test mode fallback
   testWorkers.set(safeQueue, handler as JobHandler);

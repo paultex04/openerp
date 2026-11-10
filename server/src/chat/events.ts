@@ -174,8 +174,13 @@ async function connectListener(connectionString: string): Promise<void> {
     }
   });
 
+  let disconnected = false;
   const onDisconnect = () => {
-    listenClient = null;
+    if (disconnected) return;
+    disconnected = true;
+    if (listenClient === client) {
+      listenClient = null;
+    }
     if (!isClosed) {
       scheduleReconnect(connectionString);
     }
@@ -187,8 +192,13 @@ async function connectListener(connectionString: string): Promise<void> {
   try {
     await client.connect();
     await client.query(`LISTEN ${CHAT_CHANNEL}`);
+    if (isClosed || disconnected) {
+      await client.end().catch(() => {});
+      return;
+    }
     listenClient = client;
   } catch {
+    await client.end().catch(() => {});
     onDisconnect();
   }
 }

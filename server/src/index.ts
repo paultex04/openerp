@@ -84,10 +84,20 @@ async function main(): Promise<void> {
   await bootstrapDatabase();
   const app = await buildApp({ config });
 
+  let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     app.log.info({ signal }, 'shutting down');
-    await app.close();
-    await prisma.$disconnect();
+    const forceExit = setTimeout(() => process.exit(1), 8_000);
+    forceExit.unref();
+    try {
+      await app.close();
+      await prisma.$disconnect();
+      await dbPool.end();
+    } catch (err) {
+      app.log.error({ err }, 'error during graceful shutdown');
+    }
     process.exit(0);
   };
 

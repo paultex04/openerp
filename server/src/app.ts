@@ -20,7 +20,7 @@ import { prisma } from './db/client.js';
 import { loadConfig, type Config } from './config.js';
 import { APP_VERSION } from './version.js';
 import { CHAT_ATTACHMENT_MAX_BYTES } from '@openerp/shared';
-import { initStorage, isS3Active } from './storage/index.js';
+import { initStorage, isS3Active, closeStorage } from './storage/index.js';
 import { initChatBus, closeChatBus } from './chat/events.js';
 import { registerMetrics } from './metrics/index.js';
 import { initJobQueue, stopJobQueue } from './queue/index.js';
@@ -68,6 +68,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   app.addHook('onClose', async () => {
     await closeChatBus();
     await stopJobQueue();
+    closeStorage();
   });
 
   await app.register(cors, {

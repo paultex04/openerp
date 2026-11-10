@@ -13,6 +13,22 @@ let s3Client: S3Client | null = null;
 let currentConfig: Config | null = null;
 let bucketName = 'openerp-attachments';
 
+function replaceS3Client(next: S3Client | null): void {
+  if (s3Client && s3Client !== next) {
+    try {
+      s3Client.destroy();
+    } catch {
+      // Best-effort agent socket teardown
+    }
+  }
+  s3Client = next;
+}
+
+export function closeStorage(): void {
+  replaceS3Client(null);
+  currentConfig = null;
+}
+
 export class StorageError extends Error {
   constructor(
     readonly statusCode: number,
@@ -171,14 +187,15 @@ export function initStorage(config: Config): void {
   if (config.S3_ENDPOINT && config.S3_ACCESS_KEY_ID && config.S3_SECRET_ACCESS_KEY) {
     bucketName = config.S3_BUCKET;
     currentConfig = config;
-    s3Client = createS3ClientInstance(config.S3_ENDPOINT, config);
+    replaceS3Client(createS3ClientInstance(config.S3_ENDPOINT, config));
 
     // Asynchronously verify host resolution and provision Garage
     void (async () => {
       try {
         const resolved = await resolveS3Endpoint(config.S3_ENDPOINT!);
         if (resolved !== config.S3_ENDPOINT) {
-          s3Client = createS3ClientInstance(resolved, config);
+          replaceS3Client(createS3ClientInstance(resolved, config));
+          currentConfig = { ...config, S3_ENDPOINT: resolved };
           process.env.S3_ENDPOINT = resolved;
         }
         await ensureGarageProvisioned({ ...config, S3_ENDPOINT: resolved });
@@ -187,8 +204,7 @@ export function initStorage(config: Config): void {
       }
     })();
   } else {
-    s3Client = null;
-    currentConfig = null;
+    closeStorage();
   }
 }
 
@@ -267,7 +283,8 @@ export async function uploadBlob(
         try {
           const resolved = await resolveS3Endpoint(currentConfig.S3_ENDPOINT);
           if (resolved !== currentConfig.S3_ENDPOINT) {
-            s3Client = createS3ClientInstance(resolved, currentConfig);
+            replaceS3Client(createS3ClientInstance(resolved, currentConfig));
+            currentConfig = { ...currentConfig, S3_ENDPOINT: resolved };
             process.env.S3_ENDPOINT = resolved;
             const retryCommand = new PutObjectCommand({
               Bucket: bucketName,
@@ -275,7 +292,7 @@ export async function uploadBlob(
               Body: data,
               ContentType: contentType,
             });
-            await s3Client.send(retryCommand);
+            await s3Client!.send(retryCommand);
             return key;
           }
         } catch {
@@ -309,7 +326,7 @@ export async function downloadBlob(
 
     const byteArray = await response.Body.transformToByteArray();
     return {
-      buffer: Buffer.from(byteArray),
+      buffer: Buffer.from(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength),
       contentType: response.ContentType ?? 'application/octet-stream',
     };
   } catch (error: unknown) {

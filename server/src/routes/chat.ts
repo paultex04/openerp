@@ -58,6 +58,10 @@ import {
 } from '../chat/service.js';
 import { onlineUserIds, publishTo, subscribe } from '../chat/events.js';
 
+// Prevent libvips from retaining an unbounded native operation/file cache in RSS.
+sharp.cache(false);
+sharp.concurrency(1);
+
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 
 /** WebP quality for a stored chat image. Visually lossless enough at this cap. */
@@ -66,11 +70,20 @@ const CHAT_IMAGE_QUALITY = 82;
 /** A comment frame keeps the connection alive through proxies during quiet spells. */
 const SSE_HEARTBEAT_MS = 25_000;
 
+/** Drop stalled/half-open SSE consumers once their unsent write buffer exceeds 64 KB. */
+const MAX_SSE_BUFFER_BYTES = 64 * 1024;
+
 function sseFrame(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
 export async function registerChatRoutes(app: FastifyInstance, config: Config): Promise<void> {
+  const activeStreams = new Set<() => void>();
+  app.addHook('onClose', async () => {
+    for (const closeStream of Array.from(activeStreams)) {
+      closeStream();
+    }
+  });
   app.get(
     '/api/chat/users',
     { preHandler: [app.authenticate, app.requirePermission('chat.read')] },
@@ -328,8 +341,12 @@ export async function registerChatRoutes(app: FastifyInstance, config: Config): 
     { preHandler: [app.authenticate, app.requirePermission('chat.read')] },
     async (request, reply) => {
       const userId = request.principal!.userId;
-      reply.hijack();
       const response = reply.raw;
+      if (request.raw.destroyed || response.destroyed || response.writableEnded) {
+        return;
+      }
+
+      reply.hijack();
 
       response.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -338,45 +355,67 @@ export async function registerChatRoutes(app: FastifyInstance, config: Config): 
         // Buffering proxies (nginx and Traefik alike) hold the body otherwise.
         'X-Accel-Buffering': 'no',
       });
-      response.write('retry: 3000\n\n');
-      response.write(sseFrame('ready', { selfId: userId, online: onlineUserIds(userId) }));
 
       let closed = false;
-      const unsubscribe = subscribe(userId, (event) => {
-        if (!closed) {
-          try {
-            response.write(sseFrame(event.type, event));
-          } catch {
-            close();
-          }
-        }
-      });
-      const heartbeat = setInterval(() => {
-        if (!closed) {
-          try {
-            response.write(': keep-alive\n\n');
-          } catch {
-            close();
-          }
-        }
-      }, SSE_HEARTBEAT_MS);
-      heartbeat.unref();
+      let unsubscribe: (() => void) | null = null;
+      let heartbeat: NodeJS.Timeout | undefined;
 
       const close = () => {
         if (closed) return;
         closed = true;
-        clearInterval(heartbeat);
-        unsubscribe();
+        activeStreams.delete(close);
+        if (heartbeat) clearInterval(heartbeat);
+        unsubscribe?.();
+        unsubscribe = null;
+        request.raw.off('close', close);
+        request.raw.off('error', close);
+        response.off('close', close);
+        response.off('error', close);
         try {
-          response.end();
+          if (!response.writableEnded && !response.destroyed) {
+            response.end();
+          }
         } catch {
           // Socket already ended or destroyed
         }
       };
+
+      const writeSafe = (chunk: string) => {
+        if (closed || response.destroyed || response.writableEnded) {
+          close();
+          return;
+        }
+        if (response.writableLength > MAX_SSE_BUFFER_BYTES) {
+          close();
+          return;
+        }
+        try {
+          response.write(chunk);
+        } catch {
+          close();
+        }
+      };
+
+      activeStreams.add(close);
       request.raw.on('close', close);
       request.raw.on('error', close);
       response.on('close', close);
       response.on('error', close);
+
+      unsubscribe = subscribe(userId, (event) => {
+        writeSafe(sseFrame(event.type, event));
+      });
+      heartbeat = setInterval(() => {
+        writeSafe(': keep-alive\n\n');
+      }, SSE_HEARTBEAT_MS);
+      heartbeat.unref();
+
+      writeSafe('retry: 3000\n\n');
+      writeSafe(sseFrame('ready', { selfId: userId, online: onlineUserIds(userId) }));
+
+      if (request.raw.destroyed || response.destroyed || response.writableEnded) {
+        close();
+      }
     },
   );
 }

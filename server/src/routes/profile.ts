@@ -35,6 +35,10 @@ import type { Config } from '../config.js';
 import { prisma } from '../db/client.js';
 import { downloadBlob, isS3Active, uploadBlob } from '../storage/index.js';
 
+// Prevent libvips from retaining an unbounded native operation/file cache in RSS.
+sharp.cache(false);
+sharp.concurrency(1);
+
 /** Processed avatar size in pixels. Square; `sharp` crops to cover. */
 const AVATAR_SIZE = 256;
 

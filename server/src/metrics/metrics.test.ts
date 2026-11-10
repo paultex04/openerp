@@ -1,5 +1,11 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { recordHttpRequest, resetMetrics, generatePrometheusMetrics } from './index.js';
+import Fastify from 'fastify';
+import {
+  recordHttpRequest,
+  resetMetrics,
+  generatePrometheusMetrics,
+  registerMetrics,
+} from './index.js';
 
 describe('Prometheus metrics collector', () => {
   beforeEach(() => {
@@ -42,5 +48,39 @@ describe('Prometheus metrics collector', () => {
       'http_requests_total{method="GET",route="/api/clients",status="200"} 1',
     );
     expect(output).not.toContain('search=acme');
+  });
+
+  it('caps unique route cardinality to prevent unbounded memory growth', () => {
+    for (let i = 0; i < 2100; i++) {
+      recordHttpRequest('GET', `/api/scan/${i}`, 404);
+    }
+
+    const output = generatePrometheusMetrics();
+    expect(output).toContain(
+      'http_requests_total{method="GET",route="__overflow__",status="404"} 100',
+    );
+    expect(output).not.toContain('/api/scan/2050');
+  });
+
+  it('collapses unmatched 404 routes into a single __unmatched__ bucket', async () => {
+    const app = Fastify();
+    registerMetrics(app);
+    app.get('/api/known', async () => ({ ok: true }));
+
+    await app.inject({ method: 'GET', url: '/api/known' });
+    await app.inject({ method: 'GET', url: '/wp-login.php' });
+    await app.inject({ method: 'GET', url: '/.env' });
+
+    const res = await app.inject({ method: 'GET', url: '/metrics' });
+    expect(res.body).toContain(
+      'http_requests_total{method="GET",route="/api/known",status="200"} 1',
+    );
+    expect(res.body).toContain(
+      'http_requests_total{method="GET",route="__unmatched__",status="404"} 2',
+    );
+    expect(res.body).not.toContain('/wp-login.php');
+    expect(res.body).not.toContain('/.env');
+
+    await app.close();
   });
 });

@@ -9,11 +9,21 @@ import { auditFailureCount } from '../audit/service.js';
 import { isS3Active } from '../storage/index.js';
 import { onlineUserIds } from '../chat/events.js';
 
+const MAX_METRIC_KEYS = 2000;
 const requestCounts = new Map<string, number>();
 
 export function recordHttpRequest(method: string, route: string, statusCode: number): void {
-  const normalizedRoute = route.split('?')[0] || '/';
-  const key = `${method.toUpperCase()}|${normalizedRoute}|${statusCode}`;
+  const normalizedMethod = method.toUpperCase();
+  const normalizedRoute = (route.split('?')[0] || '/').replace(/["\\\n\r]/g, '');
+  const key = `${normalizedMethod}|${normalizedRoute}|${statusCode}`;
+  if (!requestCounts.has(key) && requestCounts.size >= MAX_METRIC_KEYS) {
+    const overflowKey = `${normalizedMethod}|__overflow__|${statusCode}`;
+    if (!requestCounts.has(overflowKey) && requestCounts.size >= MAX_METRIC_KEYS + 64) {
+      return;
+    }
+    requestCounts.set(overflowKey, (requestCounts.get(overflowKey) ?? 0) + 1);
+    return;
+  }
   requestCounts.set(key, (requestCounts.get(key) ?? 0) + 1);
 }
 
@@ -83,7 +93,9 @@ export function registerMetrics(app: FastifyInstance): void {
       !url.startsWith('/api/metrics') &&
       !url.startsWith('/api/health')
     ) {
-      const route = request.routeOptions?.url || url.split('?')[0] || '/';
+      // Collapse unmatched/404 paths into a single bucket so automated scanners
+      // probing arbitrary URLs cannot grow `requestCounts` without bound.
+      const route = request.routeOptions?.url || '__unmatched__';
       recordHttpRequest(request.method, route, reply.statusCode);
     }
     done();
